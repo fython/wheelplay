@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#11161a">
+<title>WheelPlay · 车机显示端</title>
+<link rel="stylesheet" href="/style.css">
+<script type="module" src="/app.js"></script>
+</head>
+<body>
+<header id="topbar"><a class="brand" href="/">WheelPlay</a><div id="status" role="status" aria-live="polite">等待连接</div><nav><button id="fullscreen" type="button">全屏</button><button id="disconnect" type="button" hidden>断开</button></nav></header>
+<main>
+<section id="pairing" aria-labelledby="title">
+<div class="eyebrow">局域网 · 车机显示端</div>
+<h1 id="title">连接 CarPlay 车机屏幕</h1>
+<p>在服务端 App 点击「扫描二维码配对」，<br class="wide">扫描下方二维码并允许连接。</p>
+<label class="launch-option" for="hide-toolbar"><input id="hide-toolbar" type="checkbox"><span><strong>连接后隐藏顶部栏</strong><small>让 CarPlay 画面占满整个页面；刷新页面可返回连接界面。</small></span></label>
+<label class="launch-option" for="canvas-video"><input id="canvas-video" type="checkbox"><span><strong>使用 Canvas 显示视频（实验性）</strong><small>视频在屏幕外解码，再绘制到画布；适用于视频元素显示异常的浏览器。可能增加耗电，本浏览器会记住选择。</small></span></label>
+<div class="qr-pairing"><img id="pair-qr" width="240" height="240" alt="车机配对二维码" hidden><div><h2>扫码连接车机</h2><p id="qr-status" role="status" aria-live="polite">正在生成二维码…</p><button id="refresh-qr" type="button">刷新二维码</button></div></div>
+<form id="connect-form"><label for="code">设备上的六位配对码</label><div class="form-row"><input id="code" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="off" placeholder="输入配对码" required><button class="primary" id="connect" type="submit">连接设备 <!-- Google Material Icons: arrow_forward, Apache-2.0; docs/UPSTREAM.md. --><svg class="material-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/></svg></button></div></form>
+<p id="message" role="alert"></p>
+<footer>设备与车机需连接同一 Wi-Fi 或热点。<br>音频和麦克风由 Android 服务端处理。</footer>
+</section>
+<section id="display" hidden aria-label="CarPlay 画面">
+<img id="screen" alt="CarPlay 实时画面" draggable="false" hidden>
+<video id="video" aria-label="CarPlay 实时视频" autoplay muted playsinline disablepictureinpicture hidden></video>
+<canvas id="video-canvas" width="0" height="0" aria-label="CarPlay 实时视频画布" hidden></canvas>
+<div id="touch-surface" aria-hidden="true"></div>
+<div id="waiting" role="status"><strong>车机已连接</strong><p id="stage">等待 iPhone 画面…</p><p class="hint">请在 Android 服务端连接 iPhone 并允许 CarPlay。</p></div>
+</section>
+</main>
+<noscript>请在浏览器设置中启用 JavaScript 后重新加载。</noscript>
+</body>
+</html>

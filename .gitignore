@@ -1,0 +1,51 @@
+# Local provisioning, credentials, and signing material
+.local/
+*.jks
+*.keystore
+*.pk8
+*.p7b
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Local environment configuration (keep sanitized templates trackable)
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+**/local.properties
+
+# Build outputs and dependency caches
+node_modules/
+.gradle/
+.kotlin/
+**/build/
+**/.cxx/
+.externalNativeBuild/
+*.apk
+*.aab
+*.apks
+*.idsig
+
+# IDE-local state (shared project configuration remains trackable)
+.idea/
+*.iml
+
+# Logs, crash dumps, temporary files, and editor backups
+*.log
+*.hprof
+hs_err_pid*
+replay_pid*
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+/tmp/
+/temp/
+
+# macOS metadata
+.DS_Store
+._*

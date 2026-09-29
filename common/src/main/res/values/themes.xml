@@ -1,0 +1,25 @@
+<resources>
+    <style name="Theme.Xcertplay" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">#B4D9B1</item>
+        <item name="colorOnPrimary">#20361F</item>
+        <item name="colorPrimaryContainer">#354D33</item>
+        <item name="colorOnPrimaryContainer">#CFECC9</item>
+        <item name="colorSecondary">#BBCBB7</item>
+        <item name="colorOnSecondary">#273425</item>
+        <item name="colorSecondaryContainer">#3D4B3B</item>
+        <item name="colorOnSecondaryContainer">#D7E8D1</item>
+        <item name="colorSurface">#11161A</item>
+        <item name="colorOnSurface">#E2E8E3</item>
+        <item name="colorSurfaceVariant">#414941</item>
+        <item name="colorOnSurfaceVariant">#C1C9BE</item>
+        <item name="colorOutline">#8B9488</item>
+        <item name="colorOutlineVariant">#414941</item>
+        <item name="android:colorBackground">#11161A</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">#11161A</item>
+        <item name="android:windowActionModeOverlay">true</item>
+    </style>
+</resources>

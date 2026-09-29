@@ -1,0 +1,23 @@
+{
+  "name": "wheelplay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Android-hosted CarPlay LAN browser streaming; desktop scripts are development fixtures only",
+  "license": "GPL-3.0-only",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "node scripts/preview.mjs",
+    "demo": "node scripts/preview.mjs --demo",
+    "test": "node --test test/*.test.js",
+    "check": "node --check common/src/main/assets/web/app.js",
+    "android:build": "./gradlew :mobile:assembleDebug",
+    "android:test": "./gradlew :common:testDebugUnitTest"
+  },
+  "devDependencies": {
+    "ws": "^8.18.0",
+    "ffmpeg-static": "^5.2.0"
+  }
+}
