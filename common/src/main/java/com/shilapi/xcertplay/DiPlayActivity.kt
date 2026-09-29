@@ -56,9 +56,11 @@ class DiPlayActivity : AppCompatActivity() {
     private var addressesExpanded = false
     private var displayedAddresses: List<LanAddresses.Entry>? = null
     private var webCode: TextView? = null
+    private var webPairingControls: LinearLayout? = null
     private var quickBrowserButton: Button? = null
     private var webViewer: TextView? = null
     private var webStage: TextView? = null
+    private var sessionConnectButton: Button? = null
     private var setupError: String? = null
     private var status: TextView? = null
     private var connectButton: com.google.android.material.button.MaterialButton? = null
@@ -212,32 +214,36 @@ class DiPlayActivity : AppCompatActivity() {
                 openLocalBrowserExperience()
             }.apply { isEnabled = false }
             body.addView(quickBrowserButton, ui.secondaryButtonLayout(12))
-            body.addView(label("自动携带配对码并连接，无需手动输入。", 14, MUTED).apply {
-                setPadding(0, dp(8), 0, 0)
-            })
             otherAddressesToggle = ui.DisclosureRow("其他地址") {
                 addressesExpanded = !addressesExpanded
                 updateAddressExpansion(animate = true)
             }.apply { visibility = View.GONE }
-            body.addView(otherAddressesToggle, matchButton())
+            body.addView(otherAddressesToggle, ui.secondaryButtonLayout(4))
             otherAddresses = column().apply { visibility = View.GONE }
             body.addView(otherAddresses)
             displayedAddresses = null
         }
         ui.card(content, "浏览器配对", R.drawable.ic_server_qr) { body ->
-            body.addView(label("扫描车机网页上的二维码，即可授权显示与触控。", 16, MUTED))
-            body.addView(button("扫描二维码配对", true, R.drawable.ic_server_scan) { scanPairing() }, matchButton(12))
-            body.addView(label("或在网页输入配对码", 14, MUTED).apply { setPadding(0, dp(16), 0, 0) })
-            webCode = label("— — — — — —", 32, TEXT, true).apply {
-                letterSpacing = .12f; setTextIsSelectable(true); setPadding(0, dp(8), 0, dp(16))
+            webPairingControls = column().apply {
+                addView(label("扫描车机网页上的二维码，即可授权显示与触控。", 16, MUTED))
+                addView(button("扫描二维码配对", true, R.drawable.ic_server_scan) { scanPairing() }, matchButton(12))
+                addView(label("或在网页输入配对码", 14, MUTED).apply { setPadding(0, dp(16), 0, 0) })
+                webCode = label("— — — — — —", 32, TEXT, true).apply {
+                    letterSpacing = .12f; setTextIsSelectable(true); setPadding(0, dp(8), 0, dp(16))
+                }
+                addView(webCode)
             }
-            body.addView(webCode)
+            body.addView(webPairingControls)
             webViewer = label("等待车机浏览器连接", 16, MUTED)
             body.addView(webViewer)
         }
         ui.card(content, "iPhone 会话", R.drawable.ic_server_phone) { body ->
             webStage = label("等待连接 iPhone", 16, TEXT)
             body.addView(webStage)
+            sessionConnectButton = button("连接", false, R.drawable.ic_server_phone) {
+                if (!CarPlayBackgroundSession.hasSession()) connect(true)
+            }.apply { visibility = View.GONE }
+            body.addView(sessionConnectButton, ui.secondaryButtonLayout(12))
             body.addView(button("管理 iPhone 连接", false) { navigate("phone") }, ui.secondaryButtonLayout(16))
         }
         content.addView(label("音频与麦克风使用此设备，网页传输画面与触摸。", 14, MUTED))
@@ -268,7 +274,9 @@ class DiPlayActivity : AppCompatActivity() {
         }
         webCode?.text = if (WebSession.running) WebSession.code else "— — — — — —"
         quickBrowserButton?.isEnabled = WebSession.running && BrowserExperienceLink.local(WebSession.code) != null
-        webViewer?.text = if (WebSession.hasViewer) "车机浏览器已连接" else "等待车机浏览器连接"
+        val viewerConnected = WebSession.hasViewer
+        webPairingControls?.visibility = if (viewerConnected) View.GONE else View.VISIBLE
+        webViewer?.text = if (viewerConnected) "车机浏览器已连接" else "等待车机浏览器连接"
         webStage?.text = setupError ?: if (WebSession.videoActive) "CarPlay 画面正在串流" else WebSession.stage
     }
 
@@ -297,9 +305,7 @@ class DiPlayActivity : AppCompatActivity() {
         ui.card(content, "无线连接", R.drawable.ic_server_wifi) { body ->
             body.addView(label("先将 iPhone 与这台 Android 设备完成蓝牙配对，并保持双方蓝牙和 Wi-Fi 开启。", 15, MUTED))
             body.addView(ui.preference("iPhone", selectedPhoneName()) { choosePhone() }, matchButton())
-            connectButton = button("连接 iPhone", true, R.drawable.ic_server_phone) {
-                if (CarPlayBackgroundSession.hasSession()) navigate("service") else connect(true)
-            }
+            connectButton = button("连接 iPhone", true, R.drawable.ic_server_phone) { connect(true) }
             body.addView(connectButton, matchButton(12))
             disconnectButton = button("断开 iPhone", false) {
                 disconnectButton?.isEnabled = false
@@ -650,13 +656,15 @@ class DiPlayActivity : AppCompatActivity() {
             else -> "尚未选择 iPhone"
         }
         if (lastRunning != running) {
-            connectButton?.text = if (running) "返回服务面板" else "连接 iPhone"
-            connectButton?.setIconResource(if (running) R.drawable.ic_server_server else R.drawable.ic_server_phone)
+            connectButton?.visibility = if (running) View.GONE else View.VISIBLE
             disconnectButton?.visibility = if (running) View.VISIBLE else View.GONE
             disconnectButton?.isEnabled = true
             lastRunning = running
         }
         connectButton?.isEnabled = setupError == null
+        sessionConnectButton?.visibility = if (!running && !CarPlayBackgroundSession.active &&
+            DiPlayPreferences.phoneAddress(this) != null) View.VISIBLE else View.GONE
+        sessionConnectButton?.isEnabled = setupError == null
     }
     private fun reportFileName() = "WheelPlay-${SimpleDateFormat("yyyyMMdd-HHmmss-SSS", Locale.US).format(Date())}.txt"
 

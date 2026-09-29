@@ -186,6 +186,14 @@ class ServerNavigationTest {
                 root.layout(0, 0, width, height)
                 val scroll = views(root).filterIsInstance<ScrollView>().single { it.visibility == View.VISIBLE }
                 assertTrue("Content must remain scrollable above navigation", scroll.height > 100)
+                views(scroll).filterIsInstance<com.google.android.material.card.MaterialCardView>().forEach { card ->
+                    val body = card.getChildAt(0) as android.widget.LinearLayout
+                    val heading = body.getChildAt(0) as android.widget.LinearLayout
+                    val icon = heading.getChildAt(0)
+                    val title = heading.getChildAt(1) as android.widget.TextView
+                    val offset = kotlin.math.abs((icon.top * 2 + icon.height) - (title.top * 2 + title.height))
+                    assertTrue("Card icon and title must share a vertical center: ${title.text}, offset=$offset", offset <= 2)
+                }
                 val contentBounds = android.graphics.Rect()
                 scroll.getDrawingRect(contentBounds)
                 (root as ViewGroup).offsetDescendantRectToMyCoords(scroll, contentBounds)

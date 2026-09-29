@@ -156,6 +156,15 @@ APK 构建成功，7 项 UI 测试通过，其中新增双方向测试验证图�
 - `:mobile:assembleDebug --no-configuration-cache` 通过；APK 中的 app.js / index.html / style.css 与当前源码逐字节一致。首次离线构建因当前工程新引入的 Quickie 1.12.0 未缓存而失败，在线构建完成依赖下载后成功；本次未安装到设备。
 - 尚未验证蔚来实机、前进档遮罩、功耗或端到端延迟。Canvas 模式不承诺绕过系统级遮罩或恢复被系统暂停的解码；需停车验证。
 
+## 首页卡片与连接操作收紧（2026-09-30）
+
+删除本机浏览器体验按钮下方的说明；「其他地址」改为右对齐的紧凑按钮，悬停、聚焦和按压时显示胶囊背景，保留最小 48dp 触控高度及箭头展开动画。浏览器已连接时隐藏扫码与配对码，断开后恢复。已选择 iPhone 且无进行中的会话时，首页提供「连接」入口，复用现有无线连接流程；iPhone 页连接期间及连接后隐藏连接按钮，移除「返回服务面板」操作。卡片标题行关闭基线对齐，图标与标题垂直居中。
+
+- `:mobile:assembleDebug --offline` 通过。
+- `ServerCardStateTest` 3 项及 `ServerNavigationTest` 7 项通过，0 失败。状态测试使用真实本地 WebSocket 握手验证配对区收起、断开恢复及卡片高度缩减；验证已选设备的连接入口、连接流程启动、会话期间隐藏入口与断开后的恢复，以及按钮悬停 / 按压的胶囊背景。
+- 已检查状态截图及 320×640、360×800（130% 字体）、800×400 的原生渲染图；各卡片图标与标题的垂直中心检查通过。图片位于 `common/build/reports/material-ui/cards/` 与 `spacing/`。
+- 本轮未安装到设备；iPhone 会话状态采用测试模拟，尚未进行本版真实 iPhone 连接验证。
+
 ## 产物
 
 `mobile/build/outputs/apk/debug/mobile-debug.apk`
@@ -163,7 +172,7 @@ APK 构建成功，7 项 UI 测试通过，其中新增双方向测试验证图�
 SHA-256：
 
 ```text
-a7dd763ae0fd979eefd58e2737a82a986306e9221ffa858d261382e495508911
+c600d906eeab59dd0d14ec7f1965c070bbb19a8b2f3f01bb36cae5d99f47da23
 ```
 
 包名 `moe.feng.wheelplay.debug`，调试签名，此本地产物包含上述 CarPlay 认证资产。

@@ -87,7 +87,7 @@ internal class ServerUi(private val context: Context) {
             contentDescription = "$title，$value"
         }
     }
-    /** Compact trailing disclosure with a full-width accessible touch target. */
+    /** Compact trailing button; its state layer is clipped to a pill-shaped target. */
     inner class DisclosureRow(private val title: String, action: () -> Unit) : LinearLayout(context) {
         private var expanded = false
         private val arrow = android.widget.ImageView(context).apply {
@@ -97,11 +97,25 @@ internal class ServerUi(private val context: Context) {
         }
         init {
             orientation = HORIZONTAL
+            isBaselineAligned = false
             gravity = android.view.Gravity.END or android.view.Gravity.CENTER_VERTICAL
             minimumHeight = dp(48)
-            val attributes = context.obtainStyledAttributes(intArrayOf(android.R.attr.selectableItemBackground))
-            background = attributes.getDrawable(0)
-            attributes.recycle()
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            val stateColor = com.google.android.material.color.MaterialColors.getColor(this,
+                com.google.android.material.R.attr.colorOnSurface)
+            fun pill(alpha: Int) = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = dp(24).toFloat()
+                setColor(androidx.core.graphics.ColorUtils.setAlphaComponent(stateColor, alpha))
+            }
+            val states = android.graphics.drawable.StateListDrawable().apply {
+                addState(intArrayOf(android.R.attr.state_pressed), pill(31))
+                addState(intArrayOf(android.R.attr.state_focused), pill(31))
+                addState(intArrayOf(android.R.attr.state_hovered), pill(20))
+                addState(intArrayOf(), pill(0))
+            }
+            background = android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(androidx.core.graphics.ColorUtils.setAlphaComponent(stateColor, 31)),
+                states, pill(255))
             addView(text(title, 14, MUTED).apply {
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             }, LayoutParams(-2, -2))
@@ -111,6 +125,7 @@ internal class ServerUi(private val context: Context) {
             setOnClickListener { action() }
             setExpanded(false)
         }
+        override fun getAccessibilityClassName(): CharSequence = android.widget.Button::class.java.name
         fun setExpanded(value: Boolean, animate: Boolean = false) {
             val changed = expanded != value
             expanded = value
@@ -140,11 +155,19 @@ internal class ServerUi(private val context: Context) {
     }
     fun card(parent: LinearLayout, title: String, icon: Int, content: (LinearLayout) -> Unit) {
         val body = column().apply { setPadding(dp(cardPadding), dp(20), dp(cardPadding), dp(20)) }
-        val heading = LinearLayout(context).apply { gravity = android.view.Gravity.CENTER_VERTICAL }
+        val heading = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            isBaselineAligned = false
+            gravity = android.view.Gravity.CENTER_VERTICAL
+        }
         heading.addView(android.widget.ImageView(context).apply {
             setImageResource(icon); importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }, LinearLayout.LayoutParams(dp(24), dp(24)).apply { marginEnd = dp(12) })
-        heading.addView(text(title, 21, TEXT, true), LinearLayout.LayoutParams(0, -2, 1f))
+        heading.addView(text(title, 21, TEXT, true).apply {
+            includeFontPadding = false
+            setFallbackLineSpacing(false)
+            gravity = android.view.Gravity.CENTER_VERTICAL
+        }, LinearLayout.LayoutParams(0, -2, 1f))
         body.addView(heading); body.addView(gap(16)); content(body)
         parent.addView(MaterialCardView(context).apply {
             radius = dp(24).toFloat(); cardElevation = 0f; strokeWidth = 0
