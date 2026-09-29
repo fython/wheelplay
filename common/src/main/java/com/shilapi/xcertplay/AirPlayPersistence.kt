@@ -60,6 +60,8 @@ object AirPlayPersistence {
     private const val KEY_HIDE_TOP_BAR = "hide_top_bar"
     private const val KEY_HIDE_BOTTOM_BAR = "hide_bottom_bar"
     private const val KEY_ADAPTIVE_BROWSER_SIZE = "adaptive_browser_size"
+    private const val KEY_BROWSER_AUDIO_PLAYBACK = "browser_audio_playback"
+    private const val KEY_BROWSER_MICROPHONE = "browser_microphone"
     private const val KEY_SAFE_AREA_DRAW_OUTSIDE = "safe_area_draw_outside"
     private const val KEY_AUTO_START_ON_BOOT = "auto_start_on_boot"
     private const val KEY_LOCATION_REPORTING_ENABLED = "location_reporting_enabled"
@@ -74,6 +76,22 @@ object AirPlayPersistence {
     const val DEFAULT_MODEL = "WheelPlay"
     const val DEFAULT_OEM_LABEL = "NIO"
     const val DEFAULT_MFI_I2C_PATH = "/dev/i2c-1"
+
+    fun loadBrowserAudioPlayback(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_BROWSER_AUDIO_PLAYBACK, false)
+
+    fun saveBrowserAudioPlayback(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_BROWSER_AUDIO_PLAYBACK, enabled).apply()
+    }
+
+    fun loadBrowserMicrophone(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_BROWSER_MICROPHONE, false)
+
+    fun saveBrowserMicrophone(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_BROWSER_MICROPHONE, enabled).apply()
+    }
 
     fun loadDisplayScaleTenths(context: Context): Int {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

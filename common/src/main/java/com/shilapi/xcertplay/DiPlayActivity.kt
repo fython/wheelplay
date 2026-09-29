@@ -246,7 +246,7 @@ class DiPlayActivity : AppCompatActivity() {
             body.addView(sessionConnectButton, ui.secondaryButtonLayout(12))
             body.addView(button("管理 iPhone 连接", false) { navigate("phone") }, ui.secondaryButtonLayout(16))
         }
-        content.addView(label("音频与麦克风使用此设备，网页传输画面与触摸。", 14, MUTED))
+        content.addView(label("音频与麦克风默认使用此设备，可在 App 设置中分别启用浏览器转发。", 14, MUTED))
         content.addView(button("停止服务", false) {
             startService(Intent(this, DiPlaySessionService::class.java).setAction(DiPlaySessionService.ACTION_STOP))
             finishAndRemoveTask()
@@ -349,6 +349,12 @@ class DiPlayActivity : AppCompatActivity() {
                 bufferPresets.indexOf(AirPlayPersistence.loadMediaBufferMillis(this)).coerceAtLeast(0)) {
                 AirPlayPersistence.saveMediaBufferMillis(this, bufferPresets[it])
             }
+            toggle(card, "转发音频到浏览器", "开启后将 CarPlay 音频发送到已配对的浏览器播放。", AirPlayPersistence.loadBrowserAudioPlayback(this)) {
+                WebSession.setBrowserAudioPlayback(this, it)
+            }
+            toggle(card, "使用浏览器麦克风", "开启后使用已配对浏览器的麦克风；需要可信 HTTPS 和浏览器授权。", AirPlayPersistence.loadBrowserMicrophone(this)) {
+                WebSession.setBrowserMicrophone(this, it)
+            }
             choice(card, "协商帧率", listOf("30 fps · 较低负载", "60 fps · 更流畅"), if (AirPlayPersistence.loadFps(this) == 60) 1 else 0) { AirPlayPersistence.saveFps(this, if (it == 1) 60 else 30) }
             val technologies = com.shilapi.xcertplay.web.StreamTechnology.entries
             choice(card, "串流技术", technologies.map { it.label },
@@ -367,6 +373,15 @@ class DiPlayActivity : AppCompatActivity() {
         }
         section(content, "权限与连接帮助") { card ->
             card.addView(label("附近设备权限用于连接 iPhone，麦克风用于 Siri 和通话。旧版 Android 的无线连接还需要定位权限，USB 模式可能请求本地 VPN 授权。", 16, MUTED))
+            card.addView(ui.preference("浏览器 HTTPS 证书", "查看本设备证书指纹") {
+                val fingerprint = WebSession.tls?.fingerprint
+                MaterialAlertDialogBuilder(this)
+                    .setTitle("浏览器 HTTPS 证书指纹")
+                    .setMessage(if (fingerprint == null) "HTTPS 服务正在准备或启动失败，请稍后重试。"
+                        else "请在车机安装证书前，与浏览器页面显示的 SHA-256 指纹逐字核对：\n\n$fingerprint")
+                    .setPositiveButton("关闭", null)
+                    .show()
+            })
             card.addView(button("应用权限", false) { openSystem(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))) }, ui.secondaryButtonLayout(16))
             card.addView(button("系统蓝牙设置", false) { openSystem(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }, ui.secondaryButtonLayout(12))
             card.addView(button("无线连接帮助", false) { wirelessHelp() }, ui.secondaryButtonLayout(12))

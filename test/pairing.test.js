@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
-const source = readFileSync(new URL('../common/src/main/assets/web/app.js', import.meta.url), 'utf8').replaceAll('export function', 'function');
+const source = readFileSync(new URL('../common/src/main/assets/web/browser-audio.js', import.meta.url), 'utf8')
+  .replaceAll('export function', 'function') + '\n' +
+  readFileSync(new URL('../common/src/main/assets/web/app.js', import.meta.url), 'utf8')
+    .replace(/^import .*browser-audio\.js';$/m, '').replaceAll('export function', 'function');
 const flush = () => new Promise(resolve => setImmediate(resolve));
 function fixture(status) {
   const elements = new Map(), timers = new Map(), sockets = [], requests = [];
@@ -11,7 +14,7 @@ function fixture(status) {
   const element = id => {
     if (!elements.has(id)) elements.set(id, { hidden: false, value: '123456', handlers: {},
       set src(value) { this.source = value; if (this.onload) this.onload(); },
-      classList: { toggle() {} }, removeAttribute() {}, addEventListener(name, fn) { this.handlers[name] = fn; } });
+      classList: { toggle() {} }, removeAttribute() {}, setAttribute() {}, addEventListener(name, fn) { this.handlers[name] = fn; } });
     return elements.get(id);
   };
   class Socket {

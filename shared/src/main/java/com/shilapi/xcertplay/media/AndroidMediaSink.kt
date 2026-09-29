@@ -13,6 +13,7 @@ import com.shilapi.xcertplay.airplay.AudioCodecKind
 import com.shilapi.xcertplay.airplay.AudioFormat
 import com.shilapi.xcertplay.airplay.MediaSink
 import com.shilapi.xcertplay.airplay.MicrophoneConfig
+import com.shilapi.xcertplay.airplay.MicrophoneCounters
 import com.shilapi.xcertplay.airplay.VideoCodec
 import com.shilapi.xcertplay.airplay.toHexString
 import java.io.Closeable
@@ -41,6 +42,7 @@ class AndroidMediaSink(
     private val onAudioDiagnostic: (String) -> Unit = {},
     private val onClosed: () -> Unit = {},
     private val encodedVideo: EncodedVideoSink? = null,
+    private val remoteAudio: RemoteAudioRoute? = null,
 ) : MediaSink {
     private val screenStateLock = Any()
     private val activeScreenTypes = mutableSetOf<Int>()
@@ -50,6 +52,29 @@ class AndroidMediaSink(
     private val videoDecoders = ConcurrentHashMap<Int, VideoDecoder>()
     private val audioRenderers = ConcurrentHashMap<Int, AudioRenderer>()
     private val microphoneUplinks = ConcurrentHashMap<Int, MicrophoneUplink>()
+    private val microphoneConfigs = mutableMapOf<Int, MicrophoneConfig>()
+    private val microphoneCounters = mutableMapOf<Int, MicrophoneCounters>()
+    private val microphoneLock = Any()
+    private var closed = false
+    private val microphoneExecutor = Executors.newSingleThreadExecutor { task ->
+        Thread(task, "carplay-mic-route").apply { isDaemon = true }
+    }
+    private val microphoneChangePending = AtomicBoolean(false)
+    init {
+        remoteAudio?.onMicrophoneRouteChanged {
+            if (microphoneChangePending.compareAndSet(false, true)) try {
+                microphoneExecutor.execute {
+                    synchronized(microphoneLock) {
+                        microphoneChangePending.set(false)
+                        if (!closed) microphoneConfigs.forEach { (type, config) ->
+                            microphoneUplinks.remove(type)?.close()
+                            startMicrophone(type, config)
+                        }
+                    }
+                }
+            } catch (_: java.util.concurrent.RejectedExecutionException) { microphoneChangePending.set(false) }
+        }
+    }
     private val pendingVideoCodec = ConcurrentHashMap<Int, VideoCodec>()
     private val videoConfigs = ConcurrentHashMap<Int, ByteArray>()
     private val suspendedVideo = ConcurrentHashMap.newKeySet<Int>()
@@ -163,18 +188,43 @@ class AndroidMediaSink(
 
     override fun onAudioStopped(type: Int) {
         audioRenderers.remove(type)?.close()
+        remoteAudio?.audioStopped(type)
     }
 
     override fun onMicrophoneStarted(type: Int, config: MicrophoneConfig) {
-        val uplink = microphoneUplinks.computeIfAbsent(type) { MicrophoneUplink(config) }
+        synchronized(microphoneLock) {
+            if (closed) return
+            microphoneConfigs[type] = config
+            startMicrophone(type, config)
+        }
+    }
+
+    private fun startMicrophone(type: Int, config: MicrophoneConfig) {
+        val uplink = microphoneUplinks.computeIfAbsent(type) {
+            MicrophoneUplink(config, remoteAudio?.microphone(type, config),
+                microphoneCounters.getOrPut(type) { MicrophoneCounters() })
+        }
         if (!uplink.start()) microphoneUplinks.remove(type, uplink)
     }
 
     override fun onMicrophoneStopped(type: Int) {
-        microphoneUplinks.remove(type)?.close()
+        synchronized(microphoneLock) {
+            microphoneUplinks.remove(type)?.close()
+            microphoneConfigs.remove(type)
+            microphoneCounters.remove(type)
+            remoteAudio?.microphoneStopped(type)
+        }
     }
 
     fun close() {
+        synchronized(microphoneLock) {
+            if (closed) return
+            closed = true
+            microphoneUplinks.values.forEach(MicrophoneUplink::close)
+            microphoneUplinks.clear(); microphoneConfigs.clear(); microphoneCounters.clear()
+        }
+        microphoneExecutor.shutdownNow()
+        remoteAudio?.close()
         synchronized(screenStateLock) {
             activeScreenTypes.forEach { screenStreamActiveChanged?.invoke(it, false) }
             activeScreenTypes.clear()
@@ -190,8 +240,6 @@ class AndroidMediaSink(
         recoveryExecutor.shutdownNow()
         audioRenderers.values.forEach(AudioRenderer::close)
         audioRenderers.clear()
-        microphoneUplinks.values.forEach(MicrophoneUplink::close)
-        microphoneUplinks.clear()
         onClosed()
     }
 
@@ -212,7 +260,9 @@ class AndroidMediaSink(
         val existing = audioRenderers[type]
         if (existing?.format == format) return existing
         existing?.close()
-        return AudioRenderer(format, advancedAudioChannelMapping, mediaBufferMillis, onAudioDiagnostic).also { audioRenderers[type] = it }
+        return AudioRenderer(format, advancedAudioChannelMapping, mediaBufferMillis, onAudioDiagnostic,
+            remoteOutput = { data, offset, length -> remoteAudio?.output(type, format, data, offset, length) == true })
+            .also { audioRenderers[type] = it }
     }
 }
 
@@ -536,6 +586,7 @@ private class AudioRenderer(
     private val advancedAudioChannelMapping: Boolean,
     private val mediaBufferMillis: Int,
     private val report: (String) -> Unit,
+    private val remoteOutput: (ByteArray, Int, Int) -> Boolean = { _, _, _ -> false },
 ) : Closeable {
     private data class AudioPacket(val rtp: ByteArray, val sample: Int)
 
@@ -546,6 +597,7 @@ private class AudioRenderer(
     private var track: AudioTrack? = null
     private var pcm = ByteArray(64 * 1024)
     private var playbackStarted = false
+    private var remotePlayback = false
     private var prebufferBytes = 0
     private var startThresholdBytes = 0
     private var fadeApplied = false
@@ -892,6 +944,16 @@ private class AudioRenderer(
     }
 
     private fun writePcm(data: ByteArray, offset: Int = 0, length: Int = data.size) {
+        if (remoteOutput(data, offset, length)) {
+            if (!remotePlayback) {
+                track?.pause(); track?.flush()
+                playbackStarted = false; prebufferBytes = 0
+                bufferProgress.reset()
+                remotePlayback = true
+            }
+            return
+        }
+        remotePlayback = false
         val track = track ?: return
         if (!firstPcmLogged && length > 0) {
             firstPcmLogged = true
@@ -937,6 +999,7 @@ private class AudioRenderer(
     }
 
     private fun maintainPlaybackBuffer() {
+        if (remotePlayback) return
         val track = track ?: return
         if (bufferProgress.shouldRebuffer(format.audioType, playbackStarted,
                 track.underrunCount > underrunsAtPlaybackStart, queue.isEmpty(), track.playbackHeadPosition)) {

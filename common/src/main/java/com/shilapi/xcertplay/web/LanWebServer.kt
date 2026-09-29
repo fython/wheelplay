@@ -13,12 +13,12 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** Same-origin HTTP assets and a single paired, backpressured video/control WebSocket. */
-internal class LanWebServer(private val context: Context, private val code: String) : NanoWSD("0.0.0.0", 8080) {
+internal class LanWebServer(private val context: Context, private val code: String, port: Int = 8080,
+    private val secure: Boolean = false, val pairing: QrPairing = QrPairing()) : NanoWSD("0.0.0.0", port) {
     @Volatile private var viewer: Client? = null
     private val timer = Executors.newSingleThreadScheduledExecutor()
     @Volatile private var failures = 0
     @Volatile private var retryAt = 0L
-    val pairing = QrPairing()
     val hasViewer get() = viewer != null
     fun frameAvailable() { viewer?.frameAvailable() }
 
@@ -35,7 +35,7 @@ internal class LanWebServer(private val context: Context, private val code: Stri
             val origin = session.headers["origin"]
             val sameOrigin = runCatching {
                 val parsed = URI(origin ?: "")
-                parsed.scheme == "http" && parsed.rawAuthority.equals(session.headers["host"], true)
+                parsed.scheme == (if (secure) "https" else "http") && parsed.rawAuthority.equals(session.headers["host"], true)
             }.getOrDefault(false)
             if (!sameOrigin) return response(Response.Status.FORBIDDEN, "Origin rejected")
             synchronized(this) {
@@ -58,10 +58,22 @@ internal class LanWebServer(private val context: Context, private val code: Stri
     override fun serveHttp(session: IHTTPSession): Response {
         if (session.uri.startsWith("/pair/")) return servePairing(session)
         if (session.method != Method.GET) return response(Response.Status.METHOD_NOT_ALLOWED, "GET only")
+        if (session.uri == "/tls.json") return newFixedLengthResponse(Response.Status.OK, "application/json",
+            JSONObject().put("available", WebSession.tls != null).put("fingerprint", WebSession.tls?.fingerprint)
+                .put("error", WebSession.tlsError).toString()).apply { addHeader("Cache-Control", "no-store") }
+        if (session.uri == "/certificate.crt") {
+            val bytes = WebSession.tls?.certificate ?: return response(Response.Status.NOT_FOUND, "HTTPS not ready")
+            return newFixedLengthResponse(Response.Status.OK, "application/x-x509-ca-cert", bytes.inputStream(), bytes.size.toLong()).apply {
+                addHeader("Content-Disposition", "attachment; filename=wheelplay-local-ca.crt")
+                addHeader("Cache-Control", "no-store")
+            }
+        }
         val asset = when (session.uri) {
             "/", "/index.html" -> "index.html" to "text/html; charset=utf-8"
             "/app.js" -> "app.js" to "text/javascript; charset=utf-8"
             "/style.css" -> "style.css" to "text/css; charset=utf-8"
+            "/browser-audio.js" -> "browser-audio.js" to "text/javascript; charset=utf-8"
+            "/audio-worklet.js" -> "audio-worklet.js" to "text/javascript; charset=utf-8"
             else -> return response(Response.Status.NOT_FOUND, "Not found")
         }
         return context.assets.open("web/${asset.first}").use {
@@ -97,7 +109,7 @@ internal class LanWebServer(private val context: Context, private val code: Stri
         if (session.method != Method.POST) return response(Response.Status.METHOD_NOT_ALLOWED, "POST only")
         val sameOrigin = runCatching {
             val origin = URI(session.headers["origin"] ?: "")
-            origin.scheme == "http" && origin.rawAuthority.equals(session.headers["host"], true)
+            origin.scheme == (if (secure) "https" else "http") && origin.rawAuthority.equals(session.headers["host"], true)
         }.getOrDefault(false)
         if (!sameOrigin) return response(Response.Status.FORBIDDEN, "Origin rejected")
         val json = when (session.uri) {
@@ -127,14 +139,14 @@ internal class LanWebServer(private val context: Context, private val code: Stri
 
     override fun stop() {
         viewer?.disconnect("服务已停止")
-        pairing.clear()
+        if (!secure) pairing.clear()
         timer.shutdownNow()
         super.stop()
     }
 
     private inner class Client(handshake: IHTTPSession) : WebSocket(handshake) {
         @Volatile var lastSeen = SystemClock.elapsedRealtime()
-        fun frameStalled(now: Long) = WebSession.videoSource?.jpegNeeded != false && sender.frameStalled(now)
+        fun frameStalled(now: Long) = sender.frameStalled(now)
         fun frameAvailable() = sender.frameAvailable()
         private val ended = AtomicBoolean(false)
         private val closing = AtomicBoolean(false)
@@ -187,8 +199,8 @@ internal class LanWebServer(private val context: Context, private val code: Stri
             stream.start()
         }
 
-        private fun reply(kind: WebStreamSender.Control, text: String, afterSend: () -> Unit = {}) {
-            sender.control(kind, WebSocketFrame(WebSocketFrame.OpCode.Text, true, text), afterSend)
+        private fun reply(kind: WebStreamSender.Control, text: String, key: Any = kind, afterSend: () -> Unit = {}) {
+            sender.control(kind, WebSocketFrame(WebSocketFrame.OpCode.Text, true, text), key, afterSend)
         }
 
         // NanoWSD also replies to RFC6455 Ping/Close on its reader thread. Route those writes too.
@@ -218,6 +230,23 @@ internal class LanWebServer(private val context: Context, private val code: Stri
                     return
                 }
                 viewer = this
+                WebSession.audio.attach(this, secure, { packet, sequence -> sender.audio(packet, sequence) }, { text ->
+                    val data = JSONObject(text)
+                    val kind = when (data.getString("type")) {
+                        "mic-config" -> WebStreamSender.Control.MIC_CONFIG
+                        "mic-stop" -> WebStreamSender.Control.MIC_STOP
+                        "audio-route" -> {
+                            if (!data.getBoolean("playback")) sender.clearAudio()
+                            WebStreamSender.Control.AUDIO_ROUTE
+                        }
+                        "audio-stop" -> {
+                            sender.clearAudioStream(data.getInt("stream"))
+                            WebStreamSender.Control.AUDIO_STOP
+                        }
+                        else -> { sender.clearAudio(); WebStreamSender.Control.AUDIO_RESET }
+                    }
+                    reply(kind, text, if (kind == WebStreamSender.Control.AUDIO_STOP) kind to data.getInt("stream") else kind)
+                })
             }
             sender.frameAvailable()
         }
@@ -225,11 +254,28 @@ internal class LanWebServer(private val context: Context, private val code: Stri
         override fun onMessage(message: WebSocketFrame) {
             if (ended.get() || closing.get() || viewer !== this) return
             try {
+                if (message.opCode == WebSocketFrame.OpCode.Binary) {
+                    require(message.binaryPayload.size <= 20_000)
+                    lastSeen = SystemClock.elapsedRealtime()
+                    WebSession.audio.input(this, message.binaryPayload)
+                    return
+                }
                 require(message.opCode == WebSocketFrame.OpCode.Text && message.binaryPayload.size <= 32768)
                 val data = JSONObject(message.textPayload)
                 if (data.optString("type") != "rtc-answer") require(message.binaryPayload.size <= 2048)
                 lastSeen = SystemClock.elapsedRealtime()
                 when (data.getString("type")) {
+                    "audio-ready" -> {
+                        val playback = data.getBoolean("playback")
+                        val microphone = data.getBoolean("microphone")
+                        if (!playback) sender.clearAudio()
+                        WebSession.audio.ready(this, playback, microphone)
+                    }
+                    "audio-ack" -> {
+                        val sequence = data.getLong("sequence")
+                        require(sequence in 0..0xffff_ffffL)
+                        sender.acknowledgeAudio(sequence)
+                    }
                     "ack" -> sender.acknowledge()
                     "viewport" -> {
                         val width = data.getInt("width")
@@ -301,8 +347,8 @@ internal class LanWebServer(private val context: Context, private val code: Stri
             if (!ended.compareAndSet(false, true)) return
             stopRtc()
             synchronized(this@LanWebServer) {
+                if (viewer === this) { WebSession.audio.detach(this); viewer = null }
                 WebSession.touch.drop(this)
-                if (viewer === this) viewer = null
             }
             sender.close()
         }

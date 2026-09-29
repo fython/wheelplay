@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
-const source = readFileSync(new URL('../common/src/main/assets/web/app.js', import.meta.url), 'utf8').replaceAll('export function', 'function');
+const source = readFileSync(new URL('../common/src/main/assets/web/browser-audio.js', import.meta.url), 'utf8')
+  .replaceAll('export function', 'function') + '\n' +
+  readFileSync(new URL('../common/src/main/assets/web/app.js', import.meta.url), 'utf8')
+    .replace(/^import .*browser-audio\.js';$/m, '').replaceAll('export function', 'function');
 function fixture({ storedCanvas = null, storageDisabled = false, canvasAvailable = true } = {}) {
   const elements = new Map(), timers = new Map(), raf = new Map(), sockets = [], peers = [], draws = [];
   const preferences = new Map(storedCanvas === null ? [] : [['wheelplay.canvasVideo', storedCanvas]]);
@@ -18,7 +21,7 @@ function fixture({ storedCanvas = null, storageDisabled = false, canvasAvailable
       requestVideoFrameCallback(fn) { const frame = ++nextFrame; videoCallbacks.set(frame, fn); return frame; },
       cancelVideoFrameCallback(frame) { videoCallbacks.delete(frame); },
       classList: { toggle(name, enabled) { if (enabled) classes.add(name); else classes.delete(name); }, contains: name => classes.has(name) },
-      removeAttribute() {}, setPointerCapture() {},
+      removeAttribute() {}, setAttribute() {}, setPointerCapture() {},
       getBoundingClientRect: () => ({ left: 0, top: 0, width: 1280, height: 720 }),
       addEventListener(name, fn) { this.handlers[name] = fn; } });
     return elements.get(id);

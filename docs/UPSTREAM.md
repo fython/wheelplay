@@ -28,6 +28,8 @@ Material Components for Android 1.13.0（Apache-2.0），使用官方 Material 3
 
 扫码使用 [Quickie 1.12.0](https://github.com/G00fY2/quickie)，基于 CameraX 与 ML Kit，采用 bundled flavor，将识别模型随应用打包，因此扫码不依赖 Google Play 服务或网络下载。Quickie 使用 MIT 许可，见 [QUICKIE-LICENSE.txt](QUICKIE-LICENSE.txt)。本地生成配对二维码仍使用 [ZXing Core 3.5.3](https://github.com/zxing/zxing)（Apache-2.0）；依赖均来自 Maven Central。
 
+本地 HTTPS 证书签发使用 [Bouncy Castle PKIX](https://www.bouncycastle.org/download/bouncy-castle-java/)；[许可证](https://github.com/bcgit/bc-java/blob/main/LICENSE.md) 基于 MIT。证书私钥在应用本地生成并保存在私有非备份目录，不包含在仓库或 APK 中。
+
 
 ## 当前应用品牌
 

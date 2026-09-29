@@ -32,6 +32,7 @@ android {
 }
 
 dependencies {
+    implementation("org.bouncycastle:bcpkix-jdk18on:1.79")
     implementation("io.github.g00fy2.quickie:quickie-bundled:1.12.0")
     implementation("com.google.zxing:core:3.5.3")
     implementation("com.google.android.material:material:1.13.0")

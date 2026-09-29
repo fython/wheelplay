@@ -20,6 +20,12 @@ internal object WebSession {
     @Volatile var error: String? = null
         private set
     @Volatile private var server: LanWebServer? = null
+    @Volatile private var secureServer: LanWebServer? = null
+    @Volatile var tls: LanTls.Endpoint? = null
+        private set
+    @Volatile var tlsError: String? = null
+        private set
+    private var serverGeneration = 0L
     @Volatile var code = ""
         private set
     private var generation = 0L
@@ -35,15 +41,47 @@ internal object WebSession {
         CarPlayBackgroundSession.snapshot()?.controller?.sendTouch(contacts) ?: false
     }
     val running get() = server != null
-    val hasViewer get() = server?.hasViewer == true
+    val hasViewer get() = server?.hasViewer == true || secureServer?.hasViewer == true
+    val audio = BrowserAudioBridge()
 
     @Synchronized fun start(context: Context) {
         if (server != null) return
         adaptiveBrowserSize = AirPlayPersistence.loadAdaptiveBrowserSize(context)
+        audio.configure(AirPlayPersistence.loadBrowserAudioPlayback(context),
+            AirPlayPersistence.loadBrowserMicrophone(context))
         code = (100000 + SecureRandom().nextInt(900000)).toString()
         val next = LanWebServer(context.applicationContext, code)
-        try { next.start(5000, true); server = next; error = null }
+        try {
+            next.start(5000, true); server = next; error = null
+            val token = ++serverGeneration
+            Thread({
+                var secure: LanWebServer? = null
+                try {
+                    val endpoint = LanTls.create(context.applicationContext, addresses(context).map { it.address })
+                    synchronized(this) {
+                        if (serverGeneration != token || server == null) return@Thread
+                        secure = LanWebServer(context.applicationContext, code, 8443, true, next.pairing)
+                        secure!!.makeSecure(endpoint.sockets, null)
+                        secure!!.start(5000, true)
+                        secureServer = secure; tls = endpoint; tlsError = null
+                    }
+                } catch (error: Exception) {
+                    secure?.stop()
+                    synchronized(this) { if (serverGeneration == token) tlsError = "HTTPS 启动失败：${error.javaClass.simpleName}" }
+                }
+            }, "wheelplay-lan-tls").apply { isDaemon = true; start() }
+        }
         catch (e: Exception) { next.stop(); error = "8080 端口启动失败：${e.javaClass.simpleName}" }
+    }
+
+    @Synchronized fun setBrowserAudioPlayback(context: Context, enabled: Boolean) {
+        AirPlayPersistence.saveBrowserAudioPlayback(context, enabled)
+        audio.configure(enabled, AirPlayPersistence.loadBrowserMicrophone(context))
+    }
+
+    @Synchronized fun setBrowserMicrophone(context: Context, enabled: Boolean) {
+        AirPlayPersistence.saveBrowserMicrophone(context, enabled)
+        audio.configure(AirPlayPersistence.loadBrowserAudioPlayback(context), enabled)
     }
 
     fun setAdaptiveBrowserSize(enabled: Boolean) {
@@ -85,12 +123,15 @@ internal object WebSession {
         }
         // Notify outside the session monitor; encoding never waits for a socket write.
         endpoint?.frameAvailable()
+        secureServer?.frameAvailable()
     }
     @Synchronized fun endVideo(owner: Long) { if (owner == generation) {
         videoSource?.detach(); videoSource = null
         generation++; frame = null; videoActive = false
     } }
     @Synchronized fun stop() {
+        serverGeneration++
+        val oldSecure = secureServer; secureServer = null; oldSecure?.stop(); tls = null; tlsError = null
         videoSource?.detach(); videoSource = null
         val old = server; server = null; old?.stop()
         browserViewport = null

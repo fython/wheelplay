@@ -114,4 +114,50 @@ class WebStreamSenderTest {
         sender.frameAvailable(); sender.acknowledge()
         assertEquals(1, failures); assertTrue(executor.tasks.isEmpty())
     }
+
+    @Test fun audioIsBoundedByAcksAndOldFramesExpireInsteadOfBuildingLatency() {
+        val executor = ManualExecutor()
+        val sent = mutableListOf<ByteArray>()
+        var time = 0L
+        val sender = WebStreamSender({ null }, { sent.add(it.binaryPayload) }, { fail() }, executor, { time })
+        try {
+            for (id in 1L..30L) sender.audio(byteArrayOf(id.toByte()), id)
+            assertEquals(1, executor.tasks.size)
+            executor.runNext()
+            assertEquals(listOf(15,16,17,18), sent.map { it[0].toInt() })
+            assertTrue(sender.frameStalled(2001))
+            sender.acknowledgeAudio(18)
+            time = 200
+            executor.runNext()
+            assertEquals(4, sent.size)
+            assertFalse(sender.frameStalled(2001))
+        } finally { sender.close() }
+    }
+
+    @Test fun stoppingOneAudioStreamRemovesOnlyItsQueuedPcm() {
+        val executor = ManualExecutor()
+        val sent = mutableListOf<ByteArray>()
+        val sender = WebStreamSender({ null }, { sent.add(it.binaryPayload) }, { fail() }, executor, { 0 })
+        try {
+            fun packet(stream: Int) = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                .putInt(BrowserAudioBridge.AUDIO_MAGIC).putInt(stream).array()
+            sender.audio(packet(1), 1); sender.audio(packet(2), 2)
+            sender.clearAudioStream(1)
+            executor.runNext()
+            assertEquals(1, sent.size)
+            assertArrayEquals(packet(2), sent.single())
+        } finally { sender.close() }
+    }
+
+    @Test fun stopControlsForDistinctAudioStreamsAreBothDelivered() {
+        val executor = ManualExecutor()
+        val sent = mutableListOf<String>()
+        val sender = WebStreamSender({ null }, { sent.add(it.textPayload) }, { fail() }, executor, { 0 })
+        try {
+            sender.control(WebStreamSender.Control.AUDIO_STOP, text("one"), key = 1)
+            sender.control(WebStreamSender.Control.AUDIO_STOP, text("two"), key = 2)
+            executor.runNext()
+            assertEquals(listOf("one", "two"), sent)
+        } finally { sender.close() }
+    }
 }

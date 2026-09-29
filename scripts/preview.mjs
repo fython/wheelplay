@@ -18,7 +18,8 @@ const server = http.createServer(async (req,res) => {
   if (demo && req.url === '/__test/touches') {
     res.setHeader('Content-Type','application/json');res.end(JSON.stringify(touchReports));return;
   }
-  const file = { '/':'index.html','/app.js':'app.js','/style.css':'style.css' }[req.url];
+  const file = { '/':'index.html','/app.js':'app.js','/browser-audio.js':'browser-audio.js',
+    '/audio-worklet.js':'audio-worklet.js','/style.css':'style.css' }[req.url];
   if (!file) { res.writeHead(404);res.end();return; }
   try {
     const body = await readFile(new URL(file,root));
@@ -39,7 +40,8 @@ wss.on('connection',ws => {
   if (viewer) { ws.send(JSON.stringify({type:'busy',message:'已有车机连接，请先在另一台车机断开'}));ws.close();return; }
   viewer=ws;let ready=true;
   const timer=setInterval(()=>{if (ready && ws.readyState===1) {ready=false;ws.send(jpeg);}},100);
-  ws.on('message',data=>{
+  ws.on('message',(data,isBinary)=>{
+    if (isBinary) return;
     const msg=JSON.parse(data);
     if(msg.type==='ack')ready=true;
     if(msg.type==='ping')ws.send(JSON.stringify({type:'status',width:1280,height:720,streaming:true,stage:'测试画面（非真实 CarPlay）'}));

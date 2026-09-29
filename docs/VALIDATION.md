@@ -165,6 +165,16 @@ APK 构建成功，7 项 UI 测试通过，其中新增双方向测试验证图�
 - 已检查状态截图及 320×640、360×800（130% 字体）、800×400 的原生渲染图；各卡片图标与标题的垂直中心检查通过。图片位于 `common/build/reports/material-ui/cards/` 与 `spacing/`。
 - 本轮未安装到设备；iPhone 会话状态采用测试模拟，尚未进行本版真实 iPhone 连接验证。
 
+## 浏览器音频与麦克风（2026-09-30）
+
+新增 App 侧独立、默认关闭并持久保存的音频与麦克风转发开关；浏览器页面不再提供这两项设置。Android 解码 PCM 可在配对 WebSocket 上转发，浏览器 PCM 麦克风采样经既有 CarPlay RTP 加密上行。HTTPS 8443 使用每次安装生成的本地 CA 签发短期服务证书，证书私钥不进入 APK。普通 HTTP 仍可播放音频，但服务端不会启用浏览器麦克风。操作步骤与车机浏览器的证书要求见 [BROWSER_AUDIO.md](BROWSER_AUDIO.md)。
+
+- `:shared:testDebugUnitTest` 202 项、`:common:testDebugUnitTest` 93 项完整测试通过，包括 HTTP/HTTPS 音频 WebSocket 集成测试和 App 主导的独立音频路由测试。
+- `npm test` 43 项通过，`npm run check` 通过；新增测试覆盖 PCM 帧解析、持续降采样、播放确认与清理、非 HTTPS 麦克风拒绝和断线恢复。
+- `:mobile:assembleDebug` 与 `:mobile:lintDebug` 通过；Lint 0 错误、18 项警告，其中一项来自新增的 Bouncy Castle PKIX 依赖代码。
+- 真实本地 TLS 握手测试验证签发证书主机名、可信根证书访问、HTTPS WebSocket 同源校验、普通 HTTP 拒绝麦克风，以及 HTTPS 浏览器 PCM 麦克风数据接收。真实 TCP/WebSocket 测试验证浏览器音频帧格式、确认与有界队列。
+- 本地浏览器预览曾确认音频按钮与视频画面并存；之后开关迁移到 App 设置，网页已移除按钮。此预览未连接 iPhone；尚未在车机验证证书信任、实际音频焦点、回声消除、通话质量和端到端延迟，也未安装此版 APK 到设备。
+
 ## 产物
 
 `mobile/build/outputs/apk/debug/mobile-debug.apk`
@@ -172,7 +182,7 @@ APK 构建成功，7 项 UI 测试通过，其中新增双方向测试验证图�
 SHA-256：
 
 ```text
-c600d906eeab59dd0d14ec7f1965c070bbb19a8b2f3f01bb36cae5d99f47da23
+34d69d6cb165e8018cbab65a03b35f0d9780aba955823de2cc3f10caf45f3655
 ```
 
 包名 `moe.feng.wheelplay.debug`，调试签名，此本地产物包含上述 CarPlay 认证资产。

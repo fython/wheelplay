@@ -22,18 +22,20 @@ export function createControlOutbox(socket, {
 } = {}) {
   const touches = [];
   const signals = [];
-  let ack = null, ping = null, feedback = null, viewport = null, timer = null, blockedSince = null, closed = false;
+  let ack = null, audioAck = null, audioReady = null, ping = null, feedback = null, viewport = null, timer = null, blockedSince = null, closed = false;
   const close = () => {
     closed = true; cancel(timer); timer = null;
-    ack = null; ping = null; feedback = null; viewport = null; touches.length = 0; signals.length = 0;
+    ack = null; audioAck = null; audioReady = null; ping = null; feedback = null; viewport = null; touches.length = 0; signals.length = 0;
   };
   const fail = () => { close(); onFailure(); };
   const flush = () => {
     if (closed) return;
     if (socket.readyState !== 1) { close(); return; }
     try {
-      while ((ack || touches.length || signals.length || viewport || feedback || ping) && socket.bufferedAmount < 8192) {
+      while ((ack || audioAck || audioReady || touches.length || signals.length || viewport || feedback || ping) && socket.bufferedAmount < 8192) {
         if (ack) { socket.send(ack); ack = null; }
+        else if (audioAck) { socket.send(audioAck); audioAck = null; }
+        else if (audioReady) { socket.send(audioReady); audioReady = null; }
         else if (touches.length) { socket.send(touches[0].json); touches.shift(); }
         else if (signals.length) { socket.send(signals[0]); signals.shift(); }
         else if (viewport) { socket.send(viewport); viewport = null; }
@@ -42,7 +44,7 @@ export function createControlOutbox(socket, {
         blockedSince = null;
       }
     } catch (_) { fail(); return; }
-    if (ack || touches.length || signals.length || viewport || feedback || ping) {
+    if (ack || audioAck || audioReady || touches.length || signals.length || viewport || feedback || ping) {
       if (blockedSince === null) blockedSince = now();
       if (now() - blockedSince >= 1500) { fail(); return; }
       if (timer === null) timer = schedule(() => { timer = null; flush(); }, 10);
@@ -55,6 +57,8 @@ export function createControlOutbox(socket, {
       if (closed || socket.readyState !== 1) return false;
       const json = JSON.stringify(data);
       if (data.type === 'ack') ack = json;
+      else if (data.type === 'audio-ack') audioAck = json;
+      else if (data.type === 'audio-ready') audioReady = json;
       else if (data.type === 'ping') ping = json;
       else if (data.type === 'rtc-feedback') feedback = json;
       else if (data.type === 'viewport') viewport = json;
@@ -146,7 +150,7 @@ export function createVideoCanvasRenderer(video, canvas, {
   return { prepare, start, stop };
 }
 
-// Receive-only WebRTC works on LAN HTTP; it does not request camera/microphone access.
+// Video WebRTC remains receive-only. Browser audio uses the paired WebSocket.
 export function createRtcReceiver(video, {
   send, onReady = () => {}, onStop = () => {}, onStats = () => {},
   onTrack = () => {}, onReset = () => {},
@@ -281,6 +285,8 @@ export function createRtcReceiver(video, {
   };
 }
 
+import { createBrowserAudio } from './browser-audio.js';
+
 if (typeof document !== 'undefined') {
   const $ = id => document.getElementById(id);
   const screen = $('screen');
@@ -373,6 +379,28 @@ if (typeof document !== 'undefined') {
   $('refresh-qr').addEventListener('click', startQr);
   const pointers = new Map();
   const send = (data, kind) => outbox ? outbox.send(data, kind) : false;
+  const browserAudio = createBrowserAudio({
+    send,
+    sendBinary: packet => {
+      if (socket?.readyState !== WebSocket.OPEN || socket.bufferedAmount > 8192) return false;
+      try { socket.send(packet); return true; } catch (_) { return false; }
+    },
+    onState: ({ error }) => {
+      $('audio-message').textContent = error;
+      $('audio-message').hidden = !error || !paired;
+    },
+  });
+  document.addEventListener('pointerdown', () => browserAudio.unlock(), { capture: true });
+  $('secure-setup').addEventListener('toggle', async () => {
+    if (!$('secure-setup').open) return;
+    $('https-entry').href = `https://${location.hostname}:8443/`;
+    try {
+      const response = await fetch('/tls.json', { cache: 'no-store' });
+      const info = await response.json();
+      $('tls-fingerprint').textContent = info.fingerprint || 'HTTPS 正在准备，请稍后重新展开。';
+      $('tls-error').textContent = info.error || '';
+    } catch (_) { $('tls-error').textContent = '证书信息暂时无法读取'; }
+  });
   function scheduleViewportReport() {
     clearTimeout(viewportReportTimer);
     viewportReportTimer = setTimeout(() => {
@@ -422,6 +450,7 @@ if (typeof document !== 'undefined') {
     clearTimeout(retry); clearInterval(heartbeat);
     if (socket) { const old = socket; socket = null; old.close(); }
     cleanupRtc(); cleanupImage(); setLive(false);
+    browserAudio.close(); $('audio-message').hidden = true;
     $('topbar').hidden = false; $('pairing').hidden = false; $('display').hidden = true;
     $('disconnect').hidden = true; $('connect').disabled = false;
     $('status').textContent = '已断开';
@@ -432,7 +461,8 @@ if (typeof document !== 'undefined') {
     $('connect').disabled = true;
     $('status').textContent = paired ? '正在重新连接…' : '正在连接…';
     const auth = pairingToken ? `token=${encodeURIComponent(pairingToken)}` : `code=${encodeURIComponent($('code').value)}`;
-    const ws = new WebSocket(`ws://${location.host}/stream?${auth}`);
+    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/stream?${auth}`);
+    ws.binaryType = 'arraybuffer';
     const useCanvas = canvasOption.checked;
     socket = ws;
     const connectTimer = setTimeout(() => ws.close(), 8000);
@@ -445,6 +475,7 @@ if (typeof document !== 'undefined') {
         cancelMove(); pointers.clear(); setLive(false); ws.close();
       } });
       paired = true; attempts = 0; lastStatus = Date.now();
+      browserAudio.attach();
       cleanupRtc();
       rtc = createRtcReceiver(video, { send,
         onTrack: () => { if (useCanvas) canvasRenderer.prepare(); },
@@ -480,6 +511,7 @@ if (typeof document !== 'undefined') {
       if (socket !== ws || ws.readyState !== WebSocket.OPEN) return;
       if (typeof event.data === 'string') {
         const data = JSON.parse(event.data);
+        if (browserAudio.control(data)) return;
         if (data.type === 'rtc-offer' || data.type === 'rtc-stop') {
           if (data.type === 'rtc-stop') rtcRequested = false;
           rtc.receive(data); return;
@@ -505,9 +537,10 @@ if (typeof document !== 'undefined') {
         if (data.type === 'input-unavailable') $('status').textContent = '等待 iPhone 触控通道就绪';
         return;
       }
+      if (browserAudio.receive(event.data)) return;
       if (rtc && rtc.active) { send({ type: 'ack' }); return; }
       if (objectUrl) URL.revokeObjectURL(objectUrl);
-      objectUrl = URL.createObjectURL(event.data);
+      objectUrl = URL.createObjectURL(event.data instanceof ArrayBuffer ? new Blob([event.data], { type: 'image/jpeg' }) : event.data);
       screen.onload = () => {
         if (socket !== ws || ws.readyState !== WebSocket.OPEN) return;
         if (rtc && rtc.active) { send({ type: 'ack' }); return; }
@@ -525,6 +558,7 @@ if (typeof document !== 'undefined') {
       if (outbox) { outbox.close(); outbox = null; }
       cancelMove();
       socket = null; pointers.clear(); clearInterval(heartbeat); cleanupRtc(); cleanupImage(); setLive(false);
+      browserAudio.close(); $('audio-message').hidden = true;
       if (stopped) return;
       if (!paired || ++attempts > 8) {
         disconnect(); $('status').textContent = '连接未成功';

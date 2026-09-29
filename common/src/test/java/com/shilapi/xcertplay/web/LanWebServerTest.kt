@@ -10,10 +10,147 @@ import java.net.Socket
 import java.net.URL
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.security.KeyStore
+import java.security.cert.CertificateFactory
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManagerFactory
+import javax.net.ssl.SSLSocket
+import javax.net.ssl.HttpsURLConnection
 
 @RunWith(org.robolectric.RobolectricTestRunner::class)
 @org.robolectric.annotation.Config(sdk = [29])
 class LanWebServerTest {
+    @Test fun trustedHttpsViewerCanSupplyNegotiatedMicrophonePcm() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        WebSession.start(context)
+        try {
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(8)
+            while (WebSession.tls == null && WebSession.tlsError == null && System.nanoTime() < deadline) Thread.sleep(20)
+            val endpoint = WebSession.tls ?: error("HTTPS failed: ${WebSession.tlsError}")
+            val root = CertificateFactory.getInstance("X.509")
+                .generateCertificate(endpoint.certificate.inputStream())
+            val store = KeyStore.getInstance(KeyStore.getDefaultType()).apply { load(null); setCertificateEntry("wheelplay", root) }
+            val managers = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply { init(store) }
+            val ssl = SSLContext.getInstance("TLS").apply { init(null, managers.trustManagers, null) }
+            (ssl.socketFactory.createSocket("127.0.0.1", 8443) as SSLSocket).use { client ->
+                client.soTimeout = 3000
+                client.sslParameters = client.sslParameters.apply { endpointIdentificationAlgorithm = "HTTPS" }
+                client.startHandshake()
+                client.outputStream.write(("GET /stream?code=${WebSession.code} HTTP/1.1\r\n" +
+                    "Host: 127.0.0.1:8443\r\nOrigin: https://127.0.0.1:8443\r\n" +
+                    "Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\n" +
+                    "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n").toByteArray())
+                assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                assertEquals("audio-route", org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).getString("type"))
+                WebSession.audio.configure(false, true)
+                assertTrue(org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).getBoolean("microphone"))
+                text(client, """{"type":"audio-ready","playback":false,"microphone":true}""")
+                val route = WebSession.audio.createRoute()
+                try {
+                    val config = com.shilapi.xcertplay.airplay.MicrophoneConfig("telephony", 16_000, 1, 97, 20,
+                        java.net.InetAddress.getLoopbackAddress(), 12345, ByteArray(32))
+                    var input: com.shilapi.xcertplay.media.PcmInput? = null
+                    val ready = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+                    while (input == null && System.nanoTime() < ready) {
+                        input = route.microphone(1, config)
+                        if (input == null) Thread.sleep(10)
+                    }
+                    assertNotNull(input)
+                    val mic = org.json.JSONObject(frame(client).toString(Charsets.UTF_8))
+                    assertEquals("mic-config", mic.getString("type"))
+                    val wire = java.nio.ByteBuffer.allocate(16).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                        .putInt(BrowserAudioBridge.MIC_MAGIC).putInt(mic.getInt("id")).putInt(0)
+                        .put(byteArrayOf(1,2,3,4)).array()
+                    maskedFrame(client, 2, wire)
+                    val pcm = ByteArray(8)
+                    var count = 0
+                    val receivedBy = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+                    while (count == 0 && System.nanoTime() < receivedBy) count = input!!.read(pcm)
+                    assertEquals(4, count)
+                    assertArrayEquals(byteArrayOf(1,2,3,4), pcm.copyOf(4))
+                } finally { route.close() }
+            }
+        } finally { WebSession.stop() }
+    }
+    @Test fun pairedViewerReceivesDecodedPcmOnTheExistingSocket() {
+        WebSession.start(org.robolectric.RuntimeEnvironment.getApplication())
+        try {
+            handshake(WebSession.code).use { client ->
+                client.soTimeout = 3000
+                assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                assertEquals("audio-route", org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).getString("type"))
+                WebSession.audio.configure(true, false)
+                assertTrue(org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).getBoolean("playback"))
+                text(client, """{"type":"audio-ready","playback":true,"microphone":false}""")
+                val route = WebSession.audio.createRoute()
+                try {
+                    val format = com.shilapi.xcertplay.airplay.AudioFormat(
+                        com.shilapi.xcertplay.airplay.AudioCodecKind.LPCM, 48_000, 1, 96, "media")
+                    val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+                    while (!route.output(3, format, byteArrayOf(1,2,3,4), 0, 4) && System.nanoTime() < deadline) Thread.sleep(10)
+                    val received = java.nio.ByteBuffer.wrap(frame(client)).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                    assertEquals(BrowserAudioBridge.AUDIO_MAGIC, received.int)
+                    assertEquals(3, received.int)
+                    assertEquals(48_000, received.int)
+                    assertEquals(1, received.short.toInt())
+                    received.short
+                    val sequence = received.int.toLong() and 0xffff_ffffL
+                    val samples = ByteArray(4); received.get(samples)
+                    assertArrayEquals(byteArrayOf(1,2,3,4), samples)
+                    text(client, """{"type":"audio-ack","sequence":$sequence}""")
+                } finally { route.close() }
+            }
+        } finally { WebSession.stop() }
+    }
+    @Test fun plainHttpRejectsMicrophoneCaptureEvenForAPairedViewer() {
+        WebSession.start(org.robolectric.RuntimeEnvironment.getApplication())
+        try {
+            handshake(WebSession.code).use { client ->
+                assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                client.soTimeout = 3000
+                assertEquals("audio-route", org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).getString("type"))
+                WebSession.audio.configure(false, true)
+                assertFalse(org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).getBoolean("microphone"))
+                text(client, """{"type":"audio-ready","playback":false,"microphone":true}""")
+                assertFalse(WebSession.audio.microphoneRequested)
+                val route = WebSession.audio.createRoute()
+                try {
+                    val config = com.shilapi.xcertplay.airplay.MicrophoneConfig("telephony", 16_000, 1, 97, 20,
+                        java.net.InetAddress.getLoopbackAddress(), 12345, ByteArray(32))
+                    assertNull(route.microphone(1, config))
+                } finally { route.close() }
+            }
+        } finally { WebSession.stop() }
+    }
+    @Test fun tlsEndpointUsesThePerInstallationCertificateAndRejectsCrossOriginWebSockets() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        WebSession.start(context)
+        try {
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(8)
+            while (WebSession.tls == null && WebSession.tlsError == null && System.nanoTime() < deadline) Thread.sleep(20)
+            val endpoint = WebSession.tls ?: error("HTTPS failed: ${WebSession.tlsError}")
+            val root = CertificateFactory.getInstance("X.509")
+                .generateCertificate(endpoint.certificate.inputStream())
+            val store = KeyStore.getInstance(KeyStore.getDefaultType()).apply { load(null); setCertificateEntry("wheelplay", root) }
+            val managers = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply { init(store) }
+            val ssl = SSLContext.getInstance("TLS").apply { init(null, managers.trustManagers, null) }
+            val connection = java.net.URL("https://127.0.0.1:8443/").openConnection() as HttpsURLConnection
+            connection.sslSocketFactory = ssl.socketFactory
+            assertTrue(connection.inputStream.bufferedReader().use { it.readText() }.contains("浏览器麦克风"))
+            fun handshake(origin: String): String = (ssl.socketFactory.createSocket("127.0.0.1", 8443) as SSLSocket).use { socket ->
+                socket.soTimeout = 3000
+                socket.sslParameters = socket.sslParameters.apply { endpointIdentificationAlgorithm = "HTTPS" }
+                socket.startHandshake()
+                socket.outputStream.write(("GET /stream?code=${WebSession.code} HTTP/1.1\r\n" +
+                    "Host: 127.0.0.1:8443\r\nOrigin: $origin\r\n" +
+                    "Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\n" +
+                    "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n").toByteArray())
+                readHeaders(socket)
+            }
+            assertTrue(handshake("http://127.0.0.1:8443").startsWith("HTTP/1.1 403"))
+            assertTrue(handshake("https://127.0.0.1:8443").startsWith("HTTP/1.1 101"))
+        } finally { WebSession.stop() }
+    }
     @Test fun foregroundServiceKeepsEndpointWhenDashboardTaskIsRemoved() {
         val service = org.robolectric.Robolectric.buildService(com.shilapi.xcertplay.DiPlaySessionService::class.java)
             .create().startCommand(0, 1)
@@ -56,6 +193,7 @@ class LanWebServerTest {
             handshake(WebSession.code, "http://evil.invalid").use { assertTrue(readHeaders(it).startsWith("HTTP/1.1 403")) }
             handshake(WebSession.code).use { client ->
                 assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                assertEquals("audio-route", org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).getString("type"))
                 val generation = WebSession.beginVideo(320, 180)
                 WebSession.publish(generation, byteArrayOf(1,2,3))
                 assertArrayEquals(byteArrayOf(1,2,3), frame(client))
@@ -82,6 +220,7 @@ class LanWebServerTest {
             WebSession.publish(generation, byteArrayOf(42))
             handshake(WebSession.code).use { client ->
                 assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                assertEquals("audio-route", org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).getString("type"))
                 assertArrayEquals("Static image must be sent on connect", byteArrayOf(42), frame(client))
                 // Control replies must work even while the JPEG is waiting for an ACK.
                 text(client, "{\"type\":\"ping\"}")

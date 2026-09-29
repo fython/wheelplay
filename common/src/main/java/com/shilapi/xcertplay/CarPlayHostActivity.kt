@@ -420,7 +420,8 @@ class CarPlayHostActivity : ComponentActivity() {
         microphonePermissionResolved = microphoneAvailable
         if (reusedBackgroundSession) {
             updateDebugOverlays()
-        } else if (microphonePermissionResolved) {
+        } else if (microphonePermissionResolved || WebSession.audio.microphoneRequested) {
+            microphonePermissionResolved = true
             requestStartupPrerequisites()
         } else {
             microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
@@ -2511,7 +2512,7 @@ class CarPlayHostActivity : ComponentActivity() {
             main = display,
             rightHandDrive = rightHandDrive,
             hevc = hevcEnabled,
-            microphone = microphoneAvailable,
+            microphone = true,
             manufacturer = normalizedManufacturer(),
             model = normalizedModel(),
             oemLabel = oemLabel,
@@ -2681,6 +2682,7 @@ class CarPlayHostActivity : ComponentActivity() {
         return AndroidMediaSink(
             surface = output.surface,
             encodedVideo = source,
+            remoteAudio = WebSession.audio.createRoute(),
             onClosed = { output.close(); WebSession.endVideo(videoGeneration) },
             videoWidth = videoWidth,
             videoHeight = videoHeight,
@@ -2699,7 +2701,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun createMediaEngine(sink: AndroidMediaSink): CarPlayMediaEngine =
         CarPlayMediaEngine(
             sink = sink,
-            microphoneEnabled = microphoneAvailable,
+            microphoneEnabled = true,
             audioCaptureDirectory = audioCaptureDirectory(),
         )
 
