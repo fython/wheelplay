@@ -11,7 +11,7 @@ Install the app on an Android device and open the displayed address in your car'
 - **Browser display and touch control**: CarPlay streaming, touch input, and fullscreen display.
 - **Selectable streaming modes**: Choose WebRTC video passthrough (H.264 / HEVC) or JPEG compatibility mode in settings. If passthrough fails, video automatically falls back to JPEG while audio and touch keep their existing routes.
 - **Optional browser audio**: After pairing, the browser can play CarPlay audio. The browser microphone can provide CarPlay voice input through a trusted HTTPS page; Android handles audio and microphone input by default.
-- **Easy pairing**: Scan the QR code on the car's webpage or enter a pairing code.
+- **Easy pairing**: Scan the QR code or enter a code once. Remembered browsers restore pairing automatically and retain a launch button for selecting options before streaming.
 - **iPhone connection management**: USB and wireless connections, connection status, and session management.
 - **Local network access**: Automatically detects available network addresses for browser access.
 - **Background service**: Background operation and automatic connection.
@@ -22,9 +22,13 @@ Install the app on an Android device and open the displayed address in your car'
 
 1. Install and launch WheelPlay on the Android server device.
 2. Connect the Android device and your car to the same local network, then open the address shown in the app in your car's browser.
-3. Use WheelPlay to scan the QR code on the webpage and confirm the connection, or enter the pairing code on the webpage.
+3. On first use, scan the QR code with WheelPlay and approve pairing, then select browser options and click “启动显示” (Start display). Alternatively, enter the pairing code and click “配对并启动显示” (Pair and start display). On later visits, pairing restores automatically; select options and click Start display.
 4. Keep WheelPlay in the foreground on Android. Click “连接 iPhone” (Connect iPhone) on the paired browser’s waiting screen to start using the app’s current USB / wireless settings, or connect from the app. Complete any device selection or permission prompts on Android and allow CarPlay on the iPhone.
 5. Once connected, view and control CarPlay in your car's browser.
+
+Manage remembered browsers under Settings → 浏览器设备 (Browser devices) → 连接过的设备 (Connected devices). View names, pairing times, last connection times and addresses; rename or remove one browser, or remove all. Removal immediately disconnects the device and revokes its existing sessions. Browser disconnection and server restarts retain device memory. Up to 32 browsers can be saved; remove an old entry if the limit is reached.
+
+Device memory is scoped to the current browser and origin (scheme, host and port). Clearing or disabling browser storage, switching HTTP / HTTPS, or changing the address requires fresh pairing. Android persists only hashes of random device secrets; the six-digit code is never stored as a remembered credential, and browser credentials are excluded from app backups.
 
 For 60 fps, select WebRTC video passthrough under Settings → Display & Audio and set the negotiated frame rate to 60. Apply the settings and reconnect for the changes to take effect. Actual frame rate depends on the iPhone's output, network conditions, and browser decoding capabilities; static scenes may run at a lower frame rate. WebRTC uses local-network UDP without external STUN/TURN servers. It automatically falls back to JPEG if UDP is unavailable or the source video codec is incompatible. Allowing HEVC on the iPhone enables H.265 passthrough to browsers that support HEVC over WebRTC; H.264 is recommended for older browsers.
 

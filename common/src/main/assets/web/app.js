@@ -301,6 +301,8 @@ if (typeof document !== 'undefined') {
   let socket = null, stopped = true, paired = false, retry = null, attempts = 0;
   let width = 1280, height = 720, live = false, objectUrl = null, lastFrame = 0, lastStatus = 0;
   let heartbeat = null, movePending = false, moveGeneration = 0, outbox = null;
+  let authGeneration = 0, deviceCredential = null, storageAvailable = false;
+  const devicePreference = 'wheelplay.browserDevice';
   let pairingToken = null, qrGeneration = 0, qrTimer = null, qrRequest = null;
   let viewportReportTimer = null, lastViewportSignature = '';
   const canvasOption = $('canvas-video');
@@ -316,16 +318,105 @@ if (typeof document !== 'undefined') {
     onError: () => { if (rtc) rtc.fallback(); },
   });
   const pairApi = async (path, request = null) => {
-    const headers = request && request.token ? { 'X-Pair-Token': request.token } : request ? { 'X-Pair-Id': request.id, 'X-Pair-Secret': request.secret } : {};
+    const headers = request?.token ? { 'X-Pair-Token': request.token } :
+      request?.code ? { 'X-Pair-Code': request.code } :
+      request?.device ? { 'X-Device-Id': request.device.id, 'X-Device-Secret': request.device.secret } :
+      request ? { 'X-Pair-Id': request.id, 'X-Pair-Secret': request.secret } : {};
     const controller = typeof AbortController === 'undefined' ? null : new AbortController();
     const timeout = setTimeout(() => controller && controller.abort(), 8000);
     try {
       const response = await fetch(`/pair/${path}`, { method: 'POST', headers, cache: 'no-store',
         keepalive: path === 'cancel' || path === 'revoke', ...(controller ? { signal: controller.signal } : {}) });
-      if (!response.ok) throw new Error(response.status === 404 ? 'expired' : 'unavailable');
+      if (!response.ok) {
+        const error = new Error(response.status === 404 ? 'expired' : 'unavailable');
+        error.status = response.status; throw error;
+      }
       return await response.json();
     } finally { clearTimeout(timeout); }
   };
+  try {
+    const stored = window.localStorage.getItem(devicePreference);
+    storageAvailable = true;
+    if (stored) {
+      const device = JSON.parse(stored);
+      if (typeof device.id === 'string' && typeof device.secret === 'string' && device.id.length === 32 && device.secret.length === 32) deviceCredential = device;
+    }
+  } catch (_) {}
+  function showPairingReady(name = '浏览器已配对') {
+    $('remembered-device').hidden = false;
+    $('device-name').textContent = name;
+    $('qr-pairing').hidden = true; $('pair-instructions').hidden = true;
+    $('code-entry').hidden = true; $('code').required = false; $('code').disabled = true;
+    $('connect-label').textContent = '启动显示';
+    $('connect').disabled = false;
+    $('status').textContent = '已配对 · 等待启动'; $('message').textContent = '';
+  }
+  function showPairingEntry() {
+    $('remembered-device').hidden = true;
+    $('qr-pairing').hidden = false; $('pair-instructions').hidden = false;
+    $('code-entry').hidden = false; $('code').required = true; $('code').disabled = false;
+    $('connect-label').textContent = '配对并启动显示';
+    $('connect').disabled = false;
+  }
+  async function preparePairing(token, generation) {
+    pairingToken = token;
+    let name = '浏览器已配对';
+    let message = '已配对。选择上方选项后，点击「启动显示」。';
+    if (storageAvailable) {
+      try {
+        const device = await pairApi('remember', { token });
+        if (generation !== authGeneration) return;
+        deviceCredential = device;
+        window.localStorage.setItem(devicePreference, JSON.stringify(device));
+        name = device.name;
+      } catch (_) {
+        message = '本次配对成功，但未能记住设备。下次可能需要重新配对；可检查浏览器存储或 App 中的设备数量。';
+      }
+    } else message = '本次配对成功。浏览器无法保存设备，下次仍需配对。';
+    if (generation !== authGeneration) return;
+    showPairingReady(name); $('device-status').textContent = message;
+  }
+  async function initializePairing(linkedCode = null) {
+    const generation = ++authGeneration;
+    stopQr(); pairingToken = null;
+    showPairingEntry(); $('connect').disabled = true;
+    if (deviceCredential) {
+      $('status').textContent = '正在恢复配对…';
+      try {
+        const result = await pairApi('resume', { device: deviceCredential });
+        if (generation !== authGeneration) return;
+        pairingToken = result.token;
+        showPairingReady(result.name);
+        $('device-status').textContent = '已自动恢复配对。选择上方选项后，点击「启动显示」。';
+        return;
+      } catch (error) {
+        if (generation !== authGeneration) return;
+        if (error.status === 401) {
+          deviceCredential = null;
+          try { window.localStorage.removeItem(devicePreference); } catch (_) {}
+          $('message').textContent = '设备记忆已失效或已被移除，请重新配对。';
+        } else {
+          showPairingReady(deviceCredential.name || '已记住的浏览器');
+          $('status').textContent = '等待恢复配对';
+          $('device-status').textContent = '暂时无法恢复配对，请检查服务和网络后点击「启动显示」重试。';
+          return;
+        }
+      }
+    }
+    if (linkedCode) {
+      $('code').value = linkedCode;
+      try {
+        const result = await pairApi('code', { code: linkedCode });
+        if (generation !== authGeneration) return;
+        await preparePairing(result.token, generation); return;
+      } catch (_) {
+        if (generation !== authGeneration) return;
+        $('message').textContent = '访问链接中的配对码已失效，请重新扫码或输入当前配对码。';
+      }
+    }
+    if (generation !== authGeneration) return;
+    showPairingEntry(); $('status').textContent = '等待配对'; startQr();
+  }
   function stopQr(cancel = true) {
     qrGeneration++; clearTimeout(qrTimer);
     if (cancel && qrRequest) pairApi('cancel', qrRequest).catch(() => {});
@@ -359,8 +450,8 @@ if (typeof document !== 'undefined') {
           const result = await pairApi('status', request);
           if (generation !== qrGeneration) return;
           if (result.state === 'approved') {
-            pairingToken = result.token; stopQr(false);
-            stopped = false; attempts = 0; connect(); return;
+            stopQr(false); $('connect').disabled = true;
+            await preparePairing(result.token, ++authGeneration); return;
           }
           qrTimer = setTimeout(poll, 1000);
         } catch (error) {
@@ -443,8 +534,7 @@ if (typeof document !== 'undefined') {
   }
   function disconnect(refreshQr = true) {
     stopQr();
-    if (pairingToken) pairApi('revoke', { token: pairingToken }).catch(() => {});
-    pairingToken = null;
+    authGeneration++;
     stopped = true; paired = false; release();
     if (outbox) { outbox.close(); outbox = null; }
     clearTimeout(retry); clearInterval(heartbeat);
@@ -454,7 +544,7 @@ if (typeof document !== 'undefined') {
     $('topbar').hidden = false; $('pairing').hidden = false; $('display').hidden = true;
     $('disconnect').hidden = true; $('connect').disabled = false;
     $('status').textContent = '已断开';
-    if (refreshQr) startQr();
+    if (refreshQr) initializePairing();
   }
   function connect() {
     clearTimeout(retry);
@@ -574,12 +664,53 @@ if (typeof document !== 'undefined') {
       }
       $('status').textContent = '连接中断 · 正在重试';
       $('stage').textContent = '检查服务端与车机是否仍在同一局域网。';
-      retry = setTimeout(connect, Math.min(8000, 500 * 2 ** attempts));
+      const generation = authGeneration;
+      retry = setTimeout(async () => {
+        if (deviceCredential) {
+          try {
+            const result = await pairApi('resume', { device: deviceCredential });
+            if (stopped || generation !== authGeneration) return;
+            pairingToken = result.token;
+          } catch (error) {
+            if (stopped || generation !== authGeneration) return;
+            if (error.status === 401) { disconnect(); return; }
+          }
+        }
+        if (!stopped && generation === authGeneration) connect();
+      }, Math.min(8000, 500 * 2 ** attempts));
     };
     ws.onerror = () => {}; // onclose owns retry and visible error state.
   }
   $('connect-form').addEventListener('submit', event => {
-    event.preventDefault(); stopQr(); pairingToken = null; stopped = false; attempts = 0; connect();
+    event.preventDefault();
+    const generation = ++authGeneration;
+    stopQr(); $('connect').disabled = true; $('message').textContent = '';
+    const start = () => { if (generation === authGeneration) { stopped = false; attempts = 0; connect(); } };
+    if (pairingToken && !deviceCredential) { start(); return; }
+    (async () => {
+      try {
+        if (deviceCredential) {
+          const result = await pairApi('resume', { device: deviceCredential });
+          if (generation !== authGeneration) return;
+          pairingToken = result.token;
+        } else {
+          const result = await pairApi('code', { code: $('code').value });
+          if (generation !== authGeneration) return;
+          await preparePairing(result.token, generation);
+        }
+        start();
+      } catch (error) {
+        if (generation !== authGeneration) return;
+        $('connect').disabled = false;
+        if (error.status === 401 && deviceCredential) {
+          pairingToken = null; deviceCredential = null;
+          try { window.localStorage.removeItem(devicePreference); } catch (_) {}
+          showPairingEntry(); startQr();
+        }
+        $('status').textContent = '配对未成功';
+        $('message').textContent = '请检查服务和网络，或重新扫码 / 输入当前配对码。连续输错后请等待 30 秒再试。';
+      }
+    })();
   });
   $('phone-connect').addEventListener('click', () => {
     if (!paired || !send({ type: 'phone-connect' })) {
@@ -643,12 +774,12 @@ if (typeof document !== 'undefined') {
   window.addEventListener('blur', release);
   document.addEventListener('visibilitychange', () => { if (document.hidden) release(); });
   window.addEventListener('pagehide', () => disconnect(false));
-  window.addEventListener('pageshow', event => { if (event.persisted) startQr(); });
+  window.addEventListener('pageshow', event => { if (event.persisted) initializePairing(); });
   const linkedCode = pairingCodeFromUrl(window.location?.search || '');
   if (linkedCode) {
     $('code').value = linkedCode;
     // Keep the short-lived code out of copied URLs and browser history entries.
     window.history?.replaceState(null, '', `${window.location.pathname}${window.location.hash}`);
-    stopped = false; attempts = 0; connect();
-  } else startQr();
+  }
+  initializePairing(linkedCode);
 }

@@ -1,5 +1,6 @@
 // Desktop-only browser QA fixture. The production HTTP/WebSocket server runs in the APK.
 import http from 'node:http';
+import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { WebSocketServer } from 'ws';
@@ -14,9 +15,33 @@ if (demo) {
   jpeg = result.stdout;
 }
 let touchReports = [];
+const tokens = new Set(), devices = new Map(), enrollments = new Map();
+const secret = () => randomBytes(24).toString('base64url');
 const server = http.createServer(async (req,res) => {
   if (demo && req.url === '/__test/touches') {
     res.setHeader('Content-Type','application/json');res.end(JSON.stringify(touchReports));return;
+  }
+  if (demo && req.url.startsWith('/pair/') && req.method === 'POST') {
+    if (req.headers.origin !== `http://${req.headers.host}`) { res.writeHead(403); res.end(); return; }
+    let data;
+    const token = req.headers['x-pair-token'];
+    if (req.url === '/pair/code' && req.headers['x-pair-code'] === '123456') {
+      const next = secret(); tokens.add(next); data = { token: next };
+    } else if (req.url === '/pair/remember' && tokens.has(token)) {
+      data = enrollments.get(token);
+      if (!data) {
+        data = { id: secret(), secret: secret(), name: '测试浏览器' };
+        devices.set(data.id, data); enrollments.set(token, data);
+      }
+    } else if (req.url === '/pair/resume') {
+      const device = devices.get(req.headers['x-device-id']);
+      if (device && device.secret === req.headers['x-device-secret']) {
+        const next = secret(); tokens.add(next); data = { token: next, name: device.name };
+      }
+    }
+    if (!data) { res.writeHead(req.url === '/pair/request' ? 404 : 401); res.end(); return; }
+    res.setHeader('Content-Type', 'application/json'); res.setHeader('Cache-Control', 'no-store');
+    res.end(JSON.stringify(data)); return;
   }
   const file = { '/':'index.html','/app.js':'app.js','/browser-audio.js':'browser-audio.js',
     '/audio-worklet.js':'audio-worklet.js','/style.css':'style.css' }[req.url];
@@ -31,7 +56,7 @@ const wss = new WebSocketServer({noServer:true,maxPayload:2048});
 let viewer;
 server.on('upgrade',(req,socket,head) => {
   const url = new URL(req.url,'http://localhost');
-  if (!demo || url.pathname !== '/stream' || url.searchParams.get('code') !== '123456') {
+  if (!demo || url.pathname !== '/stream' || (url.searchParams.get('code') !== '123456' && !tokens.has(url.searchParams.get('token')))) {
     socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');return;
   }
   wss.handleUpgrade(req,socket,head,ws => wss.emit('connection',ws));

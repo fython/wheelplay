@@ -7,7 +7,7 @@ const source = readFileSync(new URL('../common/src/main/assets/web/browser-audio
   .replaceAll('export function', 'function') + '\n' +
   readFileSync(new URL('../common/src/main/assets/web/app.js', import.meta.url), 'utf8')
     .replace(/^import .*browser-audio\.js';$/m, '').replaceAll('export function', 'function');
-function fixture({ storedCanvas = null, storageDisabled = false, canvasAvailable = true } = {}) {
+function fixture({ storedCanvas = null, storageDisabled = false, canvasAvailable = true, resume = () => ({ token: 'session-token', name: 'Chrome' }) } = {}) {
   const elements = new Map(), timers = new Map(), raf = new Map(), sockets = [], peers = [], draws = [];
   const preferences = new Map(storedCanvas === null ? [] : [['wheelplay.canvasVideo', storedCanvas]]);
   const videoCallbacks = new Map();
@@ -28,7 +28,7 @@ function fixture({ storedCanvas = null, storageDisabled = false, canvasAvailable
   };
   class Socket {
     static OPEN = 1;
-    constructor() { this.readyState = 0; this.bufferedAmount = 0; this.sent = []; sockets.push(this); }
+    constructor(url) { this.url = url; this.readyState = 0; this.bufferedAmount = 0; this.sent = []; sockets.push(this); }
     send(data) { this.sent.push(JSON.parse(data)); }
     close() { this.readyState = 3; this.onclose(); }
   }
@@ -43,6 +43,7 @@ function fixture({ storedCanvas = null, storageDisabled = false, canvasAvailable
     localStorage: {
       getItem(key) { if (storageDisabled) throw new Error('denied'); return preferences.get(key) ?? null; },
       setItem(key, value) { if (storageDisabled) throw new Error('denied'); preferences.set(key, value); },
+      removeItem(key) { preferences.delete(key); },
     },
   },
     location: { host: 'server:8080' }, URL: { createObjectURL: () => 'blob:frame', revokeObjectURL() {} }, Date, WebSocket: Socket,
@@ -50,12 +51,19 @@ function fixture({ storedCanvas = null, storageDisabled = false, canvasAvailable
     setTimeout(fn, delay) { const id = ++nextTimer; timers.set(id, { fn, delay }); return id; },
     clearTimeout(id) { timers.delete(id); }, setInterval() { return 0; }, clearInterval() {},
     requestAnimationFrame(fn) { const frame = ++nextFrame; raf.set(frame, fn); return frame; },
-    cancelAnimationFrame(frame) { raf.delete(frame); }, fetch: () => new Promise(() => {}),
+    cancelAnimationFrame(frame) { raf.delete(frame); },
+    fetch: async url => {
+      if (url === '/pair/code') return { ok: true, json: async () => ({ token: 'session-token' }) };
+      if (url === '/pair/remember') return { ok: true, json: async () => ({ id: 'd'.repeat(32), secret: 's'.repeat(32), name: 'Chrome' }) };
+      if (url === '/pair/resume') return { ok: true, json: async () => resume() };
+      return new Promise(() => {});
+    },
   };
   vm.runInNewContext(source, context);
   return { element, sockets, timers, peers, draws, preferences, raf, videoCallbacks,
-    connect() {
+    async connect() {
       element('connect-form').handlers.submit({ preventDefault() {} });
+      await new Promise(resolve => setImmediate(resolve));
       const ws = sockets.at(-1); ws.readyState = 1; ws.onopen(); return ws;
     },
     frame(ws) { ws.onmessage({ data: {} }); element('screen').onload(); },
@@ -74,25 +82,25 @@ function fixture({ storedCanvas = null, storageDisabled = false, canvasAvailable
   };
 }
 
-test('the overlay forwards a complete drag independently of the native video element', () => {
-  const f = fixture(), ws = f.connect(); f.frame(ws);
+test('the overlay forwards a complete drag independently of the native video element', async () => {
+  const f = fixture(), ws = await f.connect(); f.frame(ws);
   f.pointer('pointerdown', 100, 'touch-surface');
   f.pointer('pointermove', 200, 'touch-surface'); f.flushMoves();
   f.pointer('pointerup', 200, 'touch-surface');
   assert.deepEqual(ws.sent.filter(m => m.type === 'touch').map(m => m.contacts[0].down), [true, true, false]);
 });
 
-test('the optional top bar is hidden only after connecting and restored on disconnect', () => {
+test('the optional top bar is hidden only after connecting and restored on disconnect', async () => {
   const f = fixture();
   f.element('hide-toolbar').checked = true;
-  const ws = f.connect();
+  const ws = await f.connect();
   assert.equal(f.element('topbar').hidden, true);
   f.element('disconnect').handlers.click();
   assert.equal(f.element('topbar').hidden, false);
 });
 
-test('actual image onload retries ACK and preserves down/up during browser congestion', () => {
-  const f = fixture(), ws = f.connect();
+test('actual image onload retries ACK and preserves down/up during browser congestion', async () => {
+  const f = fixture(), ws = await f.connect();
   ws.bufferedAmount = 8192;
   f.frame(ws); f.pointer('pointerdown'); f.pointer('pointermove', 200); f.flushMoves(); f.pointer('pointerup', 200);
   assert.deepEqual(ws.sent.map(m => m.type), ['ping']);
@@ -101,13 +109,13 @@ test('actual image onload retries ACK and preserves down/up during browser conge
   assert.deepEqual(ws.sent.slice(2).map(m => m.contacts[0].down), [true, true, false]);
 });
 
-test('disconnect drops pending ACK and old animation callbacks cannot send into a new gesture', () => {
-  const f = fixture(), old = f.connect(); f.frame(old); f.pointer('pointerdown');
+test('disconnect drops pending ACK and old animation callbacks cannot send into a new gesture', async () => {
+  const f = fixture(), old = await f.connect(); f.frame(old); f.pointer('pointerdown');
   f.pointer('pointermove', 200);
   old.bufferedAmount = 8192; f.frame(old);
   const lateImageLoad = f.element('screen').onload;
   old.close();
-  const current = f.connect(); f.frame(current); f.pointer('pointerdown', 300);
+  const current = await f.connect(); f.frame(current); f.pointer('pointerdown', 300);
   const before = current.sent.length;
   lateImageLoad(); f.flushMoves();
   assert.equal(current.sent.length, before);
@@ -115,26 +123,26 @@ test('disconnect drops pending ACK and old animation callbacks cannot send into 
   assert.equal(old.sent.filter(m => m.type === 'ack').length, 1);
 });
 
-test('pending movement is cancelled at up before another down', () => {
-  const f = fixture(), ws = f.connect(); f.frame(ws);
+test('pending movement is cancelled at up before another down', async () => {
+  const f = fixture(), ws = await f.connect(); f.frame(ws);
   f.pointer('pointerdown'); f.pointer('pointermove', 200); f.pointer('pointerup'); f.pointer('pointerdown', 300);
   const before = ws.sent.length; f.flushMoves();
   assert.equal(ws.sent.length, before);
   assert.deepEqual(ws.sent.filter(m => m.type === 'touch').map(m => m.contacts[0].down), [true, false, true]);
 });
 
-test('Canvas preference defaults off, persists per browser, and tolerates unavailable storage', () => {
+test('Canvas preference defaults off, persists per browser, and tolerates unavailable storage', async () => {
   const defaults = fixture(); assert.equal(defaults.element('canvas-video').checked, false);
   const f = fixture({ storedCanvas: 'true' }); assert.equal(f.element('canvas-video').checked, true);
   f.element('canvas-video').checked = false; f.element('canvas-video').handlers.change();
   assert.equal(f.preferences.get('wheelplay.canvasVideo'), 'false');
   const denied = fixture({ storageDisabled: true });
   denied.element('canvas-video').checked = true; denied.element('canvas-video').handlers.change();
-  assert.equal(denied.connect().readyState, 1);
+  assert.equal((await denied.connect()).readyState, 1);
 });
 
 test('default WebRTC presents native video without allocating a Canvas', async () => {
-  const f = fixture(), ws = f.connect(); await f.offer(ws);
+  const f = fixture(), ws = await f.connect(); await f.offer(ws);
   assert.equal(f.element('video').hidden, false);
   assert.equal(f.element('video').classList.contains('offscreen-video'), false);
   assert.equal(f.element('video-canvas').hidden, true); assert.equal(f.draws.length, 0);
@@ -142,7 +150,7 @@ test('default WebRTC presents native video without allocating a Canvas', async (
 });
 
 test('Canvas WebRTC handles touch, late JPEG loads, and reconnection without leaving old callbacks', async () => {
-  const f = fixture({ storedCanvas: 'true' }), ws = f.connect();
+  const f = fixture({ storedCanvas: 'true' }), ws = await f.connect();
   ws.onmessage({ data: {} }); const lateImage = f.element('screen').onload;
   await f.offer(ws);
   assert.equal(f.element('video-canvas').hidden, false);
@@ -156,13 +164,13 @@ test('Canvas WebRTC handles touch, late JPEG loads, and reconnection without lea
   const lateFrames = [...f.videoCallbacks.values()], lateRefresh = [...f.raf.values()];
   ws.close(); assert.equal(f.element('video-canvas').hidden, true);
   assert.equal(f.videoCallbacks.size, 0); assert.equal(f.raf.size, 0);
-  const replacement = f.connect(); await f.offer(replacement, 2); const count = f.draws.length;
+  const replacement = await f.connect(); await f.offer(replacement, 2); const count = f.draws.length;
   lateFrames.forEach(fn => fn(100, { presentedFrames: 100, mediaTime: .1 })); lateRefresh.forEach(fn => fn());
   assert.equal(f.draws.length, count); assert.equal(f.element('video-canvas').hidden, false);
 });
 
 test('Canvas failure falls back to JPEG while control and the selected preference remain available', async () => {
-  const f = fixture({ storedCanvas: 'true', canvasAvailable: false }), ws = f.connect(); await f.offer(ws);
+  const f = fixture({ storedCanvas: 'true', canvasAvailable: false }), ws = await f.connect(); await f.offer(ws);
   assert.equal(ws.readyState, 1);
   assert.equal(f.peers[0].closed, true);
   assert.equal(f.element('video-canvas').hidden, true);
@@ -177,12 +185,12 @@ test('Canvas failure falls back to JPEG while control and the selected preferenc
 });
 
 
-test('phone connection requires pairing and reports the server result', () => {
+test('phone connection requires pairing and reports the server result', async () => {
   const f = fixture();
   f.element('phone-connect').handlers.click();
   assert.equal(f.sockets.length, 0);
   assert.match(f.element('phone-connect-message').textContent, /重新配对/);
-  const ws = f.connect();
+  const ws = await f.connect();
   f.element('phone-connect').handlers.click();
   assert.equal(ws.sent.filter(m => m.type === 'phone-connect').length, 1);
   assert.equal(f.element('phone-connect').disabled, true);
@@ -191,8 +199,8 @@ test('phone connection requires pairing and reports the server result', () => {
   assert.equal(f.element('phone-connect-message').textContent, '请在 Android 上完成授权');
 });
 
-test('phone connection survives congestion and is sent once after recovery', () => {
-  const f = fixture(), ws = f.connect();
+test('phone connection survives congestion and is sent once after recovery', async () => {
+  const f = fixture(), ws = await f.connect();
   ws.bufferedAmount = 8193;
   f.element('phone-connect').handlers.click();
   assert.equal(ws.sent.some(m => m.type === 'phone-connect'), false);
@@ -200,4 +208,24 @@ test('phone connection survives congestion and is sent once after recovery', () 
   ws.bufferedAmount = 0;
   f.retry();
   assert.equal(ws.sent.filter(m => m.type === 'phone-connect').length, 1);
+});
+
+
+test('interrupted display resumes with fresh authentication after a server restart', async () => {
+  const f = fixture({ resume: () => ({ token: 'fresh-session', name: 'Chrome' }) });
+  const old = await f.connect(); old.close();
+  const retry = [...f.timers.values()].find(t => t.delay === 1000);
+  assert.ok(retry); await retry.fn();
+  assert.equal(f.sockets.length, 2);
+  assert.equal(f.sockets[1].url, 'ws://server:8080/stream?token=fresh-session');
+});
+
+test('revocation during an active display stops retries and requires fresh pairing', async () => {
+  const f = fixture({ resume: () => { const error = new Error('revoked'); error.status = 401; throw error; } });
+  const old = await f.connect(); old.close();
+  await [...f.timers.values()].find(t => t.delay === 1000).fn();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.sockets.length, 1);
+  assert.equal(f.element('code-entry').hidden, false);
+  assert.equal(f.preferences.has('wheelplay.browserDevice'), false);
 });

@@ -14,14 +14,15 @@
 <section id="pairing" aria-labelledby="title">
 <div class="eyebrow">局域网 · 车机显示端</div>
 <h1 id="title">连接 CarPlay 车机屏幕</h1>
-<p>在服务端 App 点击「扫描二维码配对」，<br class="wide">扫描下方二维码并允许连接。</p>
+<p id="pair-instructions">首次连接时，在服务端 App 点击「扫描二维码配对」，<br class="wide">扫描下方二维码并允许连接。</p>
 <label class="launch-option" for="hide-toolbar"><input id="hide-toolbar" type="checkbox"><span><strong>连接后隐藏顶部栏</strong><small>让 CarPlay 画面占满整个页面；刷新页面可返回连接界面。</small></span></label>
 <label class="launch-option" for="canvas-video"><input id="canvas-video" type="checkbox"><span><strong>使用 Canvas 显示视频（实验性）</strong><small>视频在屏幕外解码，再绘制到画布；适用于视频元素显示异常的浏览器。可能增加耗电，本浏览器会记住选择。</small></span></label>
 <details class="secure-setup" id="secure-setup"><summary>浏览器麦克风需要 HTTPS</summary><p>普通局域网 HTTP 页面无法申请麦克风权限。先在 Android 应用的「设置 → 权限与连接帮助 → 浏览器 HTTPS 证书」查看本设备的指纹，逐字核对下方 SHA-256 指纹，再下载证书并在车机浏览器信任。随后打开 HTTPS 页面。</p><code id="tls-fingerprint">正在读取…</code><div class="secure-links"><a href="/certificate.crt" download="wheelplay-local-ca.crt">下载本地证书</a><a id="https-entry" href="#">打开 HTTPS 页面</a></div><p id="tls-error" role="status"></p></details>
-<div class="qr-pairing"><img id="pair-qr" width="240" height="240" alt="车机配对二维码" hidden><div><h2>扫码连接车机</h2><p id="qr-status" role="status" aria-live="polite">正在生成二维码…</p><button id="refresh-qr" type="button">刷新二维码</button></div></div>
-<form id="connect-form"><label for="code">设备上的六位配对码</label><div class="form-row"><input id="code" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="off" placeholder="输入配对码" required><button class="primary" id="connect" type="submit">连接设备 <!-- Google Material Icons: arrow_forward, Apache-2.0; docs/UPSTREAM.md. --><svg class="material-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/></svg></button></div></form>
+<div id="remembered-device" role="status" hidden><strong id="device-name"></strong><p id="device-status">已恢复配对。选择上方选项后，点击「启动显示」。</p></div>
+<div class="qr-pairing" id="qr-pairing"><img id="pair-qr" width="240" height="240" alt="车机配对二维码" hidden><div><h2>扫码连接车机</h2><p id="qr-status" role="status" aria-live="polite">正在生成二维码…</p><button id="refresh-qr" type="button">刷新二维码</button></div></div>
+<form id="connect-form"><div id="code-entry"><p class="hint">也可以手动输入配对码</p><label for="code">设备上的六位配对码</label><input id="code" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="off" placeholder="输入配对码" required></div><button class="primary" id="connect" type="submit"><span id="connect-label">配对并启动显示</span> <!-- Google Material Icons: arrow_forward, Apache-2.0; docs/UPSTREAM.md. --><svg class="material-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/></svg></button></form>
 <p id="message" role="alert"></p>
-<footer>设备与车机需连接同一 Wi-Fi 或热点。<br>音频和麦克风默认使用 Android；可在 App 的「设置 → 画面与音频」分别启用浏览器转发。</footer>
+<footer>设备与车机需连接同一 Wi-Fi 或热点。配对后会记住当前浏览器，可在 App「设置 → 浏览器设备」中管理。<br>音频和麦克风默认使用 Android；可在 App 的「设置 → 画面与音频」分别启用浏览器转发。</footer>
 </section>
 <section id="display" hidden aria-label="CarPlay 画面">
 <img id="screen" alt="CarPlay 实时画面" draggable="false" hidden>

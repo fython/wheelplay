@@ -279,6 +279,88 @@ class LanWebServerTest {
         } finally { server.stop() }
     }
 
+    @Test fun rememberedBrowserResumesAfterServiceRestartAndAppRemovalClosesItsSocket() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        WebSession.start(context)
+        try {
+            assertEquals(401, pairPost("remember").first)
+            assertEquals(403, pairPost("code", mapOf("X-Pair-Code" to WebSession.code), "http://evil.invalid").first)
+            assertEquals(401, pairPost("code", mapOf("X-Pair-Code" to "000000")).first)
+            val token = org.json.JSONObject(pairPost("code", mapOf("X-Pair-Code" to WebSession.code)).second).getString("token")
+            val credential = org.json.JSONObject(pairPost("remember", mapOf("X-Pair-Token" to token)).second)
+            val id = credential.getString("id")
+            val secret = credential.getString("secret")
+            val repeated = org.json.JSONObject(pairPost("remember", mapOf("X-Pair-Token" to token)).second)
+            assertEquals(id, repeated.getString("id"))
+            assertEquals(secret, repeated.getString("secret"))
+            assertEquals(1, WebSession.rememberedBrowsers(context).list().size)
+            val headers = mapOf("X-Device-Id" to id, "X-Device-Secret" to secret)
+            assertEquals(401, pairPost("resume", headers + ("X-Device-Secret" to "x".repeat(32))).first)
+            assertEquals(403, pairPost("resume", headers, "http://evil.invalid").first)
+            WebSession.stop(); WebSession.start(context)
+            handshake("", token = token).use { assertTrue(readHeaders(it).startsWith("HTTP/1.1 401")) }
+            val resumed = org.json.JSONObject(pairPost("resume", headers).second).getString("token")
+            assertFalse(WebSession.hasViewer) // Authentication does not start display/audio/control.
+            handshake("", token = resumed).use { client ->
+                assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                client.soTimeout = 3000
+                assertEquals("audio-route", org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).getString("type"))
+                WebSession.forgetBrowser(context, id)
+                try { assertEquals(-1, client.getInputStream().read()) }
+                catch (_: java.net.SocketException) { /* Revocation can force-close with a TCP reset. */ }
+            }
+            assertEquals(401, pairPost("resume", headers).first)
+            handshake("", token = resumed).use { assertTrue(readHeaders(it).startsWith("HTTP/1.1 401")) }
+            WebSession.stop(); WebSession.start(context)
+            assertEquals(401, pairPost("resume", headers).first)
+        } finally { WebSession.stop() }
+    }
+
+    @Test fun removingAllBrowsersRevokesSessionsAndPersistsAnEmptyRegistry() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        WebSession.start(context)
+        try {
+            val credentials = (1..2).map {
+                val token = org.json.JSONObject(pairPost("code", mapOf("X-Pair-Code" to WebSession.code)).second).getString("token")
+                val device = org.json.JSONObject(pairPost("remember", mapOf("X-Pair-Token" to token)).second)
+                Triple(token, device.getString("id"), device.getString("secret"))
+            }
+            handshake("", token = credentials.first().first).use { client ->
+                assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                frame(client)
+                WebSession.forgetAllBrowsers(context)
+                client.soTimeout = 3000
+                try { assertEquals(-1, client.getInputStream().read()) }
+                catch (_: java.net.SocketException) { /* Forced TCP close is also valid. */ }
+            }
+            assertTrue(RememberedBrowsers(context).list().isEmpty())
+            credentials.forEach { (token, id, secret) ->
+                assertEquals(401, pairPost("resume", mapOf("X-Device-Id" to id, "X-Device-Secret" to secret)).first)
+                handshake("", token = token).use { assertTrue(readHeaders(it).startsWith("HTTP/1.1 401")) }
+            }
+        } finally { WebSession.stop() }
+    }
+
+    @Test fun codeAuthenticationUsesTheSameThrottleAsWebSocketPairing() {
+        val server = LanWebServer(org.robolectric.RuntimeEnvironment.getApplication(), "123456")
+        server.start(5000, true)
+        try {
+            repeat(5) { assertEquals(401, pairPost("code", mapOf("X-Pair-Code" to "000000")).first) }
+            assertEquals(401, pairPost("code", mapOf("X-Pair-Code" to "123456")).first)
+            handshake("123456").use { assertTrue(readHeaders(it).startsWith("HTTP/1.1 401")) }
+        } finally { server.stop() }
+    }
+
+    private fun pairPost(path: String, extra: Map<String, String> = emptyMap(), origin: String = "http://127.0.0.1:8080"): Pair<Int, String> =
+        Socket("127.0.0.1", 8080).use { socket ->
+            socket.soTimeout = 3000
+            socket.getOutputStream().write(("POST /pair/$path HTTP/1.1\r\nHost: 127.0.0.1:8080\r\nOrigin: $origin\r\n" +
+                extra.entries.joinToString("") { "${it.key}: ${it.value}\r\n" } +
+                "Content-Length: 0\r\nConnection: close\r\n\r\n").toByteArray())
+            val headers = readHeaders(socket)
+            headers.split(" ")[1].toInt() to socket.getInputStream().readBytes().toString(Charsets.UTF_8)
+        }
+
     private fun handshake(code: String, origin: String = "http://127.0.0.1:8080", token: String = ""): Socket = Socket("127.0.0.1", 8080).apply {
         soTimeout = 3000
         getOutputStream().write(("GET /stream?code=$code&token=$token HTTP/1.1\r\nHost: 127.0.0.1:8080\r\n" +

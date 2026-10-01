@@ -8,11 +8,14 @@ const source = readFileSync(new URL('../common/src/main/assets/web/browser-audio
   readFileSync(new URL('../common/src/main/assets/web/app.js', import.meta.url), 'utf8')
     .replace(/^import .*browser-audio\.js';$/m, '').replaceAll('export function', 'function');
 const flush = () => new Promise(resolve => setImmediate(resolve));
-function fixture(status) {
-  const elements = new Map(), timers = new Map(), sockets = [], requests = [];
+const savedDevice = { id: 'd'.repeat(32), secret: 's'.repeat(32), name: 'Chrome · Android' };
+const ok = data => ({ ok: true, json: async () => data });
+function fixture({ status = () => ok({ state: 'pending' }), stored = null, resume = () => ok({ token: 'resumed-token', name: savedDevice.name }), storageDisabled = false, search = '' } = {}) {
+  const elements = new Map(), timers = new Map(), sockets = [], requests = [], windowEvents = {};
+  const preferences = new Map(stored ? [['wheelplay.browserDevice', JSON.stringify(stored)]] : []);
   let nextTimer = 0;
   const element = id => {
-    if (!elements.has(id)) elements.set(id, { hidden: false, value: '123456', handlers: {},
+    if (!elements.has(id)) elements.set(id, { hidden: false, value: '123456', handlers: {}, checked: false,
       set src(value) { this.source = value; if (this.onload) this.onload(); },
       classList: { toggle() {} }, removeAttribute() {}, setAttribute() {}, addEventListener(name, fn) { this.handlers[name] = fn; } });
     return elements.get(id);
@@ -23,49 +26,137 @@ function fixture(status) {
     close() {}
   }
   const context = { document: { getElementById: element, addEventListener() {} },
-    window: { addEventListener() {} }, location: { host: 'server:8080' }, URL, Date, WebSocket: Socket,
+    window: { location: { search, pathname: '/', hash: '' }, history: { replaceState() {} },
+      addEventListener(name, fn) { windowEvents[name] = fn; },
+      localStorage: {
+        getItem(key) { if (storageDisabled) throw new Error('denied'); return preferences.get(key) ?? null; },
+        setItem(key, value) { if (storageDisabled) throw new Error('denied'); preferences.set(key, value); },
+        removeItem(key) { preferences.delete(key); },
+      },
+    }, location: { host: 'server:8080' }, URL, Date, WebSocket: Socket,
     setTimeout(fn, delay) { const id = ++nextTimer; timers.set(id, { fn, delay }); return id; },
     clearTimeout(id) { timers.delete(id); }, clearInterval() {},
     fetch: async (url, options) => {
       requests.push({ url, options });
       if (url.endsWith('/status')) return status();
-      return { ok: true, json: async () => ({ id: 'request', secret: 'poll-secret', expiresIn: 120 }) };
-    }
+      if (url.endsWith('/resume')) return resume();
+      if (url.endsWith('/remember')) return ok(savedDevice);
+      if (url.endsWith('/code')) return ok({ token: 'code-token' });
+      return ok({ id: 'request', secret: 'poll-secret', expiresIn: 120 });
+    },
   };
   vm.runInNewContext(source, context);
-  return { element, sockets, requests, poll: () => [...timers.values()].find(t => t.delay === 1000).fn() };
+  return { element, sockets, requests, preferences, windowEvents,
+    submit: () => element('connect-form').handlers.submit({ preventDefault() {} }),
+    poll: () => [...timers.values()].find(t => t.delay === 1000).fn() };
 }
 
-test('QR approval automatically connects with the issued token', async () => {
-  const f = fixture(async () => ({ ok: true, json: async () => ({ state: 'approved', token: 'browser-token' }) }));
-  await flush();
-  assert.equal(f.element('pair-qr').hidden, false);
+test('QR approval remembers the browser and waits for the explicit launch button', async () => {
+  const f = fixture({ status: () => ok({ state: 'approved', token: 'browser-token' }) });
+  await flush(); assert.equal(f.element('pair-qr').hidden, false);
   await f.poll();
+  assert.equal(f.sockets.length, 0);
+  assert.equal(f.element('remembered-device').hidden, false);
+  assert.equal(f.element('code').required, false);
+  assert.equal(f.element('connect-label').textContent, '启动显示');
+  assert.deepEqual(JSON.parse(f.preferences.get('wheelplay.browserDevice')), savedDevice);
+  f.element('hide-toolbar').checked = true; f.element('canvas-video').checked = true;
+  f.submit(); await flush();
   assert.equal(f.sockets.length, 1);
-  assert.equal(f.sockets[0].url, 'ws://server:8080/stream?token=browser-token');
-  assert.equal(f.element('pair-qr').hidden, true);
+  assert.equal(f.sockets[0].url, 'ws://server:8080/stream?token=resumed-token');
+  assert.equal(f.element('hide-toolbar').checked, true);
+  assert.equal(f.element('canvas-video').checked, true);
   assert.equal(f.requests.some(r => r.url.endsWith('/cancel')), false);
 });
 
 test('late QR approval cannot replace a manual code connection', async () => {
   let resolve;
-  const f = fixture(() => new Promise(done => { resolve = done; }));
-  await flush();
-  const polling = f.poll();
-  f.element('connect-form').handlers.submit({ preventDefault() {} });
-  resolve({ ok: true, json: async () => ({ state: 'approved', token: 'late-token' }) });
-  await polling;
+  const f = fixture({ status: () => new Promise(done => { resolve = done; }) });
+  await flush(); const polling = f.poll(); f.submit();
+  resolve(ok({ state: 'approved', token: 'late-token' }));
+  await polling; await flush();
   assert.equal(f.sockets.length, 1);
-  assert.equal(f.sockets[0].url, 'ws://server:8080/stream?code=123456');
+  assert.equal(f.sockets[0].url, 'ws://server:8080/stream?token=code-token');
   assert.equal(f.requests.some(r => r.url.endsWith('/cancel')), true);
+  assert.equal(f.requests.find(r => r.url.endsWith('/remember')).options.headers['X-Pair-Token'], 'code-token');
 });
 
 test('expired QR is removed while manual pairing remains available', async () => {
-  const f = fixture(async () => ({ ok: false, status: 404 }));
+  const f = fixture({ status: () => ({ ok: false, status: 404 }) });
   await flush(); await f.poll();
   assert.equal(f.element('pair-qr').hidden, true);
   assert.match(f.element('qr-status').textContent, /已过期/);
   assert.equal(f.element('refresh-qr').disabled, false);
-  f.element('connect-form').handlers.submit({ preventDefault() {} });
-  assert.equal(f.sockets.length, 1);
+  f.submit(); await flush(); assert.equal(f.sockets.length, 1);
+});
+
+test('reopening a remembered browser authenticates without QR or stream until launch', async () => {
+  const f = fixture({ stored: savedDevice }); await flush();
+  assert.deepEqual(f.requests.map(r => r.url), ['/pair/resume']);
+  assert.equal(f.sockets.length, 0);
+  assert.equal(f.element('code-entry').hidden, true);
+  assert.equal(f.element('qr-pairing').hidden, true);
+  assert.equal(f.element('connect').disabled, false);
+  assert.equal(f.requests[0].options.headers['X-Device-Secret'], savedDevice.secret);
+  f.submit(); await flush(); assert.equal(f.sockets.length, 1);
+});
+
+test('removed device clears saved credentials and offers QR or code pairing', async () => {
+  const f = fixture({ stored: savedDevice, resume: () => ({ ok: false, status: 401 }) });
+  await flush();
+  assert.equal(f.preferences.has('wheelplay.browserDevice'), false);
+  assert.equal(f.element('code').required, true);
+  assert.equal(f.element('code').disabled, false);
+  assert.equal(f.element('qr-pairing').hidden, false);
+  assert.equal(f.sockets.length, 0);
+  assert.match(f.element('message').textContent, /重新配对/);
+  f.submit(); await flush(); assert.equal(f.sockets[0].url, 'ws://server:8080/stream?token=code-token');
+});
+
+test('temporary service failure preserves remembered credentials and launch retries', async () => {
+  let available = false;
+  const f = fixture({ stored: savedDevice, resume: () => {
+    if (!available) throw new Error('offline');
+    return ok({ token: 'recovered-token', name: savedDevice.name });
+  } });
+  await flush();
+  assert.equal(f.preferences.has('wheelplay.browserDevice'), true);
+  assert.equal(f.element('connect').disabled, false);
+  assert.equal(f.requests.some(r => r.url.endsWith('/request')), false);
+  available = true; f.submit(); await flush();
+  assert.equal(f.sockets[0].url, 'ws://server:8080/stream?token=recovered-token');
+});
+
+test('quick browser link pairs but keeps launch options available until a click', async () => {
+  const f = fixture({ search: '?code=123456' }); await flush();
+  assert.equal(f.sockets.length, 0);
+  assert.equal(f.element('connect-label').textContent, '启动显示');
+  f.submit(); await flush(); assert.equal(f.sockets.length, 1);
+});
+
+test('pagehide and back navigation retain device memory and never automatically launch', async () => {
+  const f = fixture({ stored: savedDevice }); await flush();
+  f.windowEvents.pagehide();
+  assert.equal(f.preferences.has('wheelplay.browserDevice'), true);
+  assert.equal(f.requests.some(r => r.url.endsWith('/revoke')), false);
+  f.windowEvents.pageshow({ persisted: true }); await flush();
+  assert.equal(f.sockets.length, 0);
+  assert.equal(f.element('connect-label').textContent, '启动显示');
+});
+
+test('storage-disabled browsers can still pair and launch without being enrolled', async () => {
+  const f = fixture({ storageDisabled: true, status: () => ok({ state: 'approved', token: 'browser-token' }) });
+  await flush(); await f.poll();
+  assert.equal(f.requests.some(r => r.url.endsWith('/remember')), false);
+  assert.match(f.element('device-status').textContent, /无法保存/);
+  f.submit(); assert.equal(f.sockets.length, 1);
+});
+
+test('revocation between restore and launch forces fresh pairing instead of using stale token', async () => {
+  let revoked = false;
+  const f = fixture({ stored: savedDevice, resume: () => revoked ? { ok: false, status: 401 } : ok({ token: 'old-token', name: savedDevice.name }) });
+  await flush(); revoked = true; f.submit(); await flush();
+  assert.equal(f.sockets.length, 0);
+  f.submit(); await flush();
+  assert.equal(f.sockets[0].url, 'ws://server:8080/stream?token=code-token');
 });

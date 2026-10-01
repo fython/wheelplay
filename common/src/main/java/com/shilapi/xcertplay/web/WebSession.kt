@@ -49,6 +49,36 @@ internal object WebSession {
     private var phoneConnectHandler: (() -> String)? = null
     private var lastPhoneConnectAt: Long? = null
 
+    private var browserDevices: RememberedBrowsers? = null
+    private var browserDevicesContext: Context? = null
+
+    @Synchronized fun rememberedBrowsers(context: Context): RememberedBrowsers {
+        val application = context.applicationContext
+        if (browserDevicesContext !== application) {
+            browserDevicesContext = application
+            browserDevices = RememberedBrowsers(application)
+        }
+        return browserDevices!!
+    }
+
+    fun forgetBrowser(context: Context, id: String) {
+        val devices = rememberedBrowsers(context)
+        synchronized(devices) {
+            devices.remove(id)
+            server?.pairing?.revokeDevice(id)
+        }
+        server?.disconnectUnauthorized(); secureServer?.disconnectUnauthorized()
+    }
+
+    fun forgetAllBrowsers(context: Context) {
+        val devices = rememberedBrowsers(context)
+        synchronized(devices) {
+            devices.clear()
+            server?.pairing?.clear()
+        }
+        server?.disconnectViewer(); secureServer?.disconnectViewer()
+    }
+
     // Accessed on the main thread so lifecycle changes and connection requests are ordered.
     fun setPhoneConnectHandler(handler: (() -> String)?) { phoneConnectHandler = handler }
 

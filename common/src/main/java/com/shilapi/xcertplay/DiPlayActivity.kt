@@ -344,6 +344,10 @@ class DiPlayActivity : AppCompatActivity() {
             card.addView(ui.preference("iPhone", selectedPhoneName()) { choosePhone() }, matchButton())
         }
         section(content, "无线连接") { card -> wirelessLinkControls(card) }
+        section(content, "浏览器设备") { card ->
+            card.addView(label("配对后的浏览器会被记住，下次打开时自动恢复配对；选择启动选项后，点击网页上的「启动显示」。", 16, MUTED))
+            card.addView(ui.preference("连接过的设备", "查看、重命名或移除浏览器") { showBrowserDevices() })
+        }
         section(content, "画面与音频") { card ->
             carPlaySizeControl(card)
             toggle(card, "自适应浏览器尺寸", "按车机浏览器的实际画面比例协商 CarPlay 分辨率；浏览器尺寸变化时会重新连接。", AirPlayPersistence.loadAdaptiveBrowserSize(this)) {
@@ -522,6 +526,41 @@ class DiPlayActivity : AppCompatActivity() {
         if (CarPlayBackgroundSession.hasSession()) connect(true)
     }
 
+    private fun showBrowserDevices() {
+        val devices = WebSession.rememberedBrowsers(this).list()
+        if (devices.isEmpty()) {
+            MaterialAlertDialogBuilder(this).setTitle("连接过的浏览器")
+                .setMessage("还没有记住的浏览器。首次在网页扫码或输入配对码后会自动保存。")
+                .setPositiveButton("关闭", null).show()
+            return
+        }
+        val date = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+        val items = devices.map { "${it.name}\n最近连接：${date.format(Date(it.lastUsedAt))} · ${it.peer}" } + "移除全部设备"
+        MaterialAlertDialogBuilder(this).setTitle("连接过的浏览器（${devices.size}）")
+            .setItems(items.toTypedArray()) { _, index ->
+                if (index == devices.size) {
+                    MaterialAlertDialogBuilder(this).setTitle("移除全部浏览器？")
+                        .setMessage("当前浏览器连接会断开，所有浏览器下次使用时需要重新扫码或输入配对码。")
+                        .setNegativeButton("取消", null)
+                        .setPositiveButton("移除全部") { _, _ -> WebSession.forgetAllBrowsers(this); showBrowserDevices() }.show()
+                } else {
+                    val device = devices[index]
+                    MaterialAlertDialogBuilder(this).setTitle(device.name)
+                        .setMessage("首次配对：${date.format(Date(device.createdAt))}\n最近连接：${date.format(Date(device.lastUsedAt))}\n最近地址：${device.peer}")
+                        .setNeutralButton("重命名") { _, _ ->
+                            textInput("浏览器名称", device.name, secret = false) {
+                                WebSession.rememberedBrowsers(this).rename(device.id, it)
+                                showBrowserDevices()
+                            }
+                        }
+                        .setNegativeButton("取消", null)
+                        .setPositiveButton("移除设备") { _, _ ->
+                            WebSession.forgetBrowser(this, device.id); showBrowserDevices()
+                        }.show()
+                }
+            }.setNegativeButton("关闭", null).show()
+    }
+
     private fun textInput(title: String, current: String, secret: Boolean, save: (String) -> Unit) {
         val field = TextInputLayout(this).apply {
             hint = title
@@ -537,7 +576,7 @@ class DiPlayActivity : AppCompatActivity() {
                 android.text.InputType.TYPE_CLASS_TEXT
             }
         }
-        field.addView(input, ViewGroup.LayoutParams(-1, -2))
+        field.addView(input, LinearLayout.LayoutParams(-1, -2))
         val container = column().apply { setPadding(dp(24), dp(8), dp(24), 0); addView(field) }
         MaterialAlertDialogBuilder(this).setTitle(title).setView(container)
             .setPositiveButton("保存") { _, _ -> save(input.text.toString().let { if (secret) it else it.trim() }) }

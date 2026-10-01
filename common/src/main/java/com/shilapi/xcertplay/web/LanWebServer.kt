@@ -19,13 +19,32 @@ internal class LanWebServer(private val context: Context, private val code: Stri
     private val timer = Executors.newSingleThreadScheduledExecutor()
     @Volatile private var failures = 0
     @Volatile private var retryAt = 0L
+    private val devices = WebSession.rememberedBrowsers(context)
+    private val enrolled = mutableMapOf<String, RememberedBrowsers.Credential>()
     val hasViewer get() = viewer != null
     fun frameAvailable() { viewer?.frameAvailable() }
+    fun disconnectViewer() { viewer?.disconnect("设备已移除") }
+
+    fun disconnectUnauthorized() {
+        viewer?.let { if (!it.authorized()) it.disconnect("设备已移除或配对已过期") }
+    }
+
+    @Synchronized private fun acceptCode(value: String?): Boolean {
+        val now = SystemClock.elapsedRealtime()
+        if (now < retryAt) return false
+        if (value != code) {
+            if (++failures >= 5) { retryAt = now + 30000; failures = 0 }
+            return false
+        }
+        failures = 0
+        return true
+    }
 
     init {
         timer.scheduleAtFixedRate({
             val now = SystemClock.elapsedRealtime()
             WebSession.touch.expire(now)
+            disconnectUnauthorized()
             viewer?.let { if (now - it.lastSeen > 6000 || it.frameStalled(now)) it.disconnect("连接超时") }
         }, 500, 500, TimeUnit.MILLISECONDS)
     }
@@ -38,15 +57,9 @@ internal class LanWebServer(private val context: Context, private val code: Stri
                 parsed.scheme == (if (secure) "https" else "http") && parsed.rawAuthority.equals(session.headers["host"], true)
             }.getOrDefault(false)
             if (!sameOrigin) return response(Response.Status.FORBIDDEN, "Origin rejected")
-            synchronized(this) {
-                val now = SystemClock.elapsedRealtime()
-                if (now < retryAt) return response(Response.Status.FORBIDDEN, "Try again later")
-                if (!pairing.authorized(session.parameters["token"]?.firstOrNull()) && session.parameters["code"]?.firstOrNull() != code) {
-                    failures++
-                    if (failures >= 5) { retryAt = now + 30000; failures = 0 }
-                    return response(Response.Status.UNAUTHORIZED, "Pairing code required")
-                }
-                failures = 0
+            if (!pairing.authorized(session.parameters["token"]?.firstOrNull()) &&
+                !acceptCode(session.parameters["code"]?.firstOrNull())) {
+                return response(Response.Status.UNAUTHORIZED, "Pairing code required")
             }
             return super.serve(session)
         }
@@ -123,6 +136,35 @@ internal class LanWebServer(private val context: Context, private val code: Stri
                 JSONObject().put("state", if (request.token == null) "pending" else "approved")
                     .apply { request.token?.let { put("token", it) } }
             }
+            "/pair/code" -> {
+                if (!acceptCode(session.headers["x-pair-code"]))
+                    return response(Response.Status.UNAUTHORIZED, "Pairing code required")
+                val token = pairing.issueToken() ?: return response(Response.Status.FORBIDDEN, "Too many sessions")
+                JSONObject().put("token", token)
+            }
+            "/pair/remember" -> synchronized(devices) {
+                val token = session.headers["x-pair-token"]
+                if (token == null || !pairing.authorized(token))
+                    return response(Response.Status.UNAUTHORIZED, "Pairing required")
+                enrolled.entries.removeAll { !pairing.authorized(it.key) }
+                val credential = enrolled[token] ?: run {
+                    // Resumed tokens are already bound. They cannot create additional devices.
+                    if (pairing.deviceId(token) != null)
+                        return response(Response.Status.FORBIDDEN, "Device already remembered")
+                    val name = browserName(session.headers["user-agent"].orEmpty())
+                    devices.remember(name, session.remoteIpAddress)
+                        ?: return response(Response.Status.FORBIDDEN, "Cannot remember device; check device limit")
+                }.also { enrolled[token] = it }
+                pairing.bindDevice(token, credential.device.id)
+                JSONObject().put("id", credential.device.id).put("secret", credential.secret)
+                    .put("name", credential.device.name)
+            }
+            "/pair/resume" -> synchronized(devices) {
+                val device = devices.authenticate(session.headers["x-device-id"], session.headers["x-device-secret"], session.remoteIpAddress)
+                    ?: return response(Response.Status.UNAUTHORIZED, "Device not remembered")
+                val token = pairing.issueToken(device.id) ?: return response(Response.Status.FORBIDDEN, "Too many sessions")
+                JSONObject().put("token", token).put("name", device.name)
+            }
             "/pair/revoke" -> { pairing.revoke(session.headers["x-pair-token"]); JSONObject().put("state", "revoked") }
             "/pair/cancel" -> { pairing.cancel(id, secret); JSONObject().put("state", "cancelled") }
             else -> return response(Response.Status.NOT_FOUND, "Not found")
@@ -130,6 +172,25 @@ internal class LanWebServer(private val context: Context, private val code: Stri
         return newFixedLengthResponse(Response.Status.OK, "application/json", json.toString()).apply {
             addHeader("Cache-Control", "no-store"); addHeader("X-Content-Type-Options", "nosniff")
         }
+    }
+
+    private fun browserName(agent: String): String {
+        val browser = when {
+            "Edg/" in agent -> "Edge"
+            "Chrome/" in agent -> "Chrome"
+            "Firefox/" in agent -> "Firefox"
+            "Safari/" in agent -> "Safari"
+            else -> "浏览器"
+        }
+        val platform = when {
+            "Android" in agent -> "Android"
+            "iPhone" in agent || "iPad" in agent -> "iOS"
+            "Windows" in agent -> "Windows"
+            "Macintosh" in agent -> "macOS"
+            "Linux" in agent -> "Linux"
+            else -> null
+        }
+        return if (platform == null) browser else "$browser · $platform"
     }
 
     private fun response(status: Response.Status, text: String) =
@@ -145,6 +206,8 @@ internal class LanWebServer(private val context: Context, private val code: Stri
     }
 
     private inner class Client(handshake: IHTTPSession) : WebSocket(handshake) {
+        private val token = handshake.parameters["token"]?.firstOrNull()?.takeIf { it.isNotEmpty() }
+        fun authorized() = token == null || pairing.authorized(token)
         @Volatile var lastSeen = SystemClock.elapsedRealtime()
         fun frameStalled(now: Long) = sender.frameStalled(now)
         fun frameAvailable() = sender.frameAvailable()
@@ -221,6 +284,7 @@ internal class LanWebServer(private val context: Context, private val code: Stri
         }
 
         override fun onOpen() {
+            if (!authorized()) { disconnect("配对已过期"); return }
             synchronized(this@LanWebServer) {
                 if (viewer != null || !WebSession.touch.claim(this)) {
                     reply(WebStreamSender.Control.BUSY,
@@ -253,6 +317,7 @@ internal class LanWebServer(private val context: Context, private val code: Stri
 
         override fun onMessage(message: WebSocketFrame) {
             if (ended.get() || closing.get() || viewer !== this) return
+            if (!authorized()) { disconnect("设备已移除或配对已过期"); return }
             try {
                 if (message.opCode == WebSocketFrame.OpCode.Binary) {
                     require(message.binaryPayload.size <= 20_000)

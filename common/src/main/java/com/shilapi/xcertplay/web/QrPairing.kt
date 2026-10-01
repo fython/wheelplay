@@ -11,10 +11,11 @@ internal class QrPairing(private val now: () -> Long = { android.os.SystemClock.
     private fun secret() = ByteArray(24).also(random::nextBytes).let { Base64.getUrlEncoder().withoutPadding().encodeToString(it) }
     private val instance = secret()
     private val requests = linkedMapOf<String, Request>()
-    private val tokens = linkedMapOf<String, Long>()
+    private data class Token(val expiresAt: Long, var deviceId: String? = null)
+    private val tokens = linkedMapOf<String, Token>()
     private fun prune() {
         requests.entries.removeAll { it.value.expiresAt <= now() }
-        tokens.entries.removeAll { it.value <= now() }
+        tokens.entries.removeAll { it.value.expiresAt <= now() }
     }
     @Synchronized fun create(peer: String): Request? {
         prune()
@@ -34,11 +35,28 @@ internal class QrPairing(private val now: () -> Long = { android.os.SystemClock.
     }
     @Synchronized fun approve(payload: String): Boolean {
         val request = inspect(payload) ?: return false
-        if (tokens.size >= 32) return false
-        val token = secret()
+        val token = issueToken() ?: return false
         requests[request.id]?.token = token
-        tokens[token] = now() + 12 * 60 * 60_000L
         return true
+    }
+    @Synchronized fun issueToken(deviceId: String? = null): String? {
+        prune()
+        if (deviceId != null) tokens.entries.firstOrNull { it.value.deviceId == deviceId }?.let {
+            tokens[it.key] = Token(now() + 12 * 60 * 60_000L, deviceId)
+            return it.key
+        }
+        if (tokens.size >= 32) return null
+        return secret().also { tokens[it] = Token(now() + 12 * 60 * 60_000L, deviceId) }
+    }
+    @Synchronized fun deviceId(token: String?): String? { prune(); return tokens[token]?.deviceId }
+    @Synchronized fun bindDevice(token: String, deviceId: String): Boolean {
+        prune()
+        val session = tokens[token] ?: return false
+        session.deviceId = deviceId
+        return true
+    }
+    @Synchronized fun revokeDevice(deviceId: String) {
+        tokens.entries.removeAll { it.value.deviceId == deviceId }
     }
     @Synchronized fun authorized(token: String?): Boolean { prune(); return token != null && tokens.containsKey(token) }
     @Synchronized fun cancel(id: String?, pollSecret: String?) {

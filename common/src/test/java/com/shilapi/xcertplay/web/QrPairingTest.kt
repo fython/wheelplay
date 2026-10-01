@@ -4,6 +4,19 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class QrPairingTest {
+    @Test fun resumedDevicesReuseTokensAndRemovalRevokesOnlyTheirSessions() {
+        val registry = QrPairing { 1000 }
+        val original = registry.issueToken()!!
+        assertTrue(registry.bindDevice(original, "device-a"))
+        repeat(40) { assertEquals(original, registry.issueToken("device-a")) }
+        val other = registry.issueToken("device-b")!!
+        registry.revokeDevice("device-a")
+        assertFalse(registry.authorized(original))
+        assertTrue(registry.authorized(other))
+        assertFalse(registry.bindDevice(original, "device-a"))
+        registry.clear()
+        assertFalse(registry.authorized(other))
+    }
     @Test fun onlyMatchingLocalScanCanApproveAndPollingNeedsSeparateSecret() {
         val registry = QrPairing { 1000 }
         val request = registry.create("192.168.1.2")!!
