@@ -2,6 +2,8 @@ package com.shilapi.xcertplay.web
 
 import android.content.Context
 import android.os.SystemClock
+import android.os.Handler
+import android.os.Looper
 import com.shilapi.xcertplay.AirPlayPersistence
 import com.shilapi.xcertplay.CarPlayBackgroundSession
 import java.security.SecureRandom
@@ -43,6 +45,29 @@ internal object WebSession {
     val running get() = server != null
     val hasViewer get() = server?.hasViewer == true || secureServer?.hasViewer == true
     val audio = BrowserAudioBridge()
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var phoneConnectHandler: (() -> String)? = null
+    private var lastPhoneConnectAt: Long? = null
+
+    // Accessed on the main thread so lifecycle changes and connection requests are ordered.
+    fun setPhoneConnectHandler(handler: (() -> String)?) { phoneConnectHandler = handler }
+
+    fun requestPhoneConnection(reply: (String) -> Unit) {
+        mainHandler.post {
+            val now = SystemClock.elapsedRealtime()
+            val message = when {
+                CarPlayBackgroundSession.hasSession() -> "iPhone 会话已启动，请等待连接完成"
+                phoneConnectHandler == null -> "请先将 Android 上的 WheelPlay 打开到前台，再点击连接 iPhone"
+                lastPhoneConnectAt?.let { now - it < 3000 } == true -> "连接请求已提交，请稍候"
+                else -> {
+                    lastPhoneConnectAt = now
+                    runCatching { phoneConnectHandler!!.invoke() }
+                        .getOrElse { "无法启动连接，请在 Android 上检查连接设置" }
+                }
+            }
+            reply(message)
+        }
+    }
 
     @Synchronized fun start(context: Context) {
         if (server != null) return

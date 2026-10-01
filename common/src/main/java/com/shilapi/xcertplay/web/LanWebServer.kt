@@ -276,6 +276,12 @@ internal class LanWebServer(private val context: Context, private val code: Stri
                         require(sequence in 0..0xffff_ffffL)
                         sender.acknowledgeAudio(sequence)
                     }
+                    "phone-connect" -> WebSession.requestPhoneConnection { result ->
+                        if (viewer === this && !ended.get() && !closing.get()) {
+                            reply(WebStreamSender.Control.PHONE_CONNECT,
+                                JSONObject().put("type", "phone-connect-result").put("message", result).toString())
+                        }
+                    }
                     "ack" -> sender.acknowledge()
                     "viewport" -> {
                         val width = data.getInt("width")

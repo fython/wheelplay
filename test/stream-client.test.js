@@ -175,3 +175,29 @@ test('Canvas failure falls back to JPEG while control and the selected preferenc
   assert.equal(ws.sent.filter(m => m.type === 'touch').length, 2);
   assert.equal(f.element('canvas-video').checked, true);
 });
+
+
+test('phone connection requires pairing and reports the server result', () => {
+  const f = fixture();
+  f.element('phone-connect').handlers.click();
+  assert.equal(f.sockets.length, 0);
+  assert.match(f.element('phone-connect-message').textContent, /重新配对/);
+  const ws = f.connect();
+  f.element('phone-connect').handlers.click();
+  assert.equal(ws.sent.filter(m => m.type === 'phone-connect').length, 1);
+  assert.equal(f.element('phone-connect').disabled, true);
+  ws.onmessage({ data: JSON.stringify({ type: 'phone-connect-result', message: '请在 Android 上完成授权' }) });
+  assert.equal(f.element('phone-connect').disabled, false);
+  assert.equal(f.element('phone-connect-message').textContent, '请在 Android 上完成授权');
+});
+
+test('phone connection survives congestion and is sent once after recovery', () => {
+  const f = fixture(), ws = f.connect();
+  ws.bufferedAmount = 8193;
+  f.element('phone-connect').handlers.click();
+  assert.equal(ws.sent.some(m => m.type === 'phone-connect'), false);
+  assert.equal(f.element('phone-connect').disabled, true);
+  ws.bufferedAmount = 0;
+  f.retry();
+  assert.equal(ws.sent.filter(m => m.type === 'phone-connect').length, 1);
+});

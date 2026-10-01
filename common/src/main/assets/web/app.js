@@ -68,7 +68,7 @@ export function createControlOutbox(socket, {
         if (kind === 'move' && tail && tail.kind === 'move') tail.json = json;
         else if (touches.length < 64) touches.push({ kind, json });
         else { fail(); return false; }
-      } else if (['rtc-start', 'rtc-answer', 'rtc-ready', 'rtc-fallback'].includes(data.type)) {
+      } else if (['rtc-start', 'rtc-answer', 'rtc-ready', 'rtc-fallback', 'phone-connect'].includes(data.type)) {
         if (signals.length >= 8 || json.length > 32768) { fail(); return false; }
         signals.push(json);
       } else return false;
@@ -494,6 +494,8 @@ if (typeof document !== 'undefined') {
         onStats: (fps, metrics) => { rtcFps = fps === null ? null : Math.round(fps); performanceStats.receiver = metrics; },
       });
       $('message').textContent = '';
+      $('phone-connect').disabled = false;
+      $('phone-connect-message').textContent = '请保持 Android 上的 WheelPlay 在前台；点击连接 iPhone，按提示完成授权。';
       $('pairing').hidden = true; $('display').hidden = false; $('disconnect').hidden = false;
       $('topbar').hidden = $('hide-toolbar').checked;
       lastViewportSignature = '';
@@ -515,6 +517,11 @@ if (typeof document !== 'undefined') {
         if (data.type === 'rtc-offer' || data.type === 'rtc-stop') {
           if (data.type === 'rtc-stop') rtcRequested = false;
           rtc.receive(data); return;
+        }
+        if (data.type === 'phone-connect-result') {
+          $('phone-connect').disabled = false;
+          $('phone-connect-message').textContent = data.message;
+          return;
         }
         if (data.type === 'busy') {
           const message = data.message; disconnect(); $('message').textContent = message; return;
@@ -573,6 +580,14 @@ if (typeof document !== 'undefined') {
   }
   $('connect-form').addEventListener('submit', event => {
     event.preventDefault(); stopQr(); pairingToken = null; stopped = false; attempts = 0; connect();
+  });
+  $('phone-connect').addEventListener('click', () => {
+    if (!paired || !send({ type: 'phone-connect' })) {
+      $('phone-connect-message').textContent = '浏览器连接已中断，请重新配对后再试。';
+      return;
+    }
+    $('phone-connect').disabled = true;
+    $('phone-connect-message').textContent = '正在请求连接 iPhone…';
   });
   $('disconnect').addEventListener('click', () => disconnect());
   $('fullscreen').addEventListener('click', async () => {

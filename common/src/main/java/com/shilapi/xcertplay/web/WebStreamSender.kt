@@ -14,7 +14,7 @@ internal class WebStreamSender(
     private val executor: ExecutorService = Executors.newSingleThreadExecutor(),
     private val now: () -> Long = SystemClock::elapsedRealtime,
 ) : Closeable {
-    enum class Control { STATUS, INPUT_UNAVAILABLE, BUSY, PONG, CLOSE, RTC, MIC_CONFIG, MIC_STOP, AUDIO_STOP, AUDIO_RESET, AUDIO_ROUTE }
+    enum class Control { STATUS, PHONE_CONNECT, INPUT_UNAVAILABLE, BUSY, PONG, CLOSE, RTC, MIC_CONFIG, MIC_STOP, AUDIO_STOP, AUDIO_RESET, AUDIO_ROUTE }
     private data class Outgoing(val frame: WebSocketFrame, val afterSend: () -> Unit = {})
     private val lock = Any()
     private val controls = linkedMapOf<Any, Outgoing>()

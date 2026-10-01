@@ -23,7 +23,7 @@ WheelPlay 是一款 Android 局域网 CarPlay 服务端应用，可将 iPhone �
 1. 在 Android 服务设备上安装并启动 WheelPlay。
 2. 将服务设备与车机连接到同一局域网，在车机浏览器中打开应用显示的访问地址。
 3. 使用 WheelPlay 扫描网页上的二维码并确认连接，或在网页输入配对码。
-4. 在应用中连接 iPhone，并在 iPhone 上允许使用 CarPlay。
+4. 保持 Android 上的 WheelPlay 在前台，在已配对浏览器的等待画面页点击「连接 iPhone」，即可使用 App 当前的 USB / 无线设置发起连接；也可直接在应用中连接。按提示在 Android 上完成设备选择或授权，并在 iPhone 上允许使用 CarPlay。
 5. 连接完成后，在车机浏览器中查看和操作 CarPlay。
 
 追求 60 fps 时，在「设置 → 画面与音频」选择 WebRTC 视频直通，并将协商帧率设为 60；应用设置并重新连接后生效。实际帧率取决于 iPhone 输出、网络和浏览器解码能力，静态画面可能降低帧率。WebRTC 使用局域网 UDP，不依赖外部 STUN/TURN；UDP 不通或源视频编码不兼容时自动回退 JPEG。允许 iPhone 使用 HEVC 后，可向支持 HEVC / WebRTC 的浏览器直通 H.265；较旧浏览器建议保持 H.264。

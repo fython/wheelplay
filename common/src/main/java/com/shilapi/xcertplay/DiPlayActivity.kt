@@ -149,6 +149,13 @@ class DiPlayActivity : AppCompatActivity() {
     override fun onConfigurationChanged(newConfig: Configuration) { super.onConfigurationChanged(newConfig); createShell() }
     override fun onResume() {
         super.onResume(); ServerWindow.showSystemBars(window); handler.removeCallbacks(tick); handler.post(tick)
+        WebSession.setPhoneConnectHandler {
+            if (setupError != null) setupError!!
+            else {
+                connect(AirPlayPersistence.loadWirelessEnabled(this))
+                "已请求连接 iPhone；如有提示，请在 Android 上完成设备选择或授权，并在 iPhone 上允许 CarPlay"
+            }
+        }
         // Back from the car settings: refresh the car hotspot reminder on the home page.
         if (!initialLaunch) { refreshPhone(); refreshService() }
         if (initialLaunch) {
@@ -159,7 +166,7 @@ class DiPlayActivity : AppCompatActivity() {
             }
         }
     }
-    override fun onPause() { handler.removeCallbacks(tick); super.onPause() }
+    override fun onPause() { WebSession.setPhoneConnectHandler(null); handler.removeCallbacks(tick); super.onPause() }
 
     private fun normalizedPage(value: String) = when (value) {
         "home", "wireless-recovery" -> "phone"
@@ -398,9 +405,9 @@ class DiPlayActivity : AppCompatActivity() {
             card.addView(label("基于 xcertplay / DiPlay，保留 GPL-3.0 与 AGPL-3.0 许可声明。CarPlay 与 NIO 图标属于各自权利人。", 13, MUTED).apply { setPadding(0, dp(20), 0, 0) })
         }
         section(content, "开源") { card ->
-            card.addView(ui.preference("源码地址", "cnb.cool/siubeng/wheelplay-android") {
+            card.addView(ui.preference("源码地址", "github.com/fython/wheelplay") {
                 runCatching {
-                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://cnb.cool/siubeng/wheelplay-android")))
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/fython/wheelplay")))
                 }.onFailure { toast("未找到可打开网页的浏览器") }
             })
         }

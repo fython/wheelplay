@@ -23,7 +23,7 @@ Install the app on an Android device and open the displayed address in your car'
 1. Install and launch WheelPlay on the Android server device.
 2. Connect the Android device and your car to the same local network, then open the address shown in the app in your car's browser.
 3. Use WheelPlay to scan the QR code on the webpage and confirm the connection, or enter the pairing code on the webpage.
-4. Connect your iPhone in the app and allow CarPlay on the iPhone.
+4. Keep WheelPlay in the foreground on Android. Click “连接 iPhone” (Connect iPhone) on the paired browser’s waiting screen to start using the app’s current USB / wireless settings, or connect from the app. Complete any device selection or permission prompts on Android and allow CarPlay on the iPhone.
 5. Once connected, view and control CarPlay in your car's browser.
 
 For 60 fps, select WebRTC video passthrough under Settings → Display & Audio and set the negotiated frame rate to 60. Apply the settings and reconnect for the changes to take effect. Actual frame rate depends on the iPhone's output, network conditions, and browser decoding capabilities; static scenes may run at a lower frame rate. WebRTC uses local-network UDP without external STUN/TURN servers. It automatically falls back to JPEG if UDP is unavailable or the source video codec is incompatible. Allowing HEVC on the iPhone enables H.265 passthrough to browsers that support HEVC over WebRTC; H.264 is recommended for older browsers.
