@@ -45,6 +45,7 @@ import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -172,6 +173,28 @@ class CarPlayHostActivity : ComponentActivity() {
             updateHotspotStatusBlock()
             maybeStartCarPlay()
         }
+    private val manualHotspotChannelPermission =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+            val granted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                hasFineLocationPermission()
+            manualHotspotChannelPermissionNote = if (granted) {
+                null
+            } else {
+                "Hotspot channel scan unavailable; using Auto"
+            }
+            appendLog(
+                if (granted) {
+                    "Hotspot channel scan permission granted"
+                } else {
+                    "Hotspot channel scan permission denied; continuing with Auto"
+                },
+            )
+            if (!granted) {
+                AirPlayPersistence.saveManualHotspotChannelPermissionPromptDismissed(this, true)
+            }
+            updateHotspotStatusBlock()
+            maybeStartCarPlay()
+        }
     private val microphonePermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             microphoneAvailable = granted
@@ -184,6 +207,7 @@ class CarPlayHostActivity : ComponentActivity() {
             awaitingLocationPermission = false
             locationPermissionAvailable = hasFineLocationPermission()
             if (locationPermissionAvailable) {
+                manualHotspotChannelPermissionNote = null
                 appendLog("Location permission granted")
             } else if (locationReportingEnabled) {
                 locationReportingEnabled = false
@@ -204,7 +228,17 @@ class CarPlayHostActivity : ComponentActivity() {
                     },
                 )
             }
+            if (!locationPermissionAvailable &&
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                wirelessHotspotMode == WirelessHotspotMode.MANUAL
+            ) {
+                // Don't immediately ask for the same denied permission again for optional channel detection.
+                manualHotspotChannelPermissionAsked = true
+                manualHotspotChannelPermissionNote = "Precise location not granted; using Auto for channel"
+                AirPlayPersistence.saveManualHotspotChannelPermissionPromptDismissed(this, true)
+            }
             updateResolutionMenu()
+            updateHotspotStatusBlock()
             if (!menuOpen) requestStartupPrerequisites()
         }
 
@@ -293,6 +327,8 @@ class CarPlayHostActivity : ComponentActivity() {
     private var remoteMfiToken = ""
     private var wirelessPermissionsReady = false
     private var wirelessHotspotMode = WirelessHotspotMode.WIFI_P2P
+    private var manualHotspotChannelPermissionAsked = false
+    private var manualHotspotChannelPermissionNote: String? = null
     private var manualHotspotSsid = ""
     private var manualHotspotPassphrase = ""
     private var manualHotspotBand = ManualHotspotBand.AUTO
@@ -465,6 +501,11 @@ class CarPlayHostActivity : ComponentActivity() {
         manualHotspotBand = AirPlayPersistence.loadManualHotspotBand(this)
         manualHotspotChannel = AirPlayPersistence.loadManualHotspotChannel(this)
         manualHotspotSecurity = AirPlayPersistence.loadManualHotspotSecurity(this)
+        manualHotspotChannelPermissionAsked =
+            AirPlayPersistence.loadManualHotspotChannelPermissionPromptDismissed(this)
+        if (manualHotspotChannelPermissionAsked && !hasFineLocationPermission()) {
+            manualHotspotChannelPermissionNote = "Channel detection permission skipped; using Auto"
+        }
         wirelessPermissionsReady = !wirelessEnabled || hasRequiredWirelessPermissions()
     }
 
@@ -494,6 +535,48 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun hasFineLocationPermission(): Boolean =
         checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) ==
             PackageManager.PERMISSION_GRANTED
+
+    /** Precise location is optional on Android 13+: it only enables Wi-Fi scan-result channel detection. */
+    private fun requestManualHotspotChannelPermissionIfNeeded(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            wirelessHotspotMode != WirelessHotspotMode.MANUAL ||
+            hasFineLocationPermission() || manualHotspotChannelPermissionAsked
+        ) return false
+
+        manualHotspotChannelPermissionAsked = true
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Improve hotspot channel detection?")
+            .setMessage(
+                "Android requires precise location permission to read Wi-Fi scan results. " +
+                    "Choose Precise in the next prompt; approximate access isn't enough. WheelPlay " +
+                    "uses scan results only to match your active hotspot and detect its channel. " +
+                    "Results aren't recorded or uploaded. You can skip this and continue with Auto.",
+            )
+            .setNegativeButton("Continue with Auto") { _, _ ->
+                manualHotspotChannelPermissionNote = "Hotspot channel scan skipped; using Auto"
+                AirPlayPersistence.saveManualHotspotChannelPermissionPromptDismissed(this, true)
+                appendLog("Hotspot channel scan skipped; continuing with Auto")
+                updateHotspotStatusBlock()
+                maybeStartCarPlay()
+            }
+            .setPositiveButton("Allow") { _, _ ->
+                manualHotspotChannelPermission.launch(
+                    arrayOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION,
+                    ),
+                )
+            }
+            .setOnCancelListener {
+                manualHotspotChannelPermissionNote = "Hotspot channel scan skipped; using Auto"
+                AirPlayPersistence.saveManualHotspotChannelPermissionPromptDismissed(this, true)
+                appendLog("Hotspot channel scan skipped; continuing with Auto")
+                updateHotspotStatusBlock()
+                maybeStartCarPlay()
+            }
+            .show()
+        return true
+    }
 
     private fun requestVpnConsent() {
         val consent = CarPlayVpnService.prepare(this)
@@ -556,10 +639,18 @@ class CarPlayHostActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         locationPermissionAvailable = hasFineLocationPermission()
+        if (locationPermissionAvailable) {
+            manualHotspotChannelPermissionNote = null
+        } else if (manualHotspotChannelPermissionAsked &&
+            wirelessHotspotMode == WirelessHotspotMode.MANUAL
+        ) {
+            manualHotspotChannelPermissionNote = "Precise location unavailable; using Auto for channel"
+        }
         if (locationReportingEnabled && !locationPermissionAvailable && !menuOpen) {
             requestLocationPermission()
         }
         wirelessPermissionsReady = !wirelessEnabled || hasRequiredWirelessPermissions()
+        updateHotspotStatusBlock()
         maybeStartCarPlay()
         showSystemBars()
     }
@@ -2112,6 +2203,20 @@ class CarPlayHostActivity : ComponentActivity() {
         )
 
         manualFields.addView(
+            menuText(
+                "Android 13+: precise location enables hotspot channel detection. " +
+                    "If skipped, the connection continues with Auto. This scan does not record or upload location; " +
+                    "you can enable access later in Android app permissions.",
+                14f,
+                MENU_SECONDARY,
+            ),
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = dp(4) },
+        )
+
+        manualFields.addView(
             settingsInputRow(
                 label = "Hotspot password",
                 value = manualHotspotPassphrase,
@@ -2280,6 +2385,9 @@ class CarPlayHostActivity : ComponentActivity() {
             status.band?.let { append("\nBand: ").append(it) }
             status.channel?.let {
                 append("\nChannel: ").append(if (it == 0) "Auto" else it.toString())
+            }
+            if (wirelessHotspotMode == WirelessHotspotMode.MANUAL) {
+                manualHotspotChannelPermissionNote?.let { append('\n').append(it) }
             }
         }
     }
@@ -3010,6 +3118,7 @@ class CarPlayHostActivity : ComponentActivity() {
         ) {
             return
         }
+        if (requestManualHotspotChannelPermissionIfNeeded()) return
         startCarPlay(size)
     }
 

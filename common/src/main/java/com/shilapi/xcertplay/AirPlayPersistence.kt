@@ -45,6 +45,8 @@ object AirPlayPersistence {
     private const val KEY_MANUAL_HOTSPOT_BAND = "manual_hotspot_band"
     private const val KEY_MANUAL_HOTSPOT_CHANNEL = "manual_hotspot_channel"
     private const val KEY_MANUAL_HOTSPOT_SECURITY = "manual_hotspot_security"
+    private const val KEY_MANUAL_HOTSPOT_CHANNEL_PERMISSION_PROMPT_DISMISSED =
+        "manual_hotspot_channel_permission_prompt_dismissed"
     private const val KEY_DEBUG_LOGS_ENABLED = "debug_logs_enabled"
     private const val KEY_MANUFACTURER = "manufacturer"
     private const val KEY_MODEL = "model"
@@ -281,6 +283,16 @@ object AirPlayPersistence {
     fun saveManualHotspotSecurity(context: Context, security: ManualHotspotSecurity) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(KEY_MANUAL_HOTSPOT_SECURITY, security.name)
+            .apply()
+    }
+
+    fun loadManualHotspotChannelPermissionPromptDismissed(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean(KEY_MANUAL_HOTSPOT_CHANNEL_PERMISSION_PROMPT_DISMISSED, false)
+
+    fun saveManualHotspotChannelPermissionPromptDismissed(context: Context, dismissed: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_MANUAL_HOTSPOT_CHANNEL_PERMISSION_PROMPT_DISMISSED, dismissed)
             .apply()
     }
 

@@ -28,6 +28,8 @@ node_modules/
 *.aab
 *.apks
 *.idsig
+mobile/release/
+mobile/debug/
 
 # IDE-local state (shared project configuration remains trackable)
 .idea/
