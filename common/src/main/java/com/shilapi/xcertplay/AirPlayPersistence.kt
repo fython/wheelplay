@@ -72,9 +72,8 @@ object AirPlayPersistence {
     private const val SAFE_AREA_KEY_PREFIX = "safe_area_"
     private const val CUSTOM_ICON_FILE = "airplay-icon.png"
 
-    const val DEFAULT_MANUFACTURER = "WheelPlay"
     const val DEFAULT_MODEL = "WheelPlay"
-    const val DEFAULT_OEM_LABEL = "NIO"
+    const val DEFAULT_SIMULATED_MANUFACTURER_NAME = "NIO"
     const val DEFAULT_MFI_I2C_PATH = "/dev/i2c-1"
 
     fun loadBrowserAudioPlayback(context: Context): Boolean =
@@ -315,19 +314,6 @@ object AirPlayPersistence {
             .apply()
     }
 
-    fun loadManufacturer(context: Context): String =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_MANUFACTURER, null)
-            ?.takeUnless { it == "DiPlay" || it == "DiPlay Web" }
-            ?.takeIf { it.isNotBlank() }
-            ?: DEFAULT_MANUFACTURER
-
-    fun saveManufacturer(context: Context, manufacturer: String) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putString(KEY_MANUFACTURER, manufacturer)
-            .apply()
-    }
-
     fun loadModel(context: Context): String =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString(KEY_MODEL, null)
@@ -341,17 +327,26 @@ object AirPlayPersistence {
             .apply()
     }
 
-    fun loadOemLabel(context: Context): String =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_OEM_LABEL, DEFAULT_OEM_LABEL)
-            // iOS hides the car icon without a label.
-            .orEmpty().ifBlank { DEFAULT_OEM_LABEL }
-            // Upgrade the previous default for existing installations.
-            .let { if (it == "BYD") DEFAULT_OEM_LABEL else it }
+    fun loadSimulatedManufacturerName(context: Context): String {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val stored = prefs.getString(KEY_OEM_LABEL, null)
+        // Upgrade the previous default once, while allowing users to choose BYD again later.
+        if (stored == "BYD") {
+            prefs.edit().putString(KEY_OEM_LABEL, DEFAULT_SIMULATED_MANUFACTURER_NAME).apply()
+            return DEFAULT_SIMULATED_MANUFACTURER_NAME
+        }
+        // iOS hides the car icon without a label.
+        val name = stored?.takeIf { it.isNotBlank() }
+            ?: prefs.getString(KEY_MANUFACTURER, null)
+                ?.takeIf { it.isNotBlank() && it != "WheelPlay" && it != "DiPlay" && it != "DiPlay Web" }
+            ?: DEFAULT_SIMULATED_MANUFACTURER_NAME
+        if (stored == null) prefs.edit().putString(KEY_OEM_LABEL, name).apply()
+        return name
+    }
 
-    fun saveOemLabel(context: Context, oemLabel: String) {
+    fun saveSimulatedManufacturerName(context: Context, name: String) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putString(KEY_OEM_LABEL, oemLabel)
+            .putString(KEY_OEM_LABEL, name.trim().ifBlank { DEFAULT_SIMULATED_MANUFACTURER_NAME })
             .apply()
     }
 

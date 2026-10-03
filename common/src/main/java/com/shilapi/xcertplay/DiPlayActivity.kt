@@ -377,9 +377,10 @@ class DiPlayActivity : AppCompatActivity() {
             toggle(card, "右舵布局", "将 CarPlay 控件移到右侧。", AirPlayPersistence.loadRightHandDrive(this)) { AirPlayPersistence.saveRightHandDrive(this, it) }
 
         }
-        if (com.shilapi.xcertplay.hud.BydOutputSettings.available(this)) section(content, "BYD 导航输出") { card ->
+        val simulatedManufacturerName = AirPlayPersistence.loadSimulatedManufacturerName(this)
+        if (com.shilapi.xcertplay.hud.BydOutputSettings.available(this)) section(content, "$simulatedManufacturerName 导航输出") { card ->
             toggle(card, "抬头显示与仪表导航",
-                "在兼容的 BYD 设备上显示导航箭头、距离与路名，支持情况取决于车型。",
+                "在兼容的 $simulatedManufacturerName 设备上显示导航箭头、距离与路名，支持情况取决于车型。",
                 com.shilapi.xcertplay.hud.BydOutputSettings.enabled(this)) { com.shilapi.xcertplay.hud.BydOutputSettings.setEnabled(this, it) }
         }
         section(content, "权限与连接帮助") { card ->

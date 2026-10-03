@@ -272,9 +272,8 @@ class CarPlayHostActivity : ComponentActivity() {
     private var advancedAudioChannelMapping = false
     private var debugLogsEnabled = false
     private var autoStartOnBoot = false
-    private var manufacturer = AirPlayPersistence.DEFAULT_MANUFACTURER
     private var model = AirPlayPersistence.DEFAULT_MODEL
-    private var oemLabel = AirPlayPersistence.DEFAULT_OEM_LABEL
+    private var simulatedManufacturerName = AirPlayPersistence.DEFAULT_SIMULATED_MANUFACTURER_NAME
     private var fps = AirPlayDisplaySettings.DEFAULT_FPS
     private var streamTechnology = com.shilapi.xcertplay.web.StreamTechnology.WEBRTC
     private var widthPhysicalMm = AirPlayDisplaySettings.DEFAULT_WIDTH_PHYSICAL_MM
@@ -441,9 +440,8 @@ class CarPlayHostActivity : ComponentActivity() {
                 AirPlayPersistence.loadAdvancedAudioChannelMapping(this)
         debugLogsEnabled = AirPlayPersistence.loadDebugLogsEnabled(this)
         autoStartOnBoot = AirPlayPersistence.loadAutoStartOnBoot(this)
-        manufacturer = AirPlayPersistence.loadManufacturer(this)
         model = AirPlayPersistence.loadModel(this)
-        oemLabel = AirPlayPersistence.loadOemLabel(this)
+        simulatedManufacturerName = AirPlayPersistence.loadSimulatedManufacturerName(this)
         fps = AirPlayPersistence.loadFps(this)
         streamTechnology = AirPlayPersistence.loadStreamTechnology(this)
         widthPhysicalMm = AirPlayPersistence.loadWidthPhysicalMm(this)
@@ -1246,9 +1244,8 @@ class CarPlayHostActivity : ComponentActivity() {
         AirPlayPersistence.savePhysicalSizeBasis(this, physicalSizeBasis)
         AirPlayPersistence.saveHevcEnabled(this, hevcEnabled)
         AirPlayPersistence.saveHevcSoftwareDecoderEnabled(this, hevcSoftwareDecoderEnabled)
-        AirPlayPersistence.saveManufacturer(this, manufacturer)
         AirPlayPersistence.saveModel(this, model)
-        AirPlayPersistence.saveOemLabel(this, oemLabel)
+        AirPlayPersistence.saveSimulatedManufacturerName(this, simulatedManufacturerName)
         AirPlayPersistence.saveDebugLogsEnabled(this, debugLogsEnabled)
         AirPlayPersistence.saveRightHandDrive(this, rightHandDrive)
         AirPlayPersistence.saveSafeAreaDrawOutside(this, safeAreaDrawOutside)
@@ -1474,8 +1471,8 @@ class CarPlayHostActivity : ComponentActivity() {
             orientation = LinearLayout.VERTICAL
         }
         section.addView(
-            settingsInputRow("Manufacturer", manufacturer) { value ->
-                manufacturer = value
+            settingsInputRow("模拟厂商名称", simulatedManufacturerName) { value ->
+                simulatedManufacturerName = value
                 updateResolutionMenu()
             },
             LinearLayout.LayoutParams(
@@ -1486,16 +1483,6 @@ class CarPlayHostActivity : ComponentActivity() {
         section.addView(
             settingsInputRow("Model", model) { value ->
                 model = value
-                updateResolutionMenu()
-            },
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { topMargin = dp(10) },
-        )
-        section.addView(
-            settingsInputRow("OEM label", oemLabel) { value ->
-                oemLabel = value
                 updateResolutionMenu()
             },
             LinearLayout.LayoutParams(
@@ -1658,7 +1645,7 @@ class CarPlayHostActivity : ComponentActivity() {
             orientation = LinearLayout.VERTICAL
         }
         section.addView(
-            menuText("AirPlay icon", 20f, MENU_SECONDARY),
+            menuText("模拟厂商图标", 20f, MENU_SECONDARY),
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -1685,7 +1672,7 @@ class CarPlayHostActivity : ComponentActivity() {
         }
         actions.addView(
             Button(this).apply {
-                text = "Choose image"
+                text = "选择图片"
                 isAllCaps = false
                 setOnClickListener {
                     externalActivityInProgress = true
@@ -1699,7 +1686,7 @@ class CarPlayHostActivity : ComponentActivity() {
         )
         actions.addView(
             Button(this).apply {
-                text = "Default icon"
+                text = "使用默认图标"
                 isAllCaps = false
                 setOnClickListener {
                     AirPlayPersistence.clearCustomAirPlayIcon(this@CarPlayHostActivity)
@@ -2380,7 +2367,7 @@ class CarPlayHostActivity : ComponentActivity() {
             append(resolution).append('\n')
             append("Identity: ").append(normalizedManufacturer()).append(" / ")
                 .append(normalizedModel()).append('\n')
-            append("OEM label: ").append(oemLabel.ifBlank { "(empty)" }).append('\n')
+            append("模拟厂商名称: ").append(simulatedManufacturerName.ifBlank { "(empty)" }).append('\n')
             append("Frame rate: ").append(fps).append(" fps\n")
             append("Detected maximum: ")
                 .append(maximumDetectedWidthPixels).append(" x ")
@@ -2515,7 +2502,7 @@ class CarPlayHostActivity : ComponentActivity() {
             microphone = true,
             manufacturer = normalizedManufacturer(),
             model = normalizedModel(),
-            oemLabel = oemLabel,
+            oemLabel = normalizedManufacturer(),
             icons = listOf(loadAirPlayIcon()),
         )
     }
@@ -2562,7 +2549,7 @@ class CarPlayHostActivity : ComponentActivity() {
         val bitmap = customBitmap ?: BitmapFactory.decodeResource(resources, R.raw.ic_car_home)
         preview.setImageBitmap(bitmap)
         iconStatusView?.text =
-            if (customBitmap != null) "Custom 1:1 icon" else "Default NIO icon"
+            if (customBitmap != null) "自定义 1:1 图标" else "默认 NIO 图标"
     }
 
     private fun currentActivitySize(): DisplaySize? {
@@ -2661,7 +2648,7 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun normalizedManufacturer(): String =
-        manufacturer.trim().ifBlank { AirPlayPersistence.DEFAULT_MANUFACTURER }
+        simulatedManufacturerName.trim().ifBlank { AirPlayPersistence.DEFAULT_SIMULATED_MANUFACTURER_NAME }
 
     private fun normalizedModel(): String =
         model.trim().ifBlank { AirPlayPersistence.DEFAULT_MODEL }
