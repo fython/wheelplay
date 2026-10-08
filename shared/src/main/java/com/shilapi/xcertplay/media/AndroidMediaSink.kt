@@ -43,7 +43,34 @@ class AndroidMediaSink(
     private val onClosed: () -> Unit = {},
     private val encodedVideo: EncodedVideoSink? = null,
     private val remoteAudio: RemoteAudioRoute? = null,
-) : MediaSink {
+) : MediaSink, MediaOutputControl {
+    @Volatile private var localMediaAllowed = false
+    @Volatile private var localMediaRequested: (() -> Unit)? = null
+    private val localMediaDemandPending = AtomicBoolean(false)
+    @Volatile private var remoteMediaPlayback = false
+    @Volatile private var mediaRemoteFallback = false
+    override fun isRemoteMediaAvailable(): Boolean = remoteAudio?.playbackAvailable == true && !mediaRemoteFallback
+    private val routeListeners = java.util.concurrent.CopyOnWriteArrayList<(Boolean) -> Unit>()
+
+    override fun setLocalMediaAllowed(allowed: Boolean) {
+        localMediaAllowed = allowed
+        if (allowed) localMediaDemandPending.set(false)
+    }
+    override fun setLocalMediaRequestedListener(listener: (() -> Unit)?) {
+        localMediaRequested = listener
+        localMediaDemandPending.set(false)
+    }
+    override fun subscribeMediaRoute(listener: (Boolean) -> Unit): AutoCloseable {
+        routeListeners.add(listener)
+        listener(remoteMediaPlayback)
+        return AutoCloseable { routeListeners.remove(listener) }
+    }
+    private fun mediaRoute(remote: Boolean) {
+        if (remoteMediaPlayback == remote) return
+        remoteMediaPlayback = remote
+        routeListeners.forEach { it(remote) }
+    }
+
     private val screenStateLock = Any()
     private val activeScreenTypes = mutableSetOf<Int>()
     private val defaultSurface = surface
@@ -61,6 +88,7 @@ class AndroidMediaSink(
     }
     private val microphoneChangePending = AtomicBoolean(false)
     init {
+        remoteAudio?.onPlaybackRouteChanged(::mediaRoute)
         remoteAudio?.onMicrophoneRouteChanged {
             if (microphoneChangePending.compareAndSet(false, true)) try {
                 microphoneExecutor.execute {
@@ -225,6 +253,10 @@ class AndroidMediaSink(
         }
         microphoneExecutor.shutdownNow()
         remoteAudio?.close()
+        localMediaRequested = null
+        localMediaAllowed = false
+        mediaRoute(false)
+        routeListeners.clear()
         synchronized(screenStateLock) {
             activeScreenTypes.forEach { screenStreamActiveChanged?.invoke(it, false) }
             activeScreenTypes.clear()
@@ -260,8 +292,21 @@ class AndroidMediaSink(
         val existing = audioRenderers[type]
         if (existing?.format == format) return existing
         existing?.close()
+        val isMusic = format.isMediaPlayback()
         return AudioRenderer(format, advancedAudioChannelMapping, mediaBufferMillis, onAudioDiagnostic,
-            remoteOutput = { data, offset, length -> remoteAudio?.output(type, format, data, offset, length) == true })
+            localAllowed = { !isMusic || localMediaAllowed },
+            localRequested = {
+                val listener = localMediaRequested
+                if (isMusic && listener != null && localMediaDemandPending.compareAndSet(false, true)) listener()
+            },
+            remoteOutput = { data, offset, length ->
+                val forwarded = remoteAudio?.output(type, format, data, offset, length) == true
+                if (isMusic) {
+                    mediaRemoteFallback = !forwarded
+                    if (forwarded) localMediaDemandPending.set(false)
+                }
+                forwarded
+            })
             .also { audioRenderers[type] = it }
     }
 }
@@ -587,6 +632,8 @@ private class AudioRenderer(
     private val mediaBufferMillis: Int,
     private val report: (String) -> Unit,
     private val remoteOutput: (ByteArray, Int, Int) -> Boolean = { _, _, _ -> false },
+    private val localAllowed: () -> Boolean = { true },
+    private val localRequested: () -> Unit = {},
 ) : Closeable {
     private data class AudioPacket(val rtp: ByteArray, val sample: Int)
 
@@ -664,7 +711,8 @@ private class AudioRenderer(
                 // Output becomes ready asynchronously, including after the last packet of a burst.
                 // Waiting for the next UDP packet can strand decoded sound for hundreds of ms.
                 codec?.let(::drainCodec)
-                maintainPlaybackBuffer()
+                if (!remotePlayback && !localAllowed()) pauseLocal()
+                else maintainPlaybackBuffer()
                 logStatsIfDue()
             }
         } catch (_: InterruptedException) {
@@ -954,6 +1002,13 @@ private class AudioRenderer(
             return
         }
         remotePlayback = false
+        if (!localAllowed()) {
+            // Only actual PCM can request focus. Idle maintenance remains a pure permission
+            // check; denied/paused output keeps one outstanding demand until permission returns.
+            if (length > 0) localRequested()
+            pauseLocal()
+            return
+        }
         val track = track ?: return
         if (!firstPcmLogged && length > 0) {
             firstPcmLogged = true
@@ -989,6 +1044,14 @@ private class AudioRenderer(
                     Log.i(TAG, "audio playback started type=${format.payloadType}")
                 }
             }
+        }
+    }
+
+    private fun pauseLocal() {
+        if (playbackStarted || prebufferBytes > 0) {
+            track?.pause(); track?.flush()
+            playbackStarted = false; prebufferBytes = 0
+            bufferProgress.reset()
         }
     }
 

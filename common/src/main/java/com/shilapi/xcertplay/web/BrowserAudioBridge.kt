@@ -4,6 +4,7 @@ import com.shilapi.xcertplay.airplay.AudioFormat
 import com.shilapi.xcertplay.airplay.MicrophoneConfig
 import com.shilapi.xcertplay.media.PcmInput
 import com.shilapi.xcertplay.media.RemoteAudioRoute
+import com.shilapi.xcertplay.media.isMediaPlayback
 import org.json.JSONObject
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -44,6 +45,7 @@ internal class BrowserAudioBridge {
             if (changed) route?.changed else null
         }
         change?.invoke()
+        notifyPlaybackRoute()
     }
 
     /** Browser readiness is only an acknowledgement; App preferences remain authoritative. */
@@ -58,6 +60,12 @@ internal class BrowserAudioBridge {
             if (changed) route?.changed else null
         }
         change?.invoke()
+        notifyPlaybackRoute()
+    }
+
+    private fun notifyPlaybackRoute() = synchronized(lock) {
+        if (!playback || owner == null) route?.resetPlayback()
+        route?.playbackChanged?.invoke(playback && owner != null && route?.hasMediaOutput == true)
     }
 
     private fun sendRoute() {
@@ -73,6 +81,7 @@ internal class BrowserAudioBridge {
             if (changed) route?.changed else null
         }
         change?.invoke()
+        notifyPlaybackRoute()
     }
 
     fun input(owner: Any, packet: ByteArray): Boolean = synchronized(lock) {
@@ -100,8 +109,19 @@ internal class BrowserAudioBridge {
     private inner class Route : RemoteAudioRoute {
         val inputs = mutableMapOf<Int, Input>()
         var changed: (() -> Unit)? = null
+        var playbackChanged: ((Boolean) -> Unit)? = null
+        var hasMediaOutput = false
+        private val mediaStreams = mutableSetOf<Int>()
+        fun resetPlayback() { hasMediaOutput = false; mediaStreams.clear() }
+        override val playbackAvailable: Boolean get() = synchronized(lock) {
+            !closed && route === this && playback && owner != null && send != null
+        }
         private var closed = false
         override fun onMicrophoneRouteChanged(listener: () -> Unit) = synchronized(lock) { changed = listener }
+        override fun onPlaybackRouteChanged(listener: (Boolean) -> Unit) {
+            synchronized(lock) { playbackChanged = listener }
+            notifyPlaybackRoute()
+        }
         override fun output(type: Int, format: AudioFormat, pcm: ByteArray, offset: Int, length: Int): Boolean {
             val outgoing = synchronized(lock) {
                 if (closed || route !== this || !playback || send == null) return false
@@ -114,10 +134,25 @@ internal class BrowserAudioBridge {
                     .put(pcm, offset, length).array()
                 Triple(send!!, packet, seq)
             }
-            outgoing.first(outgoing.second, outgoing.third)
-            return true
+            try { outgoing.first(outgoing.second, outgoing.third) }
+            catch (_: Exception) {
+                synchronized(lock) { playback = false; hasMediaOutput = false; playbackChanged?.invoke(false) }
+                return false
+            }
+            return synchronized(lock) {
+                if (closed || route !== this || !playback || send !== outgoing.first) false
+                else {
+                    if (format.isMediaPlayback()) {
+                        mediaStreams.add(type)
+                        if (!hasMediaOutput) { hasMediaOutput = true; playbackChanged?.invoke(true) }
+                    }
+                    true
+                }
+            }
         }
         override fun audioStopped(type: Int) = synchronized(lock) {
+            mediaStreams.remove(type)
+            if (mediaStreams.isEmpty() && hasMediaOutput) { hasMediaOutput = false; playbackChanged?.invoke(false) }
             if (!closed && route === this) control?.invoke(JSONObject().put("type", "audio-stop").put("stream", type).toString())
             Unit
         }
@@ -137,7 +172,7 @@ internal class BrowserAudioBridge {
         fun closeInputs() { inputs.values.forEach { it.close() }; inputs.clear() }
         override fun close() = synchronized(lock) {
             if (closed) return
-            closed = true; closeInputs(); changed = null
+            closed = true; closeInputs(); changed = null; playbackChanged = null
             if (route === this) {
                 route = null
                 control?.invoke("""{"type":"audio-reset"}""")

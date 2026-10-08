@@ -52,5 +52,10 @@ Material Components for Android 1.13.0（Apache-2.0），使用官方 Material 3
 | 设置 Tab · `ic_server_settings` | [settings](https://github.com/google/material-design-icons/blob/master/src/action/settings/materialicons/24px.svg) |
 | 设置选择器、其他地址展开箭头 · `ic_settings_chevron` | [chevron_right](https://github.com/google/material-design-icons/blob/master/src/navigation/chevron_right/materialicons/24px.svg) |
 | 网页连接按钮 · 内嵌 SVG | [arrow_forward](https://github.com/google/material-design-icons/blob/master/src/navigation/arrow_forward/materialicons/24px.svg) |
+| 媒体通知上一首 · `ic_media_skip_previous` | [skip_previous](https://github.com/google/material-design-icons/blob/master/src/av/skip_previous/materialicons/24px.svg) |
+| 媒体通知播放 · `ic_media_play` | [play_arrow](https://github.com/google/material-design-icons/blob/master/src/av/play_arrow/materialicons/24px.svg) |
+| 媒体通知暂停 · `ic_media_pause` | [pause](https://github.com/google/material-design-icons/blob/master/src/av/pause/materialicons/24px.svg) |
+| 媒体通知下一首 · `ic_media_skip_next` | [skip_next](https://github.com/google/material-design-icons/blob/master/src/av/skip_next/materialicons/24px.svg) |
+| 连接通知停止服务 · `ic_media_stop` | [stop](https://github.com/google/material-design-icons/blob/master/src/av/stop/materialicons/24px.svg) |
 
 启动使用播放圆形图标，车机访问及服务通知使用投屏图标。通知采用白色遮罩；页面图标跟随 Material 主题、卡片颜色和导航选中状态。方向箭头保留展开旋转动画，设置选择器支持 RTL 镜像。NIO 返回入口与原有应用品牌位图不属于自绘功能图标；二维码矩阵、裁剪网格及安全区域辅助线是功能内容，不作图标替换。

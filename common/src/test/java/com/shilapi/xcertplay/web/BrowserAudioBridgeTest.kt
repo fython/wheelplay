@@ -64,4 +64,30 @@ class BrowserAudioBridgeTest {
         assertEquals(1, routeChanges)
         route.close()
     }
+    @Test fun playbackOwnershipStartsAfterMediaOutputAndDropsOnDetachEvenWhenPaused() {
+        val bridge = BrowserAudioBridge(); val owner = Any()
+        val route = bridge.createRoute(); val changes = mutableListOf<Boolean>()
+        route.onPlaybackRouteChanged(changes::add)
+        bridge.attach(owner, true, { _, _ -> }, {})
+        bridge.configure(true, false); bridge.ready(owner, true, false)
+        assertFalse(changes.last())
+        assertTrue(route.output(1, format, byteArrayOf(1,2,3,4), 0, 4))
+        assertTrue(changes.last())
+        bridge.detach(owner)
+        assertFalse(changes.last())
+        assertFalse(route.output(1, format, byteArrayOf(1,2,3,4), 0, 4))
+        route.close()
+    }
+
+    @Test fun detachDuringSendCannotRestoreStaleRemoteOwnership() {
+        val bridge = BrowserAudioBridge(); val owner = Any()
+        val route = bridge.createRoute(); val changes = mutableListOf<Boolean>()
+        route.onPlaybackRouteChanged(changes::add)
+        bridge.attach(owner, true, { _, _ -> bridge.detach(owner) }, {})
+        bridge.configure(true, false); bridge.ready(owner, true, false)
+        assertFalse(route.output(1, format, byteArrayOf(1,2,3,4), 0, 4))
+        assertFalse(changes.last())
+        route.close()
+    }
+
 }
