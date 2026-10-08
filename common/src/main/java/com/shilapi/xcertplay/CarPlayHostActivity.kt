@@ -425,7 +425,7 @@ class CarPlayHostActivity : ComponentActivity() {
         setContentView(buildContentView().also(ServerWindow::fitContent))
         activeDisplaySize = DisplaySize(1280, 720)
         if (!authenticationReady) {
-            setConnectionStage("Web 服务已启动；连接 iPhone 需要配置原版 CarPlay 认证资产")
+            setConnectionStage("Web service started; configure the original CarPlay authentication assets to connect an iPhone")
             return
         }
         WebSession.setBrowserViewportListener { width, height ->
@@ -701,14 +701,14 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun buildContentView(): View {
         val ui = ServerUi(this)
         return ui.content { body ->
-            body.addView(ui.text("正在连接 iPhone", 28, ServerUi.TEXT, true))
+            body.addView(ui.text("Connecting to iPhone", 28, ServerUi.TEXT, true))
             body.addView(ui.gap(24))
             stageStatusView = ui.text(WebSession.stage, 16, ServerUi.TEXT)
             body.addView(stageStatusView)
             body.addView(ui.gap(24))
             body.addView(com.google.android.material.progressindicator.LinearProgressIndicator(this).apply { isIndeterminate = true })
             body.addView(ui.gap(24))
-            body.addView(ui.button("返回服务面板") { showDiPlayHome("service") }, ui.secondaryButtonLayout())
+            body.addView(ui.button("Back to service dashboard") { showDiPlayHome("service") }, ui.secondaryButtonLayout())
         }
     }
 
@@ -1061,13 +1061,13 @@ class CarPlayHostActivity : ComponentActivity() {
         )
 
         content.addView(settingsChoiceRow(
-            label = "串流技术",
+            label = "Streaming technology",
             options = com.shilapi.xcertplay.web.StreamTechnology.entries.map { it to it.label },
             selected = streamTechnology,
         ) { streamTechnology = it }, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
         ).apply { topMargin = dp(24) })
-        content.addView(menuText("WebRTC 支持 H.264 / HEVC 直通；浏览器不支持时自动回退 JPEG。追求 60 fps 请将 Frame rate 设为 60。关闭设置后生效。", 14f, MENU_SECONDARY),
+        content.addView(menuText("WebRTC supports H.264 / HEVC passthrough and falls back to JPEG when unsupported by the browser. Set Frame rate to 60 for 60 fps. Changes take effect after closing settings.", 14f, MENU_SECONDARY),
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                 .apply { topMargin = dp(8); bottomMargin = dp(16) })
 
@@ -1562,7 +1562,7 @@ class CarPlayHostActivity : ComponentActivity() {
             orientation = LinearLayout.VERTICAL
         }
         section.addView(
-            settingsInputRow("模拟厂商名称", simulatedManufacturerName) { value ->
+            settingsInputRow("Simulated manufacturer name", simulatedManufacturerName) { value ->
                 simulatedManufacturerName = value
                 updateResolutionMenu()
             },
@@ -1736,7 +1736,7 @@ class CarPlayHostActivity : ComponentActivity() {
             orientation = LinearLayout.VERTICAL
         }
         section.addView(
-            menuText("模拟厂商图标", 20f, MENU_SECONDARY),
+            menuText("Simulated manufacturer icon", 20f, MENU_SECONDARY),
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -1763,7 +1763,7 @@ class CarPlayHostActivity : ComponentActivity() {
         }
         actions.addView(
             Button(this).apply {
-                text = "选择图片"
+                text = "Choose image"
                 isAllCaps = false
                 setOnClickListener {
                     externalActivityInProgress = true
@@ -1777,7 +1777,7 @@ class CarPlayHostActivity : ComponentActivity() {
         )
         actions.addView(
             Button(this).apply {
-                text = "使用默认图标"
+                text = "Use default icon"
                 isAllCaps = false
                 setOnClickListener {
                     AirPlayPersistence.clearCustomAirPlayIcon(this@CarPlayHostActivity)
@@ -2475,7 +2475,7 @@ class CarPlayHostActivity : ComponentActivity() {
             append(resolution).append('\n')
             append("Identity: ").append(normalizedManufacturer()).append(" / ")
                 .append(normalizedModel()).append('\n')
-            append("模拟厂商名称: ").append(simulatedManufacturerName.ifBlank { "(empty)" }).append('\n')
+            append("Simulated manufacturer name: ").append(simulatedManufacturerName.ifBlank { "(empty)" }).append('\n')
             append("Frame rate: ").append(fps).append(" fps\n")
             append("Detected maximum: ")
                 .append(maximumDetectedWidthPixels).append(" x ")
@@ -2657,7 +2657,7 @@ class CarPlayHostActivity : ComponentActivity() {
         val bitmap = customBitmap ?: BitmapFactory.decodeResource(resources, R.raw.ic_car_home)
         preview.setImageBitmap(bitmap)
         iconStatusView?.text =
-            if (customBitmap != null) "自定义 1:1 图标" else "默认 NIO 图标"
+            if (customBitmap != null) "Custom 1:1 icon" else "Default NIO icon"
     }
 
     private fun currentActivitySize(): DisplaySize? {
@@ -2971,7 +2971,7 @@ class CarPlayHostActivity : ComponentActivity() {
             )
         } catch (error: Exception) {
             Log.e(TAG, "Offscreen video initialization failed", error)
-            setConnectionStage("此设备无法创建离屏解码输出，请检查系统图形支持后重试")
+            setConnectionStage("This device cannot create an offscreen decoder surface. Check graphics support and try again.")
             return
         }
         sink = renderer
@@ -3370,21 +3370,21 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun friendlyStage(message: String): String = when {
         message.any { it in '\u4e00'..'\u9fff' } -> message
-        message.contains("Turn on Wi-Fi", true) -> "请在此设备的系统设置中开启 Wi-Fi。"
-        message.contains("Allow precise Location", true) -> "请在应用权限中允许精确定位。"
-        message.contains("Allow Nearby devices", true) -> "请在应用权限中允许访问附近设备。"
-        message.contains("createGroup failed", true) -> "无法启动 CarPlay Wi-Fi，请检查 Wi-Fi 并关闭其他投屏应用。正在重试…"
-        message.contains("needs a reset", true) -> "上次的 Wi-Fi Direct 连接仍在运行，请在设置中重置连接。"
-        message.contains("socket", true) || message.contains("RFCOMM", true) -> "暂时无法连接 iPhone，请解锁手机并检查蓝牙。"
-        message.contains("unsupported", true) || message.contains("not supported", true) -> "此设备可能不支持无线 CarPlay，请尝试 USB 连接。"
-        message.contains("denied", true) || message.contains("permission", true) -> "请允许连接权限以继续。"
-        message.contains("Failed", true) || message.contains("error", true) -> "连接中断，正在重试…"
-        message.contains("Waiting for iPhone", true) || message.contains("Discovering iPhone", true) -> "请通过 USB 数据线连接 iPhone。"
-        message.contains("paired", true) -> "正在查找已配对的 iPhone…"
-        message.contains("Bluetooth", true) -> "正在连接 iPhone…"
-        message.contains("reconnect", true) || message.contains("ended", true) -> "正在重新连接 iPhone…"
-        message.contains("active", true) || message.contains("running", true) -> "CarPlay 会话已启动，等待画面…"
-        else -> "正在准备 CarPlay…"
+        message.contains("Turn on Wi-Fi", true) -> "Turn on Wi-Fi in this device's system settings."
+        message.contains("Allow precise Location", true) -> "Allow precise location in the app permissions."
+        message.contains("Allow Nearby devices", true) -> "Allow access to nearby devices in the app permissions."
+        message.contains("createGroup failed", true) -> "Cannot start CarPlay Wi-Fi. Check Wi-Fi and close other casting apps. Retrying…"
+        message.contains("needs a reset", true) -> "The previous Wi-Fi Direct connection is still running. Reset the connection in settings."
+        message.contains("socket", true) || message.contains("RFCOMM", true) -> "Cannot connect to the iPhone yet. Unlock it and check Bluetooth."
+        message.contains("unsupported", true) || message.contains("not supported", true) -> "This device may not support wireless CarPlay. Try a USB connection."
+        message.contains("denied", true) || message.contains("permission", true) -> "Allow the connection permissions to continue."
+        message.contains("Failed", true) || message.contains("error", true) -> "Connection interrupted. Retrying…"
+        message.contains("Waiting for iPhone", true) || message.contains("Discovering iPhone", true) -> "Connect the iPhone using a USB data cable."
+        message.contains("paired", true) -> "Looking for a paired iPhone…"
+        message.contains("Bluetooth", true) -> "Connecting to iPhone…"
+        message.contains("reconnect", true) || message.contains("ended", true) -> "Reconnecting to iPhone…"
+        message.contains("active", true) || message.contains("running", true) -> "CarPlay session started. Waiting for video…"
+        else -> "Preparing CarPlay…"
     }
 
     private fun appendLog(message: String) {
@@ -3550,24 +3550,35 @@ internal object CarPlayBackgroundSession {
         return Snapshot(currentController, currentSink, width, height)
     }
 
-    @Synchronized
-    fun store(controller: CarPlayController, sink: AndroidMediaSink, width: Int, height: Int, owner: Any, stop: (() -> Unit) -> Unit) {
-        this.stopAction = stop
-        this.owner = owner
-        this.controller = controller
-        this.sink = sink
-        this.width = width
-        this.height = height
+    private val listeners = java.util.concurrent.CopyOnWriteArrayList<(Snapshot?) -> Unit>()
+    fun subscribe(listener: (Snapshot?) -> Unit): AutoCloseable {
+        listeners.add(listener)
+        listener(snapshot())
+        return AutoCloseable { listeners.remove(listener) }
     }
 
-    @Synchronized
+    fun store(controller: CarPlayController, sink: AndroidMediaSink, width: Int, height: Int, owner: Any, stop: (() -> Unit) -> Unit) {
+        synchronized(this) {
+            this.stopAction = stop
+            this.owner = owner
+            this.controller = controller
+            this.sink = sink
+            this.width = width
+            this.height = height
+        }
+        listeners.forEach { it(snapshot()) }
+    }
+
     fun clear(expected: CarPlayController? = null, keepOwner: Boolean = false) {
-        if (expected != null && controller !== expected) return
-        controller = null
-        sink = null
-        if (!keepOwner) { stopAction = null; owner = null }
-        active = false
-        width = 0
-        height = 0
+        synchronized(this) {
+            if (expected != null && controller !== expected) return
+            controller = null
+            sink = null
+            if (!keepOwner) { stopAction = null; owner = null }
+            active = false
+            width = 0
+            height = 0
+        }
+        listeners.forEach { it(snapshot()) }
     }
 }

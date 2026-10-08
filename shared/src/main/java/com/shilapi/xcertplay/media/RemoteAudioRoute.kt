@@ -8,6 +8,8 @@ import java.io.Closeable
 interface RemoteAudioRoute : Closeable {
     /** True transfers playback ownership to the endpoint; false keeps local playback. */
     fun output(type: Int, format: AudioFormat, pcm: ByteArray, offset: Int, length: Int): Boolean
+    val playbackAvailable: Boolean get() = false
+    fun onPlaybackRouteChanged(listener: (Boolean) -> Unit) {}
     fun audioStopped(type: Int)
     /** A source must provide PCM at the negotiated sample rate and channel count. */
     fun microphone(type: Int, config: MicrophoneConfig): PcmInput?

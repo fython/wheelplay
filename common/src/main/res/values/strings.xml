@@ -1,3 +1,7 @@
 <resources>
     <string name="app_name">WheelPlay</string>
+    <string name="notification_action_previous">Previous track</string>
+    <string name="notification_action_play">Play</string>
+    <string name="notification_action_pause">Pause</string>
+    <string name="notification_action_next">Next track</string>
 </resources>
