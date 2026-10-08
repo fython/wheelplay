@@ -55,6 +55,8 @@ Use Android NDK 28.2.13676358 and CMake 3.22.1. The first build fetches pinned v
 ./gradlew :mobile:assembleDebug
 ```
 
+Source-only builds omit CarPlay authentication assets. To produce an APK for iPhone connections, set `WHEELPLAY_AUTH_ASSETS_DIR` (or the compatible `DIPLAY_AUTH_ASSETS_DIR`) to a local asset directory, or use `.local/auth-assets/`. It must contain `offline-mfi/identity.pk8` and `offline-mfi/certificate.p7b`; these files stay out of Git. Run `./gradlew :mobile:assembleProvisionedDebug` to build and verify both packaged assets against the local input. An APK without these assets displays “Authentication assets unavailable”, independently of its Debug signature.
+
 ## Origins and licensing
 
 This project is based on DiPlay / xcertplay and retains the upstream licenses and third-party notices. See [LICENSE](LICENSE) and [third-party notices](docs/upstream/THIRD_PARTY_NOTICES.md). Third-party assets and components remain subject to their respective licenses.

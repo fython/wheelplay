@@ -51,6 +51,8 @@ Canvas 模式需要蔚来等车机实测：若遮罩只覆盖原生视频元素�
 
 使用 Android NDK 28.2.13676358 和 CMake 3.22.1。首次构建会从 GitHub 获取固定版本的 libdatachannel 及 Mbed TLS；后续复用本地 CMake 缓存。运行 `./gradlew :mobile:assembleDebug`。
 
+源码构建默认不包含 CarPlay 认证资产。用于连接 iPhone 的完整 APK，需要通过 `WHEELPLAY_AUTH_ASSETS_DIR`（兼容 `DIPLAY_AUTH_ASSETS_DIR`）指定本地资产目录，或放置在 `.local/auth-assets/`；该目录下必须有 `offline-mfi/identity.pk8` 和 `offline-mfi/certificate.p7b`。资产不纳入 Git。配置后运行 `./gradlew :mobile:assembleProvisionedDebug`，构建并校验 APK 内的两项资产与本地配置一致。缺少资产的包会在应用中显示“认证资产未就绪”；这与 Debug 签名无关。
+
 ## 来源与许可
 
 本项目基于 DiPlay / xcertplay 开发，保留上游许可证与第三方声明。详情参见 [LICENSE](LICENSE) 和 [第三方声明](docs/upstream/THIRD_PARTY_NOTICES.md)。第三方素材与组件遵循各自许可证。

@@ -1,3 +1,5 @@
+import java.util.zip.ZipFile
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -99,3 +101,31 @@ val rejectBundledCredentials by tasks.registering {
     }
 }
 tasks.named("preBuild") { dependsOn(rejectBundledCredentials) }
+
+// Source-only builds remain useful for CI; device delivery must verify the actual ZIP.
+tasks.register("assembleProvisionedDebug") {
+    group = "build"
+    description = "Build Debug APK and verify its locally provisioned authentication assets."
+    dependsOn("assembleDebug")
+    val assetDirectory = localAuthenticationAssets
+    val apk = layout.buildDirectory.file("outputs/apk/debug/mobile-debug.apk")
+    inputs.files(credentialAssets)
+    inputs.file(apk)
+    doLast {
+        check(assetDirectory != null) {
+            "Set WHEELPLAY_AUTH_ASSETS_DIR or provide .local/auth-assets before delivering this APK"
+        }
+        ZipFile(apk.get().asFile).use { archive ->
+            for (name in listOf("identity.pk8", "certificate.p7b")) {
+                val source = assetDirectory.resolve("offline-mfi/$name")
+                val entry = archive.getEntry("assets/offline-mfi/$name")
+                check(source.isFile && entry != null) { "Debug APK is missing a provisioned authentication asset" }
+                val packaged = archive.getInputStream(entry).use { it.readBytes() }
+                check(packaged.isNotEmpty() && packaged.contentEquals(source.readBytes())) {
+                    "Debug APK authentication asset does not match local provisioning"
+                }
+            }
+        }
+        logger.lifecycle("Verified Debug APK runtime authentication assets.")
+    }
+}
