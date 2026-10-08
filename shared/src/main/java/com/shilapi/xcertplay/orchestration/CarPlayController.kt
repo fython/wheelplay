@@ -71,6 +71,12 @@ import com.shilapi.xcertplay.transport.LockdownPairingClient
 import com.shilapi.xcertplay.transport.LockdownPairRecord
 import com.shilapi.xcertplay.transport.NcmFunctionDiscovery
 import com.shilapi.xcertplay.transport.NcmUsbBridge
+import com.shilapi.xcertplay.media.CarPlayMediaSource
+import com.shilapi.xcertplay.media.CarPlayMediaCoordinator
+import com.shilapi.xcertplay.media.NowPlayingState
+import com.shilapi.xcertplay.media.MediaCommand
+import com.shilapi.xcertplay.iap2.wire.Iap2Frame
+import com.shilapi.xcertplay.iap2.message.Iap2NowPlayingCodec
 import java.io.Closeable
 import java.io.IOException
 import java.net.InetAddress
@@ -143,7 +149,7 @@ class CarPlayController(
     private val savePairRecord: (LockdownPairRecord) -> Unit = {},
     private val clearPairRecord: () -> Unit = {},
     private val locationProvider: Iap2LocationProvider? = null,
-) : Closeable {
+) : Closeable, CarPlayMediaSource {
     init {
         require(!config.locationReportingEnabled || locationProvider != null) {
             "A location provider is required when location reporting is enabled"
@@ -166,6 +172,17 @@ class CarPlayController(
             IphoneUsbMatcher.appleVendor()
         },
     )
+    private val mediaState = CarPlayMediaCoordinator(
+        captureSender = { activeSession?.let { session ->
+            { command: MediaCommand -> session.sendMedia(command.hidIndex) }
+        } },
+        onDiagnostic = ::debugLog,
+    )
+    override fun mediaSnapshot() = mediaState.snapshot()
+    override fun subscribeMediaState(listener: (NowPlayingState) -> Unit) = mediaState.subscribe(listener)
+    override fun sendMediaCommand(command: MediaCommand, connectionGeneration: Long?) = mediaState.send(command, connectionGeneration)
+    override fun seekTo(positionMs: Long) = mediaState.seekTo(positionMs)
+
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
     private val touchExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val tunnelExecutor: ExecutorService = Executors.newSingleThreadExecutor()
@@ -226,6 +243,7 @@ class CarPlayController(
         override fun onSessionActive(session: AirPlaySession) {
             if (activeSession !== session) BydNavigationOutputs.start(appContext)
             activeSession = session
+            mediaState.resume()
             debugLog(
                 "AirPlay session active controller=${session.controllerId ?: "unknown"} " +
                     "peer=${session.host}",
@@ -236,6 +254,7 @@ class CarPlayController(
         override fun onSessionEnded(session: AirPlaySession) {
             if (activeSession === session) {
                 activeSession = null
+                mediaState.disconnected()
                 BydNavigationOutputs.endNow()
             }
             debugLog("AirPlay session ended peer=${session.host}")
@@ -357,6 +376,7 @@ class CarPlayController(
             if (closed) return
             closed = true
         }
+        mediaState.close()
         BydNavigationOutputs.endNow()
         closeReceivers()
         availabilityPollGeneration.incrementAndGet()
@@ -414,8 +434,9 @@ class CarPlayController(
     }
 
     // HUD (SOME/IP) and cluster (AMap broadcast) keep separate state so one failing cannot stall the other.
-    private fun onRouteFrame(frame: com.shilapi.xcertplay.iap2.wire.Iap2Frame) {
-        BydNavigationOutputs.onFrame(frame)
+    private fun onControlFrame(source: Iap2Session, frame: Iap2Frame) {
+        if (frame.messageId == Iap2NowPlayingCodec.UPDATE) mediaState.receive(source, frame)
+        else BydNavigationOutputs.onFrame(frame)
     }
 
     private fun startMfi() {
@@ -952,7 +973,8 @@ class CarPlayController(
                 endpoint = endpoint,
                 timeoutMillis = controlLoopTimeoutMillis(),
                 locationProvider = locationProvider,
-                onIncoming = ::onRouteFrame,
+                onReady = { if (!isStaleWirelessRun(generation) && !wirelessTunnelReady.get()) mediaState.bind(channel) },
+                onIncoming = { frame -> onControlFrame(channel, frame) },
                 onProgress = ::debugLog,
             )
             if (isStaleWirelessRun(generation)) {
@@ -1039,9 +1061,10 @@ class CarPlayController(
                         timeoutMillis = Iap2WirelessControlClient.NO_TIMEOUT_MILLIS,
                         locationProvider = locationProvider,
                         onReady = {
+                            if (!closed && generation == wirelessGeneration.get()) mediaState.bind(channel, retainState = true)
                             onWirelessTunnelReady(generation)
                         },
-                        onIncoming = ::onRouteFrame,
+                        onIncoming = { frame -> onControlFrame(channel, frame) },
                         onProgress = { message -> debugLog("iAP tunnel $message") },
                     )
                     if (closed || generation != wirelessGeneration.get()) return@execute
@@ -1061,6 +1084,7 @@ class CarPlayController(
                         )
                     }
                 } finally {
+                    mediaState.disconnected(channel)
                     if (wirelessTunnelChannel === channel) wirelessTunnelChannel = null
                 }
             }
@@ -1492,9 +1516,11 @@ class CarPlayController(
                 availableCurrentMilliAmps = config.availableCurrentMilliAmps,
                 timeoutMillis = controlLoopTimeoutMillis(),
                 locationProvider = locationProvider,
-                onIncoming = ::onRouteFrame,
+                onReady = { mediaState.bind(csm) },
+                onIncoming = { frame -> onControlFrame(csm, frame) },
                 onProgress = { message -> debugLog("wired $message") },
             )
+            mediaState.disconnected(csm)
             onStatus(
                 when (result.terminal) {
                     Iap2WiredControlTerminal.TIMED_OUT -> CarPlayStatus.ControlEnded
@@ -1669,6 +1695,7 @@ class CarPlayController(
     }
 
     private fun closeWirelessStack(service: CarPlayVpnService? = vpnService) {
+        mediaState.disconnected()
         wirelessConnectionProof.clear()
         media.setIapTunnelHandler(null)
         val activeTunnel = wirelessTunnelChannel
@@ -1896,6 +1923,7 @@ class CarPlayController(
 
     private fun fail(error: Throwable) {
         if (closed) return
+        mediaState.disconnected()
         onStatus(CarPlayStatus.Failed(error.message ?: error.javaClass.simpleName,
             generateSequence(error) { it.cause }.any { it is com.shilapi.xcertplay.network.P2pResetRequiredException }))
     }

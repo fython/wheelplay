@@ -121,6 +121,19 @@ class Iap2CsmChannel private constructor(
         }
     }
 
+    fun sendFileTransfer(bytes: ByteArray, timeoutMillis: Long = DEFAULT_SEND_TIMEOUT_MILLIS,
+        isCurrent: () -> Boolean = { true }) {
+        requireTimeout(timeoutMillis)
+        checkOpen()
+        if (!link.sendFileTransfer(bytes, timeoutMillis, isCurrent)) {
+            throw IOException("File-transfer reply could not be queued: ${link.fileTransferStatus()}")
+        }
+    }
+
+    fun fileTransferStatus(): String = link.fileTransferStatus()
+
+    fun recvFileTransfer(timeoutMillis: Long): ByteArray? = link.recvFileTransfer(timeoutMillis)
+
     /** Closes the owned iAP2 link and its owned byte stream. */
     override fun close() {
         val close = synchronized(stateLock) {

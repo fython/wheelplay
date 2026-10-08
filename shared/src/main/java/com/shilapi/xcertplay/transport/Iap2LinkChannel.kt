@@ -12,7 +12,7 @@ import kotlin.math.min
  * for readiness, queue complete session-10 payloads, receive session-10 payloads, or close this
  * channel.  This class owns and closes [underlying].
  *
- * It deliberately does not parse CSM control messages or implement EA, file transfer, media, UI,
+ * It deliberately does not parse CSM control messages or implement EA, file contents, media, UI,
  * or any Lockdown setup.
  */
 class Iap2LinkChannel private constructor(
@@ -20,13 +20,18 @@ class Iap2LinkChannel private constructor(
     private val linkConfig: Iap2LinkConfig,
     private val initiateNegotiation: Boolean,
 ) : AutoCloseable {
-    private data class Command(val control: ByteArray)
+    private data class Command(val control: ByteArray, val fileTransfer: Boolean = false,
+        val isCurrent: () -> Boolean = { true })
 
     private val lock = Object()
     private val commands = ArrayDeque<Command>()
     private var commandBytes = 0
     private val controls = ArrayDeque<ByteArray>()
     private var controlBytes = 0
+    private val files = ArrayDeque<ByteArray>()
+    private var fileBytes = 0
+    private var fileTransferSupported = false
+    private var peerSessions: List<Iap2LinkEngine.SessionDescriptor>? = null
 
     private var ready = false
     private var peerMaxControlPayloadBytes: Int? = null
@@ -54,6 +59,11 @@ class Iap2LinkChannel private constructor(
      * returns true.  It excludes the nine-byte iAP2 header and one-byte payload checksum.
      */
     fun peerMaxControlPayloadBytes(): Int? = synchronized(lock) { peerMaxControlPayloadBytes }
+
+    fun fileTransferStatus(): String = synchronized(lock) {
+        "negotiated=${peerSessions != null} writable=$ready closed=${terminated || closing} " +
+            "sessions=${peerSessions?.joinToString { "${it.id}/${it.kind}/v${it.version}" } ?: "pending"}"
+    }
 
     /**
      * Copies and queues one raw session-10 payload.  Returns false after close/termination or when
@@ -101,6 +111,32 @@ class Iap2LinkChannel private constructor(
             val bytes = controls.removeFirst()
             controlBytes -= bytes.size
             return bytes
+        }
+    }
+
+    /** [isCurrent] must be non-blocking; it is checked under the queue lock and before dispatch. */
+    fun sendFileTransfer(bytes: ByteArray, timeoutMillis: Long, isCurrent: () -> Boolean = { true }): Boolean {
+        require(bytes.size <= Iap2LinkEngine.MAX_PAYLOAD_BYTES && timeoutMillis >= 0)
+        val copy = bytes.copyOf()
+        synchronized(lock) {
+            throwTerminalFailureLocked()
+            // Writable is transient flow control, not negotiation state. As with control
+            // messages, queue a reply and let the sole link pump wait for peer acknowledgements.
+            if (!fileTransferSupported || !isCurrent()) return false
+            waitFor(timeoutMillis) { terminated || closing || !isCurrent() || hasCommandCapacityLocked(copy.size) }
+            throwTerminalFailureLocked()
+            if (terminated || closing || !isCurrent()) return false
+            return enqueueCommandLocked(copy, fileTransfer = true, isCurrent = isCurrent)
+        }
+    }
+
+    fun recvFileTransfer(timeoutMillis: Long): ByteArray? {
+        require(timeoutMillis >= 0)
+        synchronized(lock) {
+            waitFor(timeoutMillis) { files.isNotEmpty() || terminated }
+            throwTerminalFailureLocked()
+            if (files.isEmpty()) return null
+            return files.removeFirst().also { fileBytes -= it.size }
         }
     }
 
@@ -185,7 +221,9 @@ class Iap2LinkChannel private constructor(
                     }
                 }
             } ?: return
-            engine.sendControl(command.control, nowMillis())
+            if (!command.isCurrent()) continue
+            if (command.fileTransfer) engine.sendFileTransfer(command.control, nowMillis())
+            else engine.sendControl(command.control, nowMillis())
             if (isClosing()) return
         }
     }
@@ -203,6 +241,8 @@ class Iap2LinkChannel private constructor(
                     if (event.value) {
                         // The engine only emits writable after validating this is positive.
                         peerMaxControlPayloadBytes = engine.peerSynchronization().maxLength - 10
+                        peerSessions = engine.peerSynchronization().sessions
+                        fileTransferSupported = engine.peerSynchronization().sessions.any { it.kind == 1 && it.version in 1..2 }
                     }
                     ready = event.value && !terminated
                     lock.notifyAll()
@@ -223,6 +263,22 @@ class Iap2LinkChannel private constructor(
                     }
                     if (overflow) {
                         finish(IOException("iAP2 received-control queue limit exceeded"))
+                        return false
+                    }
+                }
+
+                is Iap2LinkEngine.Event.FileTransfer -> {
+                    val overflow = synchronized(lock) {
+                        if (files.size >= 256 || event.bytes.size > MAX_PENDING_CONTROL_BYTES - fileBytes) true
+                        else {
+                            files += event.bytes
+                            fileBytes += event.bytes.size
+                            lock.notifyAll()
+                            false
+                        }
+                    }
+                    if (overflow) {
+                        finish(IOException("iAP2 received-file queue limit exceeded"))
                         return false
                     }
                 }
@@ -259,6 +315,8 @@ class Iap2LinkChannel private constructor(
         ready = false
         commands.clear()
         commandBytes = 0
+        files.clear()
+        fileBytes = 0
         controls.clear()
         controlBytes = 0
         terminalFailure = combineFailures(terminalFailure, failure)
@@ -290,9 +348,10 @@ class Iap2LinkChannel private constructor(
         commands.size < MAX_PENDING_COMMANDS && bytes <= MAX_PENDING_COMMAND_BYTES - commandBytes
 
     /** lock must already be held. */
-    private fun enqueueCommandLocked(bytes: ByteArray): Boolean {
+    private fun enqueueCommandLocked(bytes: ByteArray, fileTransfer: Boolean = false,
+        isCurrent: () -> Boolean = { true }): Boolean {
         if (!hasCommandCapacityLocked(bytes.size)) return false
-        commands += Command(bytes)
+        commands += Command(bytes, fileTransfer, isCurrent)
         commandBytes += bytes.size
         lock.notifyAll()
         return true

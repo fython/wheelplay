@@ -28,6 +28,7 @@ class Iap2WiredControlClient(
         timeoutMillis: Long = DEFAULT_TIMEOUT_MILLIS,
         locationProvider: Iap2LocationProvider? = null,
         onIncoming: (Iap2Frame) -> Unit = {},
+        onReady: () -> Unit = {},
         onProgress: (String) -> Unit = {},
     ): Iap2WiredControlResult {
         require(availableCurrentMilliAmps in 0..0xffff) {
@@ -50,6 +51,7 @@ class Iap2WiredControlClient(
         for (subscription in subscriptions()) send(subscription, deadlineNanos)
         stage = Iap2WiredControlStage.SUBSCRIBED
         onProgress("iap2 power/subscriptions sent")
+        onReady()
 
         var forwardedFrames = 0
         var carPlayStartSessions = 0

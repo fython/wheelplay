@@ -26,7 +26,7 @@ class Iap2Session private constructor(
 
     fun awaitReady(timeoutMillis: Long): Boolean {
         val ready = channel.awaitReady(timeoutMillis)
-        emitTrace("IAP2 READY [$traceContext] ready=$ready")
+        emitTrace("IAP2 READY [$traceContext] ready=$ready ${channel.fileTransferStatus()}")
         return ready
     }
 
@@ -78,6 +78,10 @@ class Iap2Session private constructor(
             throw failure
         }
     }
+
+    fun sendFileTransfer(bytes: ByteArray, isCurrent: () -> Boolean = { true }) =
+        channel.sendFileTransfer(bytes, isCurrent = isCurrent)
+    fun recvFileTransfer(timeoutMillis: Long): ByteArray? = channel.recvFileTransfer(timeoutMillis)
 
     fun reader(frame: Iap2Frame): Iap2BodyReader = Iap2Messages.reader(frame)
 

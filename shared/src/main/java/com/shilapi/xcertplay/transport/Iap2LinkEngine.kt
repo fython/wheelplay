@@ -28,6 +28,7 @@ class Iap2LinkEngine(
 
     sealed class Event {
         data class Control(val bytes: ByteArray) : Event()
+        data class FileTransfer(val bytes: ByteArray) : Event()
         data class Writable(val value: Boolean) : Event()
         data class Dead(val reason: String?) : Event()
     }
@@ -253,6 +254,13 @@ class Iap2LinkEngine(
         sendPacket(Packet(0, CONTROL_SESSION_ID, bytes.copyOf()), nowMillis)
     }
 
+    fun sendFileTransfer(bytes: ByteArray, nowMillis: Long) {
+        val descriptor = peerSynchronization.sessions.firstOrNull { it.kind == 1 && it.version in 1..2 }
+            ?: throw IllegalStateException("Peer has no supported file-transfer session")
+        require(bytes.size <= MAX_PAYLOAD_BYTES && peerPayloadIsAcceptable(bytes))
+        sendPacket(Packet(0, descriptor.id, bytes.copyOf()), nowMillis)
+    }
+
     private fun parseAvailable(nowMillis: Long): Boolean {
         if (state == State.DEAD) return false
         if (state == State.DETECTING) {
@@ -427,7 +435,10 @@ class Iap2LinkEngine(
         while (outOfOrder.isNotEmpty() && sequenceDistance(outOfOrder.first().sequence, lastReceivedInOrder) == 1) {
             val inOrder = outOfOrder.removeAt(0)
             lastReceivedInOrder = inOrder.sequence
-            if (inOrder.sessionId == CONTROL_SESSION_ID) enqueueEvent(Event.Control(inOrder.payload))
+            when (inOrder.sessionId) {
+                CONTROL_SESSION_ID -> enqueueEvent(Event.Control(inOrder.payload))
+                FILE_TRANSFER_SESSION_ID -> enqueueEvent(Event.FileTransfer(inOrder.payload))
+            }
         }
 
         if (peerSynchronization.maxAcknowledgements == 0) return
