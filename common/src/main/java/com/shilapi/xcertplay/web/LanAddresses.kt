@@ -3,19 +3,22 @@ package com.shilapi.xcertplay.web
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import com.shilapi.xcertplay.network.TeslaHttpConfig
 import java.net.Inet4Address
 import java.net.NetworkInterface
 
 /** Keep interface provenance; a private address alone does not imply LAN reachability. */
 internal object LanAddresses {
     enum class Kind(val label: String, val priority: Int) {
-        ETHERNET("以太网", 10), WIFI("Wi-Fi", 10), HOTSPOT("热点", 20),
+        TESLA_HTTP("Tesla HTTP（实验）", 5), ETHERNET("以太网", 10), WIFI("Wi-Fi", 10), HOTSPOT("热点", 20),
         USB("USB 网络", 30), OTHER("其它网络", 50), P2P("Wi-Fi Direct", 60),
         VPN("VPN / 隧道", 90), CELLULAR("移动网络", 100)
     }
-    data class Entry(val interfaceName: String, val address: String, val kind: Kind, val active: Boolean = false) {
-        val url get() = "http://$address:8080"
+    data class Entry(val interfaceName: String, val address: String, val kind: Kind, val active: Boolean = false, val hostname: String = "") {
+        val url get() = "http://${hostname.ifEmpty { address }}:8080"
+        val ipUrl get() = "http://$address:8080"
         val description get() = "${kind.label} · $interfaceName" + when (kind) {
+            Kind.TESLA_HTTP -> " · 请将车机连接此设备热点；HTTP 可用性需实测"
             Kind.P2P -> " · 通常用于 iPhone 连接"
             Kind.VPN, Kind.CELLULAR -> " · 通常无法从局域网访问"
             else -> ""
@@ -39,7 +42,15 @@ internal object LanAddresses {
         .sortedWith(compareBy<Entry> { it.kind.priority }.thenByDescending { it.active }
             .thenBy { it.interfaceName }.thenBy { it.address })
 
-    fun discover(context: Context): List<Entry> {
+    fun isDiscoverable(address: Inet4Address): Boolean =
+        address.isSiteLocalAddress || TeslaHttpConfig.isSharedAddress(address.hostAddress ?: "")
+
+    fun entry(name: String, address: String, kind: Kind, active: Boolean,
+              teslaAddress: String?, hostname: String): Entry =
+        if (kind == Kind.VPN && address == teslaAddress) Entry(name, address, Kind.TESLA_HTTP, active, hostname)
+        else Entry(name, address, kind, active)
+
+    fun discover(context: Context, teslaAddress: String? = null, hostname: String = ""): List<Entry> {
         val transports = mutableMapOf<String, Kind>()
         var activeInterface: String? = null
         // Framework metadata is authoritative; interface-name heuristics cover tethering/P2P.
@@ -63,8 +74,9 @@ internal object LanAddresses {
             NetworkInterface.getNetworkInterfaces().toList().flatMap { iface ->
                 runCatching {
                     if (!iface.isUp || iface.isLoopback) emptyList() else iface.inetAddresses.toList()
-                        .filterIsInstance<Inet4Address>().filter { it.isSiteLocalAddress }
-                        .map { Entry(iface.name, it.hostAddress!!, classify(iface.name, transports[iface.name]), iface.name == activeInterface) }
+                        .filterIsInstance<Inet4Address>().filter(::isDiscoverable)
+                        .map { entry(iface.name, it.hostAddress!!, classify(iface.name, transports[iface.name]),
+                            iface.name == activeInterface, teslaAddress, hostname) }
                 }.getOrDefault(emptyList())
             }
         }.getOrDefault(emptyList())

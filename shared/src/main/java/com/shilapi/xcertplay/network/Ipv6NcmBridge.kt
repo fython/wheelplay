@@ -104,6 +104,9 @@ class Ipv6NcmBridge(
                     LockSupport.parkNanos(ZERO_READ_BACKOFF_NANOS)
                     continue
                 }
+                // The shared TUN may also own the Tesla HTTP IPv4 alias. Never wrap IPv4
+                // traffic in an IPv6 Ethernet frame or leak it to the iPhone USB link.
+                if (length < 40 || (buffer[0].toInt() and 0xf0) != 0x60) continue
                 val tunPacket = buffer.copyOf(length)
                 val ipv6 = EthernetIpv6Codec.addNeighborAdvertisementTargetMac(tunPacket, hostMac)
                 if (ipv6.size != tunPacket.size) {

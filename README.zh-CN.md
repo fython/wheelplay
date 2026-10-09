@@ -47,6 +47,10 @@ Canvas 模式需要蔚来等车机实测：若遮罩只覆盖原生视频元素�
 - 画面流畅度与连接稳定性受设备性能、网络质量及系统后台管理影响。
 - 仅适用于可信局域网；HTTP 配对、WebSocket 控制与 JPEG 通道未加密，WebRTC 视频使用 DTLS-SRTP。浏览器麦克风使用本地 HTTPS/WSS，不应通过证书警告强行进入页面；请勿将服务暴露到公网。
 
+## Tesla HTTP 兼容模式（实验）
+
+在设置中开启此模式并授权本地 VPN，可尝试通过 `http://100.96.0.1:8080/` 访问。车机需要连接运行 WheelPlay 的 Android 设备热点；无需证书，也不修改系统热点网段。支持自定义共享地址和自备 HTTP 域名。接口创建成功不代表车机可达，热点路由及不同 Tesla 版本的 HTTP 支持仍需实机验证。此模式与有线 CarPlay 共用 VPN，可能替换其他 VPN。详见 [使用与验证说明](docs/TESLA_HTTP.md)。
+
 ## 构建
 
 使用 Android NDK 28.2.13676358 和 CMake 3.22.1。首次构建会从 GitHub 获取固定版本的 libdatachannel 及 Mbed TLS；后续复用本地 CMake 缓存。运行 `./gradlew :mobile:assembleDebug`。

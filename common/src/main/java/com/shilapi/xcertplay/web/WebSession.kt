@@ -108,6 +108,7 @@ internal object WebSession {
         val next = LanWebServer(context.applicationContext, code)
         try {
             next.start(5000, true); server = next; error = null
+            TeslaHttpCompatibility.start(context)
             val token = ++serverGeneration
             Thread({
                 var secure: LanWebServer? = null
@@ -186,6 +187,7 @@ internal object WebSession {
     } }
     @Synchronized fun stop() {
         serverGeneration++
+        TeslaHttpCompatibility.stop()
         val oldSecure = secureServer; secureServer = null; oldSecure?.stop(); tls = null; tlsError = null
         videoSource?.detach(); videoSource = null
         val old = server; server = null; old?.stop()
@@ -196,7 +198,8 @@ internal object WebSession {
     fun inspectPairing(payload: String) = server?.pairing?.inspect(payload)
     fun approvePairing(payload: String) = server?.pairing?.approve(payload) == true
 
-    fun addresses(context: Context): List<LanAddresses.Entry> = LanAddresses.discover(context)
+    fun addresses(context: Context): List<LanAddresses.Entry> = LanAddresses.discover(
+        context, TeslaHttpCompatibility.status.address, TeslaHttpCompatibility.config(context).hostname)
 
     private const val MIN_VIEWPORT_PIXELS = 320
     private const val MAX_VIEWPORT_PIXELS = 8192

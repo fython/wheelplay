@@ -6,6 +6,7 @@
 
 - [使用与构建说明](../README.md)：安装、配对、认证资产和构建方式。
 - [架构与协议](ARCHITECTURE.md)：离屏解码、Web 服务、触摸及生命周期。
+- [Tesla HTTP 兼容模式](TESLA_HTTP.md)：无证书虚拟地址入口、可选域名和实机验证限制。
 - [验证记录](VALIDATION.md)：已通过的检查、APK 校验值和未完成的真机验证。
 - [组件间距检查](SPACING_REVIEW.md)：本轮发现、尺寸约定、修正和验证范围。
 - [上游来源](UPSTREAM.md)：原版提交及本分支改动范围。
