@@ -10,14 +10,14 @@ const source = readFileSync(new URL('../common/src/main/assets/web/browser-audio
 const flush = () => new Promise(resolve => setImmediate(resolve));
 const savedDevice = { id: 'd'.repeat(32), secret: 's'.repeat(32), name: 'Chrome · Android' };
 const ok = data => ({ ok: true, json: async () => data });
-function fixture({ status = () => ok({ state: 'pending' }), stored = null, resume = () => ok({ token: 'resumed-token', name: savedDevice.name }), storageDisabled = false, search = '' } = {}) {
+function fixture({ status = () => ok({ state: 'pending' }), stored = null, resume = () => ok({ token: 'resumed-token', name: savedDevice.name }), storageDisabled = false, search = '', tls = { available: true, port: 8443 }, href = 'http://server:8080/?code=123456#old' } = {}) {
   const elements = new Map(), timers = new Map(), sockets = [], requests = [], windowEvents = {};
   const preferences = new Map(stored ? [['wheelplay.browserDevice', JSON.stringify(stored)]] : []);
   let nextTimer = 0;
   const element = id => {
     if (!elements.has(id)) elements.set(id, { hidden: false, value: '123456', handlers: {}, checked: false,
       set src(value) { this.source = value; if (this.onload) this.onload(); },
-      classList: { toggle() {} }, removeAttribute() {}, setAttribute() {}, addEventListener(name, fn) { this.handlers[name] = fn; } });
+      classList: { toggle() {} }, removeAttribute(name) { if (name === "href") delete this.href; }, setAttribute() {}, addEventListener(name, fn) { this.handlers[name] = fn; } });
     return elements.get(id);
   };
   class Socket {
@@ -33,11 +33,12 @@ function fixture({ status = () => ok({ state: 'pending' }), stored = null, resum
         setItem(key, value) { if (storageDisabled) throw new Error('denied'); preferences.set(key, value); },
         removeItem(key) { preferences.delete(key); },
       },
-    }, location: { host: 'server:8080' }, URL, Date, WebSocket: Socket,
+    }, location: { host: 'server:8080', href }, URL, Date, WebSocket: Socket,
     setTimeout(fn, delay) { const id = ++nextTimer; timers.set(id, { fn, delay }); return id; },
     clearTimeout(id) { timers.delete(id); }, clearInterval() {},
     fetch: async (url, options) => {
       requests.push({ url, options });
+      if (url === '/tls.json') return ok(tls);
       if (url.endsWith('/status')) return status();
       if (url.endsWith('/resume')) return resume();
       if (url.endsWith('/remember')) return ok(savedDevice);
@@ -159,4 +160,36 @@ test('revocation between restore and launch forces fresh pairing instead of usin
   assert.equal(f.sockets.length, 0);
   f.submit(); await flush();
   assert.equal(f.sockets[0].url, 'ws://server:8080/stream?token=code-token');
+});
+
+test('HTTPS setup uses the configured port and strips pairing data, including IPv6 hosts', async () => {
+  for (const [href, expected] of [
+    ['http://server:8080/?code=123456#old', 'https://server:9443/'],
+    ['http://[fd00::1]:8080/?code=123456', 'https://[fd00::1]:9443/'],
+  ]) {
+    const f = fixture({ href, tls: { available: true, port: 9443, fingerprint: 'verified' } });
+    f.element('secure-setup').open = true;
+    await f.element('secure-setup').handlers.toggle();
+    assert.equal(f.element('https-entry').href, expected);
+    assert.equal(f.element('tls-fingerprint').textContent, 'verified');
+  }
+});
+
+test('unavailable HTTPS or invalid port withdraws a previously displayed link', async () => {
+  for (const tls of [{ available: false, port: 9443 }, { available: true, port: 0 }, { available: true, port: '9443' }]) {
+    const f = fixture({ tls });
+    f.element('https-entry').href = 'https://server:8443/';
+    f.element('secure-setup').open = true;
+    await f.element('secure-setup').handlers.toggle();
+    assert.equal(f.element('https-entry').href, undefined);
+  }
+});
+
+test('disabled HTTPS removes the link and explains the app setting', async () => {
+  const f = fixture({ tls: { available: false, enabled: false, port: 8443 } });
+  f.element('https-entry').href = 'https://server:8443/';
+  f.element('secure-setup').open = true;
+  await f.element('secure-setup').handlers.toggle();
+  assert.equal(f.element('https-entry').href, undefined);
+  assert.match(f.element('tls-fingerprint').textContent, /HTTPS 已关闭.*Web 监听/);
 });

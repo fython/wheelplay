@@ -3,7 +3,6 @@ package com.shilapi.xcertplay.web
 import android.content.Intent
 import android.os.ParcelFileDescriptor
 import com.shilapi.xcertplay.network.CarPlayVpnService
-import com.shilapi.xcertplay.network.TeslaHttpConfig
 import com.shilapi.xcertplay.airplay.AirPlayConfig
 import com.shilapi.xcertplay.airplay.AirPlayDisplayConfig
 import com.shilapi.xcertplay.airplay.AirPlayIdentity
@@ -19,7 +18,6 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
 import org.robolectric.annotation.RealObject
-import java.io.IOException
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29])
@@ -57,27 +55,15 @@ class TeslaHttpLifecycleTest {
 
     @Test
     @Config(shadows = [AllocatingBuilderShadow::class])
-    fun standaloneAndUsbPlansOnlyRouteTheAliasAndOriginalIpv6Link() {
+    fun wiredVpnOnlyRoutesItsOriginalIpv6Link() {
         AllocatingBuilderShadow.plans.clear()
         val controller = Robolectric.buildService(RoutingVpnService::class.java).create()
         try {
-            val service = controller.get()
-            assertEquals(CarPlayVpnService.AttachResult.Started, service.setBrowserAddress(TeslaHttpConfig.DEFAULT_ADDRESS))
-            service.allocateWiredTunnel().close()
-            val plans = AllocatingBuilderShadow.plans
-            assertEquals(2, plans.size)
-            for ((index, plan) in plans.withIndex()) {
-                assertEquals(if (index == 0) 1 else 2, plan.addresses.size)
-                assertEquals(if (index == 0) 1 else 2, plan.routes.size)
-                assertTrue(plan.addresses.contains(TeslaHttpConfig.DEFAULT_ADDRESS to 32))
-                assertTrue(plan.routes.contains(TeslaHttpConfig.DEFAULT_ADDRESS to 32))
-                assertFalse("Internet traffic must not be routed into this VPN", plan.routes.any { it.second == 0 })
-                assertEquals(setOf(android.system.OsConstants.AF_INET, android.system.OsConstants.AF_INET6), plan.families)
-                if (index == 1) {
-                    assertTrue(plan.addresses.contains("fe80::1" to 64))
-                    assertTrue(plan.routes.contains("fe80::" to 64))
-                }
-            }
+            controller.get().allocateWiredTunnel().close()
+            val plan = AllocatingBuilderShadow.plans.single()
+            assertEquals(listOf("fe80::1" to 64), plan.addresses)
+            assertEquals(listOf("fe80::" to 64), plan.routes)
+            assertEquals(setOf(android.system.OsConstants.AF_INET, android.system.OsConstants.AF_INET6), plan.families)
         } finally {
             controller.destroy()
             AllocatingBuilderShadow.peers.forEach { it.close() }
@@ -86,28 +72,10 @@ class TeslaHttpLifecycleTest {
         }
     }
 
-    // Replace only the kernel TUN allocation; exercise the real service lifecycle and resources.
-    class TestVpnService : CarPlayVpnService() {
-        val tunnels = mutableListOf<ParcelFileDescriptor>()
-        val peers = mutableListOf<ParcelFileDescriptor>()
-        var failAllocation = false
-        override fun establishTunnel(linkLocal: String?): ParcelFileDescriptor {
-            if (failAllocation) throw IOException("test allocation failure")
-            val pipe = ParcelFileDescriptor.createPipe()
-            tunnels.add(pipe[0]); peers.add(pipe[1])
-            return pipe[0]
-        }
-    }
-
-    @Test fun aliasSurvivesPhoneDetachButStopsWithItsWebOwner() {
-        val controller = Robolectric.buildService(TestVpnService::class.java).create()
+    @Test fun wirelessAttachDetachAndVpnRevocationNeverAllocateATunnel() {
+        val controller = Robolectric.buildService(RoutingVpnService::class.java).create()
         val service = controller.get()
         try {
-            assertEquals(CarPlayVpnService.AttachResult.Started, service.setBrowserAddress(TeslaHttpConfig.DEFAULT_ADDRESS))
-            assertFalse(service.isAttached())
-            assertEquals(TeslaHttpConfig.DEFAULT_ADDRESS, service.browserStatus.address)
-            assertEquals(CarPlayVpnService.AttachResult.AlreadyStarted, service.setBrowserAddress(TeslaHttpConfig.DEFAULT_ADDRESS))
-            assertEquals(1, service.tunnels.size)
             assertEquals(CarPlayVpnService.AttachResult.Started, service.attachWireless(
                 java.net.InetAddress.getByName("127.0.0.1"),
                 AirPlayConfig("Test", "00:11:22:33:44:55", "00:11:22:33:44:55", "1.0",
@@ -115,52 +83,24 @@ class TeslaHttpLifecycleTest {
                 AirPlayIdentity.generate(), PairingStore(), null,
                 object : AirPlaySessionListener {}, object : AirPlayMediaHandler {}))
             assertTrue(service.isAttached())
-            assertEquals("Wireless attach must retain the existing alias", 1, service.tunnels.size)
+            service.onRevoke()
+            assertTrue("Wireless listener is independent of the wired VPN", service.isAttached())
             service.detach()
             assertFalse(service.isAttached())
-            assertEquals(TeslaHttpConfig.DEFAULT_ADDRESS, service.browserStatus.address)
-            assertEquals(2, service.tunnels.size)
-            assertClosed(service.tunnels.first())
-            service.clearBrowserAddress()
-            assertNull(service.browserStatus.address)
-            assertClosed(service.tunnels.last())
-            service.detach()
-            assertEquals("A later phone teardown must not resurrect a stopped alias", 2, service.tunnels.size)
-        } finally { controller.destroy(); service.peers.forEach { it.close() } }
+        } finally { controller.destroy() }
     }
 
-    @Test fun failedAllocationIsNotAdvertisedAndCanBeRetried() {
-        val controller = Robolectric.buildService(TestVpnService::class.java).create()
-        val service = controller.get()
-        try {
-            service.failAllocation = true
-            assertTrue(service.setBrowserAddress(TeslaHttpConfig.DEFAULT_ADDRESS) is CarPlayVpnService.AttachResult.Failed)
-            assertNull(service.browserStatus.address)
-            assertNotNull(service.browserStatus.error)
-            service.failAllocation = false
-            assertEquals(CarPlayVpnService.AttachResult.Started, service.setBrowserAddress(TeslaHttpConfig.DEFAULT_ADDRESS))
-            assertNotNull(service.browserStatus.address)
-            assertNull(service.browserStatus.error)
-        } finally { controller.destroy(); service.peers.forEach { it.close() } }
-    }
-
-    @Test fun revocationWithdrawsTheAliasAndDoesNotReestablishOnDetach() {
-        val controller = Robolectric.buildService(TestVpnService::class.java).create()
-        val service = controller.get()
-        try {
-            service.setBrowserAddress(TeslaHttpConfig.DEFAULT_ADDRESS)
-            service.onRevoke()
-            assertNull(service.browserStatus.address)
-            assertNotNull(service.browserStatus.error)
-            assertClosed(service.tunnels.single())
-            service.detach()
-            assertEquals(1, service.tunnels.size)
-            assertNotNull("Phone teardown must retain the revocation explanation", service.browserStatus.error)
-        } finally { controller.destroy(); service.peers.forEach { it.close() } }
+    @Test fun tetheringUsesSystemReportedInterfacesAndRejectsShellInput() {
+        val intent = Intent("android.net.conn.TETHER_STATE_CHANGED")
+            .putStringArrayListExtra("tetherArray", arrayListOf("ap0", "wlan1", "ap0", "lo", "ap0;id"))
+        assertEquals(setOf("ap0", "wlan1"), TeslaHttpCompatibility.tetheredInterfaces(intent))
+        assertTrue(TeslaHttpCompatibility.tetheredInterfaces(Intent()).isEmpty())
+        assertEquals(setOf("ap0"), TeslaHttpCompatibility.tetheredInterfaces(
+            Intent().putExtra("tetherArray", arrayOf("ap0"))))
     }
 
     @Test fun frameworkVpnBindingUsesTheRevocationBinderAndLocalClientsUseTheLocalBinder() {
-        val controller = Robolectric.buildService(TestVpnService::class.java).create()
+        val controller = Robolectric.buildService(RoutingVpnService::class.java).create()
         try {
             val service = controller.get()
             assertTrue(service.onBind(Intent()) is CarPlayVpnService.LocalBinder)
@@ -169,8 +109,4 @@ class TeslaHttpLifecycleTest {
         } finally { controller.destroy() }
     }
 
-    private fun assertClosed(fd: ParcelFileDescriptor) {
-        try { fd.fd; fail("TUN descriptor must be closed") }
-        catch (_: IllegalStateException) { }
-    }
 }

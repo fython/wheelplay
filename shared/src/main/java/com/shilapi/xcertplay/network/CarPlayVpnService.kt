@@ -60,63 +60,16 @@ open class CarPlayVpnService : VpnService() {
     private var bridge: Ipv6NcmBridge? = null
     private var tun: ParcelFileDescriptor? = null
     private var attachGeneration = 0
-    private var browserAddress: String? = null
-    @Volatile var browserStatus = TeslaHttpStatus()
-        private set
-
-    /** Changes are deferred by the UI while CarPlay is connected; never replace a live NCM tunnel. */
-    @Synchronized
-    fun setBrowserAddress(address: String?): AttachResult {
-        if (address != null && !TeslaHttpConfig.isSharedAddress(address)) {
-            return AttachResult.Failed("虚拟 IP 必须位于 100.64.0.0–100.127.255.255")
-        }
-        if (address == browserAddress && (address == null || tun != null)) {
-            if (address == null) browserStatus = TeslaHttpStatus()
-            return AttachResult.AlreadyStarted
-        }
-        if (bridge != null) return AttachResult.Failed("请先断开 iPhone，再修改 Tesla HTTP 模式")
-        closeTunnelLocked()
-        browserAddress = address
-        browserStatus = TeslaHttpStatus()
-        return restoreBrowserTunnelLocked()
-    }
-
-    /** Used only when the owning web service is stopping; keep a live USB tunnel intact. */
-    @Synchronized
-    fun clearBrowserAddress() {
-        browserAddress = null
-        browserStatus = TeslaHttpStatus()
-        // An established VPN's addresses are immutable. Remove the alias when the USB
-        // attachment closes, without disturbing it during the asynchronous service teardown.
-        if (bridge == null) closeTunnelLocked()
-    }
-
-    /** No default route, DNS override or interception of the phone's Internet traffic. */
-    protected open fun establishTunnel(linkLocal: String? = null): ParcelFileDescriptor {
-        val builder = Builder()
-            .allowFamily(OsConstants.AF_INET)
-            .allowFamily(OsConstants.AF_INET6)
-            .setSession(SESSION_NAME)
-            .setMtu(TUN_MTU)
-            .setBlocking(true)
-        if (linkLocal != null) {
-            builder.addAddress(linkLocal, LINK_PREFIX).addRoute(LINK_LOCAL_ROUTE, LINK_PREFIX)
-        }
-        browserAddress?.let { builder.addAddress(it, 32).addRoute(it, 32) }
-        return builder.establish() ?: throw IOException("本地 VPN 未获授权，请重新开启 Tesla HTTP 模式")
-    }
-
-    private fun restoreBrowserTunnelLocked(): AttachResult {
-        val address = browserAddress ?: return AttachResult.Started
-        return try {
-            if (tun == null) tun = establishTunnel()
-            browserStatus = TeslaHttpStatus(address)
-            AttachResult.Started
-        } catch (error: Exception) {
-            browserStatus = TeslaHttpStatus(error = "虚拟地址启动失败：${error.javaClass.simpleName}")
-            AttachResult.Failed(browserStatus.error!!)
-        }
-    }
+    /** Only the original wired CarPlay IPv6 link uses Android's VPN API. */
+    protected open fun establishTunnel(linkLocal: String): ParcelFileDescriptor = Builder()
+        .allowFamily(OsConstants.AF_INET)
+        .allowFamily(OsConstants.AF_INET6)
+        .setSession(SESSION_NAME)
+        .setMtu(TUN_MTU)
+        .setBlocking(true)
+        .addAddress(linkLocal, LINK_PREFIX)
+        .addRoute(LINK_LOCAL_ROUTE, LINK_PREFIX)
+        .establish() ?: throw IOException("CarPlay VPN 未获授权")
 
     override fun onBind(intent: Intent?): IBinder? =
         if (intent?.action == SERVICE_INTERFACE) super.onBind(intent) else binder
@@ -133,7 +86,6 @@ open class CarPlayVpnService : VpnService() {
         listener: AirPlaySessionListener,
         media: AirPlayMediaHandler,
     ): AttachResult {
-        // The replacement TUN carries both the USB IPv6 link and the optional browser alias.
         releaseLocked()
         active.set(true)
         val generation = ++attachGeneration
@@ -146,7 +98,6 @@ open class CarPlayVpnService : VpnService() {
 
             val tunFd = establishTunnel(linkLocal)
             tun = tunFd
-            browserStatus = TeslaHttpStatus(browserAddress)
 
             val ipv6Bridge = Ipv6NcmBridge(ncm, tunFd, hostMac) { error ->
                 onTransportError(generation, listener, error)
@@ -161,7 +112,6 @@ open class CarPlayVpnService : VpnService() {
             AttachResult.Started
         } catch (error: Exception) {
             releaseLocked()
-            restoreBrowserTunnelLocked()
             AttachResult.Failed(error.message ?: error.javaClass.simpleName)
         }
     }
@@ -184,7 +134,6 @@ open class CarPlayVpnService : VpnService() {
             Log.i(TAG, "replacing stale local-only Wi-Fi attachment")
             releaseLocked()
         }
-        restoreBrowserTunnelLocked()
         active.set(true)
         val generation = ++attachGeneration
         return try {
@@ -195,7 +144,6 @@ open class CarPlayVpnService : VpnService() {
             AttachResult.Started
         } catch (error: Exception) {
             releaseLocked()
-            restoreBrowserTunnelLocked()
             AttachResult.Failed(error.message ?: error.javaClass.simpleName)
         }
     }
@@ -204,7 +152,6 @@ open class CarPlayVpnService : VpnService() {
     @Synchronized
     fun detach() {
         releaseLocked()
-        restoreBrowserTunnelLocked()
     }
 
     fun isAttached(): Boolean = active.get() && attachment != null
@@ -212,20 +159,15 @@ open class CarPlayVpnService : VpnService() {
     @Synchronized
     override fun onRevoke() {
         val listener = if (bridge != null) attachment?.listener else null
-        browserAddress = null
-        // Wireless AirPlay does not depend on the VPN; withdrawing the browser alias
-        // must not close its independent TCP listener.
+        // Wireless AirPlay does not depend on the wired VPN.
         if (bridge != null) releaseLocked() else closeTunnelLocked()
-        browserStatus = TeslaHttpStatus(error = "本地 VPN 授权已撤销，请重新开启 Tesla HTTP 模式")
         listener?.onTransportError("CarPlay VPN permission revoked")
         super.onRevoke()
     }
 
     @Synchronized
     override fun onDestroy() {
-        browserAddress = null
         releaseLocked()
-        browserStatus = TeslaHttpStatus()
         super.onDestroy()
     }
 
@@ -325,7 +267,6 @@ open class CarPlayVpnService : VpnService() {
                 synchronized(this) {
                     if (generation != attachGeneration) return@Thread
                     releaseLocked()
-                    restoreBrowserTunnelLocked()
                 }
                 listener.onTransportError(message)
             },
@@ -352,7 +293,6 @@ open class CarPlayVpnService : VpnService() {
         bridge = null
         tun?.close()
         tun = null
-        browserStatus = TeslaHttpStatus(error = browserStatus.error)
     }
 
     companion object {

@@ -8,9 +8,11 @@ import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.textfield.TextInputLayout
 import com.google.android.material.textfield.TextInputEditText
 import com.shilapi.xcertplay.web.WebSession
+import com.shilapi.xcertplay.web.RootAccess
 import com.shilapi.xcertplay.web.LanAddresses
 import com.shilapi.xcertplay.web.TeslaHttpCompatibility
-import com.shilapi.xcertplay.network.CarPlayVpnService
+import com.shilapi.xcertplay.web.LanTls
+import com.shilapi.xcertplay.web.WebListenSettings
 import com.shilapi.xcertplay.web.BrowserExperienceLink
 import io.github.g00fy2.quickie.QRResult
 import io.github.g00fy2.quickie.ScanQRCode
@@ -48,6 +50,10 @@ import java.util.Locale
 
 /** Connection and preference pages in the shared server navigation. */
 class DiPlayActivity : AppCompatActivity() {
+    private class CertificateDocument : ActivityResultContracts.OpenDocument() {
+        override fun createIntent(context: android.content.Context, input: Array<String>): Intent =
+            super.createIntent(context, input).addCategory(Intent.CATEGORY_OPENABLE)
+    }
     private val ui by lazy { ServerUi(this) }
     private val handler = Handler(Looper.getMainLooper())
     private var page = "service"
@@ -55,14 +61,41 @@ class DiPlayActivity : AppCompatActivity() {
     private var webAddress: TextView? = null
     private var webInterface: TextView? = null
     private var teslaStatus: TextView? = null
-    private var pendingTeslaEnable = false
-    private val teslaVpnConsent = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        val enable = pendingTeslaEnable
-        pendingTeslaEnable = false
-        if (enable && result.resultCode == RESULT_OK) saveTeslaHttpEnabled(true)
-        else {
-            toast("未授权本地 VPN，无法启动 Tesla HTTP 模式")
-            render()
+    private var renderedRootState: Triple<Boolean, Boolean, String>? = null
+    private var webBusy = false
+    private var pendingPemCertificate: ByteArray? = null
+    private val pemCertificatePicker = registerForActivityResult(CertificateDocument()) { uri ->
+        if (uri != null) {
+            webBusy = true
+            Thread({
+                val result = runCatching { readCertificateFile(uri) }
+                runOnUiThread {
+                    webBusy = false
+                    if (isFinishing || isDestroyed) { result.getOrNull()?.fill(0); return@runOnUiThread }
+                    result.onSuccess { pendingPemCertificate = it; pemKeyPicker.launch(arrayOf("*/*")) }
+                        .onFailure { toast("证书读取失败：${it.message ?: it.javaClass.simpleName}") }
+                }
+            }, "https-certificate-read").start()
+        }
+    }
+    private val pemKeyPicker = registerForActivityResult(CertificateDocument()) { uri ->
+        val certificate = pendingPemCertificate
+        pendingPemCertificate = null
+        if (uri == null || certificate == null) certificate?.fill(0)
+        else textInput("PEM 私钥密码（未加密则留空）", "", true, onCancel = { certificate.fill(0) }) { value ->
+            val password = value.toCharArray()
+            configureWeb("HTTPS 证书已导入，浏览器请重新连接") {
+                try {
+                    val key = readCertificateFile(uri)
+                    try { LanTls.preparePem(certificate, key, password).use { WebSession.installCertificate(this, it) } }
+                    finally { key.fill(0) }
+                } finally { certificate.fill(0); password.fill('\u0000') }
+            }
+        }
+    }
+    private val pkcs12Picker = registerForActivityResult(CertificateDocument()) { uri ->
+        if (uri != null) textInput("PKCS#12 文件密码（可留空）", "", true) { value ->
+            choosePkcs12Identity(uri, value.toCharArray())
         }
     }
     private var otherAddresses: LinearLayout? = null
@@ -89,7 +122,7 @@ class DiPlayActivity : AppCompatActivity() {
         connect(notificationTransport)
     }
     private val tick = object : Runnable {
-        override fun run() { refreshStatus(); refreshService(); handler.postDelayed(this, 1000) }
+        override fun run() { refreshStatus(); refreshService(); refreshRootSettings(); handler.postDelayed(this, 1000) }
     }
     private val bluetoothPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) choosePhone() else permissionHelp("附近设备", "请允许访问附近设备，以连接已配对的 iPhone。")
@@ -158,11 +191,11 @@ class DiPlayActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        RootAccess.checkOnStartup()
         com.shilapi.xcertplay.hud.BydNavigationOutputs.onAppOpened(applicationContext)
         ServerWindow.showSystemBars(window)
         refreshAuthentication()
         selectedPrivateKey = savedInstanceState?.getString("selectedPrivateKey")?.let(Uri::parse)
-        pendingTeslaEnable = savedInstanceState?.getBoolean("pendingTeslaEnable") ?: false
         page = savedInstanceState?.getString("page") ?: intent.getStringExtra("page")
             ?: if (setupError == null) "service" else "settings"
         createShell()
@@ -191,7 +224,6 @@ class DiPlayActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString("page", page)
         outState.putString("selectedPrivateKey", selectedPrivateKey?.toString())
-        outState.putBoolean("pendingTeslaEnable", pendingTeslaEnable)
         super.onSaveInstanceState(outState)
     }
     override fun onConfigurationChanged(newConfig: Configuration) { super.onConfigurationChanged(newConfig); createShell() }
@@ -210,13 +242,14 @@ class DiPlayActivity : AppCompatActivity() {
             initialLaunch = false
             if (setupError == null && !DiPlayBootstrap.importing && selectedPrivateKey == null &&
                 intent.action != Intent.ACTION_SEND && intent.action != Intent.ACTION_VIEW &&
-                !pendingTeslaEnable && !CarPlayBackgroundSession.hasSession() &&
+                !CarPlayBackgroundSession.hasSession() &&
                 DiPlayPreferences.autoConnect(this) && intent.getStringExtra("page") == null) {
                 handler.post { connect(AirPlayPersistence.loadWirelessEnabled(this)) }
             }
         }
     }
     override fun onPause() { WebSession.setPhoneConnectHandler(null); handler.removeCallbacks(tick); super.onPause() }
+    override fun onDestroy() { pendingPemCertificate?.fill(0); pendingPemCertificate = null; super.onDestroy() }
 
     private fun normalizedPage(value: String) = when (value) {
         "home", "wireless-recovery" -> "phone"
@@ -252,6 +285,7 @@ class DiPlayActivity : AppCompatActivity() {
     private fun render() {
         refreshPhone()
         exportButton = null
+        teslaStatus = null
         shell.put("settings", ui.content(::settings))
     }
 
@@ -321,8 +355,8 @@ class DiPlayActivity : AppCompatActivity() {
         val compatibility = TeslaHttpCompatibility.status
         teslaStatus?.text = if (!TeslaHttpCompatibility.config(this).enabled) "已关闭"
             else if (!WebSession.running && setupError != null) "导入认证资源后启动"
-            else compatibility.error ?: compatibility.address?.let { "虚拟地址已创建：$it；请用车机测试访问" }
-            ?: "正在准备 HTTP 虚拟地址…"
+            else compatibility.error ?: compatibility.address?.let { "Root 热点路由已启用：$it（${compatibility.downstreams.joinToString()}）；请用车机测试访问" }
+            ?: "正在准备 Root 热点路由…"
         webInterface?.visibility = if (primary == null) View.GONE else View.VISIBLE
         if (displayedAddresses != addresses) {
             displayedAddresses = addresses
@@ -424,46 +458,71 @@ class DiPlayActivity : AppCompatActivity() {
             card.addView(label("配对后的浏览器会被记住，下次打开时自动恢复配对；选择启动选项后，点击网页上的「启动显示」。", 16, MUTED))
             card.addView(ui.preference("连接过的设备", "查看、重命名或移除浏览器") { showBrowserDevices() })
         }
-        section(content, "Tesla HTTP 兼容（实验）") { card ->
-            val config = TeslaHttpCompatibility.config(this)
-            toggle(card, "Tesla HTTP 模式", "车机连接此设备热点后，尝试通过虚拟地址访问；无需证书。部分车机版本仍可能拒绝 HTTP。", config.enabled) {
-                setTeslaHttpEnabled(it)
-            }
-            teslaStatus = label("", 14, MUTED)
-            card.addView(teslaStatus)
-            card.addView(ui.preference("HTTP 端口", config.port.toString()) {
-                textInput("HTTP 端口（1–65535）", config.port.toString(), false) { value ->
+        section(content, "Web 监听") { card ->
+            card.addView(ui.preference("HTTP 端口", WebListenSettings.httpPort(this).toString()) {
+                textInput("HTTP 监听端口（1024–65535）", WebListenSettings.httpPort(this).toString(), false) { value ->
                     val port = value.toIntOrNull()
-                    if (port == null || port !in 1..65535) toast("HTTP 端口必须为 1–65535")
-                    else {
-                        val failure = WebSession.setHttpPort(this, port)
-                        if (failure != null) toast(failure)
-                        else {
-                            startWebServiceIfReady()
-                            toast("HTTP 端口已保存，浏览器请使用新地址重新连接")
-                        }
-                        render(); refreshService()
+                    if (port == null || port !in 1024..65535) toast("HTTP 监听端口必须为 1024–65535")
+                    else configureWeb("HTTP 端口已保存，浏览器请使用新地址重新连接") { WebSession.setHttpPort(this, port) }
+                }
+            }.apply { isEnabled = !webBusy })
+            card.addView(ui.preference("Web 域名（可选）", WebListenSettings.hostname(this).ifEmpty { "使用 IP 地址" }) {
+                textInput("Web 域名（可选）", WebListenSettings.hostname(this), false) { value ->
+                    configureWeb("Web 域名已保存") { WebSession.setHostname(this, value.lowercase(Locale.ROOT)) }
+                }
+            }.apply { isEnabled = !webBusy })
+            card.addView(label("监听设置无需 Root。Web 域名同时用于 HTTP 和 HTTPS，需解析到实际访问的 IP；填写不会自动配置 DNS，自定义 HTTPS 证书需覆盖此域名。", 14, MUTED))
+            toggle(card, "启用 HTTPS", "为浏览器提供 HTTPS 访问；浏览器麦克风需要可信证书。", WebListenSettings.httpsEnabled(this), enabled = !webBusy) {
+                configureWeb(if (it) "HTTPS 已开启" else "HTTPS 已关闭") { WebSession.setHttpsEnabled(this, it) }
+            }
+            if (WebListenSettings.httpsEnabled(this)) {
+                card.addView(ui.preference("Web HTTPS 端口", WebListenSettings.httpsPort(this).toString()) {
+                    textInput("HTTPS 监听端口（1024–65535）", WebListenSettings.httpsPort(this).toString(), false) { value ->
+                        val port = value.toIntOrNull()
+                        if (port == null || port !in 1024..65535) toast("HTTPS 监听端口必须为 1024–65535")
+                        else configureWeb("HTTPS 端口已保存，浏览器请使用新端口") { WebSession.setHttpsPort(this, port) }
                     }
+                }.apply { isEnabled = !webBusy })
+                certificateControls(card)
+            }
+        }
+        section(content, "Tesla 兼容（实验）") { card ->
+            renderedRootState = rootState()
+            val rootRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            rootRow.addView(button("请求 Root 权限", false) {
+                configureWeb("Root 已授权") { RootAccess.request().also { TeslaHttpCompatibility.retry() } }
+            }.apply { isEnabled = !webBusy && !RootAccess.checking })
+            rootRow.addView(label(RootAccess.status, 14, MUTED).apply { maxLines = 3; ellipsize = android.text.TextUtils.TruncateAt.END },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(12) })
+            card.addView(rootRow)
+            if (RootAccess.granted) {
+                val config = TeslaHttpCompatibility.config(this)
+                toggle(card, "启用 Tesla 兼容", "将 HTTP / HTTPS 低位端口及自定义 IP 共享给热点设备。", config.enabled, enabled = !webBusy) {
+                    setTeslaHttpEnabled(it)
                 }
-            })
-            card.addView(label("HTTP 端口适用于全部 IP 和域名入口，修改后立即生效。端口被占用或系统禁止绑定时保留原端口。", 14, MUTED))
-            card.addView(ui.preference("虚拟 IP", config.address) {
-                if (CarPlayBackgroundSession.hasSession()) toast("请先断开 iPhone，再修改虚拟 IP")
-                else textInput("虚拟 IP", config.address, false) { value ->
-                    if (CarPlayBackgroundSession.hasSession()) toast("请先断开 iPhone，再修改虚拟 IP")
-                    else runCatching { TeslaHttpCompatibility.save(this, TeslaHttpCompatibility.config(this).copy(address = value)) }
-                        .onSuccess { render(); refreshService() }.onFailure { toast(it.message ?: "虚拟 IP 无效") }
-                }
-            })
-            card.addView(ui.preference("HTTP 域名（可选）", config.hostname.ifEmpty { "使用虚拟 IP" }) {
-                textInput("HTTP 域名（可选）", config.hostname, false) { value ->
-                    runCatching { TeslaHttpCompatibility.save(this, TeslaHttpCompatibility.config(this).copy(hostname = value.lowercase(Locale.ROOT))) }
-                        .onSuccess { render(); refreshService() }.onFailure { toast(it.message ?: "域名无效") }
-                }
-            })
-            card.addView(label("自备域名需解析到上述虚拟 IP；填写域名不会自动配置 DNS。首次启用需要本地 VPN 授权，可能替换其他 VPN。浏览器麦克风仍需要可信 HTTPS。", 14, MUTED))
-            card.addView(button("重新授权并启动", false) { setTeslaHttpEnabled(true) }, ui.secondaryButtonLayout(12))
-            card.addView(button("打开热点设置", false) { openCarWifiSettings() }, ui.secondaryButtonLayout(12))
+                teslaStatus = label("", 14, MUTED)
+                card.addView(teslaStatus)
+                card.addView(ui.preference("映射 HTTP 端口", "${config.httpMappingPort} → ${WebListenSettings.httpPort(this)}") {
+                    textInput("映射 HTTP 端口（1–1023）", config.httpMappingPort.toString(), false) { value ->
+                        saveTeslaMapping(value, https = false)
+                    }
+                }.apply { isEnabled = !webBusy })
+                card.addView(ui.preference("映射 HTTPS 端口", "${config.httpsMappingPort} → " +
+                    if (WebListenSettings.httpsEnabled(this)) WebListenSettings.httpsPort(this).toString() else "HTTPS 已关闭") {
+                    textInput("映射 HTTPS 端口（1–1023）", config.httpsMappingPort.toString(), false) { value ->
+                        saveTeslaMapping(value, https = true)
+                    }
+                }.apply { isEnabled = !webBusy })
+                card.addView(ui.preference("访问 IP 地址", config.address) {
+                    textInput("访问 IP 地址", config.address, false) { value ->
+                        runCatching { TeslaHttpCompatibility.save(this, TeslaHttpCompatibility.config(this).copy(address = value)) }
+                            .onSuccess { render(); refreshService() }.onFailure { toast(it.message ?: "访问 IP 无效") }
+                    }
+                }.apply { isEnabled = !webBusy })
+                card.addView(label("映射只作用于此访问 IP，不改变 Web 监听端口。HTTPS 映射仅在 HTTPS 开启时生效；请开启系统热点，自定义证书需覆盖访问 IP 或域名。", 14, MUTED))
+                card.addView(button("重新启动 Root 路由", false) { TeslaHttpCompatibility.retry() }, ui.secondaryButtonLayout(12))
+                card.addView(button("打开热点设置", false) { openCarWifiSettings() }, ui.secondaryButtonLayout(12))
+            }
         }
         section(content, "画面与音频") { card ->
             carPlaySizeControl(card)
@@ -506,7 +565,8 @@ class DiPlayActivity : AppCompatActivity() {
                 val fingerprint = WebSession.tls?.fingerprint
                 MaterialAlertDialogBuilder(this)
                     .setTitle("浏览器 HTTPS 证书指纹")
-                    .setMessage(if (fingerprint == null) "HTTPS 服务正在准备或启动失败，请稍后重试。"
+                    .setMessage(if (!WebListenSettings.httpsEnabled(this)) "HTTPS 已关闭，请在 Web 监听中开启。"
+                        else if (fingerprint == null) "HTTPS 服务正在准备或启动失败，请稍后重试。"
                         else "请在车机安装证书前，与浏览器页面显示的 SHA-256 指纹逐字核对：\n\n$fingerprint")
                     .setPositiveButton("关闭", null)
                     .show()
@@ -574,33 +634,60 @@ class DiPlayActivity : AppCompatActivity() {
         return true
     }
 
-    private fun setTeslaHttpEnabled(enabled: Boolean) {
-        if (CarPlayBackgroundSession.hasSession()) {
-            toast("请先断开 iPhone，再修改 Tesla HTTP 模式")
-            handler.post { render(); refreshService() }
-            return
+    private fun rootState() = Triple(RootAccess.granted, RootAccess.checking, RootAccess.status)
+
+    private fun refreshRootSettings() {
+        if (!webBusy && renderedRootState != rootState()) {
+            teslaStatus = null
+            shell.put("settings", ui.content(::settings))
         }
-        if (enabled) {
-            val consent = CarPlayVpnService.prepare(this)
-            if (consent != null) {
-                pendingTeslaEnable = true
-                runCatching { teslaVpnConsent.launch(consent) }.onFailure {
-                    pendingTeslaEnable = false
-                    toast("无法打开本地 VPN 授权，请检查系统设置")
-                    handler.post { render(); refreshService() }
-                }
-                return
-            }
-        }
-        saveTeslaHttpEnabled(enabled)
     }
 
-    private fun saveTeslaHttpEnabled(enabled: Boolean) {
-        if (CarPlayBackgroundSession.hasSession()) {
-            toast("请先断开 iPhone，再修改 Tesla HTTP 模式")
-            handler.post { render(); refreshService() }
-            return
+    private fun certificateControls(card: LinearLayout) {
+        card.addView(label("证书类型", 16, TEXT))
+        val current = WebListenSettings.certificateType(this)
+        val group = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL }
+        for (type in WebListenSettings.CertificateType.entries) {
+            group.addView(com.google.android.material.radiobutton.MaterialRadioButton(this).apply {
+                id = View.generateViewId(); text = type.label; tag = type
+                minimumHeight = dp(48); isChecked = type == current; isEnabled = !webBusy
+            }, RadioGroup.LayoutParams(-1, -2))
         }
+        group.setOnCheckedChangeListener { _, checked ->
+            val type = group.findViewById<View>(checked)?.tag as? WebListenSettings.CertificateType ?: return@setOnCheckedChangeListener
+            if (type == WebListenSettings.CertificateType.DEFAULT) {
+                configureWeb("已恢复默认本地证书") {
+                    WebSession.restoreDefaultCertificate(this).also { if (it == null) WebListenSettings.saveCertificateType(this, type) }
+                }
+            } else {
+                WebListenSettings.saveCertificateType(this, type)
+                render()
+            }
+        }
+        card.addView(group)
+        when (current) {
+            WebListenSettings.CertificateType.DEFAULT -> Unit
+            WebListenSettings.CertificateType.PEM -> card.addView(button("选择 PEM 证书与私钥", false) {
+                pemCertificatePicker.launch(arrayOf("*/*"))
+            }.apply { isEnabled = !webBusy }, ui.secondaryButtonLayout(8))
+            WebListenSettings.CertificateType.PKCS12 -> card.addView(button("选择 PKCS#12 文件", false) {
+                pkcs12Picker.launch(arrayOf("*/*"))
+            }.apply { isEnabled = !webBusy }, ui.secondaryButtonLayout(8))
+        }
+        val identity = if (LanTls.hasCustom(this)) "当前使用自定义证书" else "当前使用默认本地证书"
+        card.addView(label(identity + "。证书和私钥保存在 App 私有存储。PEM 依次选择证书链、私钥；PKCS#12 可选择私钥条目。", 14, MUTED))
+    }
+
+    private fun saveTeslaMapping(value: String, https: Boolean) {
+        val port = value.toIntOrNull()
+        if (port == null || port !in 1..1023) { toast("映射端口必须为 1–1023"); return }
+        runCatching {
+            val config = TeslaHttpCompatibility.config(this)
+            TeslaHttpCompatibility.save(this, if (https) config.copy(httpsMappingPort = port) else config.copy(httpMappingPort = port))
+        }.onSuccess { render(); refreshService() }.onFailure { toast(it.message ?: "端口映射保存失败") }
+    }
+
+    private fun setTeslaHttpEnabled(enabled: Boolean) {
         TeslaHttpCompatibility.save(this, TeslaHttpCompatibility.config(this).copy(enabled = enabled))
         if (!WebSession.running) startWebServiceIfReady()
         handler.post { render(); refreshService() }
@@ -750,7 +837,55 @@ class DiPlayActivity : AppCompatActivity() {
             }.setNegativeButton("关闭", null).show()
     }
 
-    private fun textInput(title: String, current: String, secret: Boolean, save: (String) -> Unit) {
+    private fun readCertificateFile(uri: Uri): ByteArray = contentResolver.openInputStream(uri)?.use(LanTls::readImport)
+        ?: error("无法打开所选文件")
+
+    private fun configureWeb(success: String, action: () -> String?) {
+        if (webBusy) { toast("正在更新设置，请稍候"); return }
+        webBusy = true
+        render()
+        Thread({
+            val failure = runCatching(action).getOrElse { "Web 设置更新失败：${it.message ?: it.javaClass.simpleName}" }
+            runOnUiThread {
+                webBusy = false
+                if (!isFinishing && !isDestroyed) { toast(failure ?: success); render(); refreshService() }
+            }
+        }, "web-configure").start()
+    }
+
+    private fun choosePkcs12Identity(uri: Uri, password: CharArray) {
+        if (webBusy) { password.fill('\u0000'); toast("正在更新 HTTPS，请稍候"); return }
+        webBusy = true
+        Thread({
+            var bytes: ByteArray? = null
+            val result = runCatching {
+                readCertificateFile(uri).also { bytes = it }.let { LanTls.pkcs12Aliases(it, password) }
+            }
+            runOnUiThread {
+                webBusy = false
+                fun clear() { bytes?.fill(0); password.fill('\u0000') }
+                if (isFinishing || isDestroyed) { clear(); return@runOnUiThread }
+                result.onFailure { clear(); toast("PKCS#12 读取失败：请检查文件及密码") }
+                    .onSuccess { aliases ->
+                        val choose = { alias: String ->
+                            textInput("私钥密码（留空使用文件密码）", "", true, onCancel = ::clear) { value ->
+                                val keyPassword = if (value.isEmpty()) password.copyOf() else value.toCharArray()
+                                configureWeb("PKCS#12 证书已导入，浏览器请重新连接") {
+                                    try { LanTls.preparePkcs12(bytes!!, password, alias, keyPassword).use { WebSession.installCertificate(this, it) } }
+                                    finally { clear(); keyPassword.fill('\u0000') }
+                                }
+                            }
+                        }
+                        if (aliases.size == 1) choose(aliases.single())
+                        else MaterialAlertDialogBuilder(this).setTitle("选择 PKCS#12 私钥条目")
+                            .setItems(aliases.toTypedArray()) { _, index -> choose(aliases[index]) }
+                            .setNegativeButton("取消") { _, _ -> clear() }.setOnCancelListener { clear() }.show()
+                    }
+            }
+        }, "https-pkcs12-read").start()
+    }
+
+    private fun textInput(title: String, current: String, secret: Boolean, onCancel: () -> Unit = {}, save: (String) -> Unit) {
         val field = TextInputLayout(this).apply {
             hint = title
             boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
@@ -759,6 +894,7 @@ class DiPlayActivity : AppCompatActivity() {
         val input = TextInputEditText(field.context).apply {
             setText(current)
             setSingleLine()
+            isSaveEnabled = !secret
             inputType = if (secret) {
                 android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
             } else {
@@ -769,7 +905,7 @@ class DiPlayActivity : AppCompatActivity() {
         val container = column().apply { setPadding(dp(24), dp(8), dp(24), 0); addView(field) }
         MaterialAlertDialogBuilder(this).setTitle(title).setView(container)
             .setPositiveButton("保存") { _, _ -> save(input.text.toString().let { if (secret) it else it.trim() }) }
-            .setNegativeButton("取消", null).show()
+            .setNegativeButton("取消") { _, _ -> onCancel() }.setOnCancelListener { onCancel() }.show()
     }
 
     private fun carPlaySizeControl(parent: LinearLayout) {
@@ -946,8 +1082,8 @@ class DiPlayActivity : AppCompatActivity() {
                     appendLine("Saved video preference (may differ from active session): ${if (AirPlayPersistence.loadHevcEnabled(appContext)) "HEVC" else "H.264"}; ${AirPlayPersistence.loadFps(appContext)} fps")
                     appendLine("CarPlay size: ${com.shilapi.xcertplay.airplay.CarPlaySize.fromWidthMillimeters(AirPlayPersistence.loadWidthPhysicalMm(appContext)).label}")
                     appendLine("Saved resolution preference (may differ from active session): ${AirPlayPersistence.loadDisplayScaleTenths(appContext) * 10}%")
-                    appendLine("Tesla HTTP mode: enabled=${TeslaHttpCompatibility.config(appContext).enabled}; aliasCreated=${TeslaHttpCompatibility.status.address != null}")
-                    TeslaHttpCompatibility.status.error?.let { appendLine("Tesla HTTP status: $it") }
+                    appendLine("Tesla compatibility: enabled=${TeslaHttpCompatibility.config(appContext).enabled}; rootRoutingReady=${TeslaHttpCompatibility.status.address != null}; downstreams=${TeslaHttpCompatibility.status.downstreams.joinToString()}")
+                    TeslaHttpCompatibility.status.error?.let { appendLine("Tesla compatibility status: $it") }
                     appendLine("Session: ${if (CarPlayBackgroundSession.active) "active" else if (CarPlayBackgroundSession.hasSession()) "connecting" else "stopped"}")
                     appendLine("Head-unit board: ${Build.BOARD}; hardware: ${Build.HARDWARE}; build: ${Build.DISPLAY}")
                     appendLine()
@@ -994,11 +1130,11 @@ class DiPlayActivity : AppCompatActivity() {
     private fun version() = packageManager.getPackageInfo(packageName, 0).versionName ?: "0.1.0-beta.1"
     private fun section(parent: LinearLayout, title: String, build: (LinearLayout) -> Unit) =
         ui.section(parent, title, content = build)
-    private fun toggle(parent: LinearLayout, title: String, description: String, value: Boolean, save: (Boolean) -> Unit) {
+    private fun toggle(parent: LinearLayout, title: String, description: String, value: Boolean, enabled: Boolean = true, save: (Boolean) -> Unit) {
         val line = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(12), 0, dp(12)) }
         val text = column(); text.addView(label(title, 18, TEXT, true)); text.addView(label(description, 14, MUTED).apply { setPadding(0, dp(4), 0, 0) })
         line.addView(text, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(16) })
-        line.addView(MaterialSwitch(this).apply { contentDescription = title; isChecked = value; minHeight = dp(48); setOnCheckedChangeListener { _, checked -> save(checked) } })
+        line.addView(MaterialSwitch(this).apply { contentDescription = title; isChecked = value; isEnabled = enabled; minHeight = dp(48); setOnCheckedChangeListener { _, checked -> save(checked) } })
         parent.addView(line)
     }
     private fun choice(parent: LinearLayout, title: String, options: List<String>, current: Int, save: (Int) -> Unit) {

@@ -59,3 +59,19 @@ Material Components for Android 1.13.0（Apache-2.0），使用官方 Material 3
 | 连接通知停止服务 · `ic_media_stop` | [stop](https://github.com/google/material-design-icons/blob/master/src/av/stop/materialicons/24px.svg) |
 
 启动使用播放圆形图标，车机访问及服务通知使用投屏图标。通知采用白色遮罩；页面图标跟随 Material 主题、卡片颜色和导航选中状态。方向箭头保留展开旋转动画，设置选择器支持 RTL 镜像。NIO 返回入口与原有应用品牌位图不属于自绘功能图标；二维码矩阵、裁剪网格及安全区域辅助线是功能内容，不作图标替换。
+
+## VPN Hotspot Root 路由适配
+
+来源：[Mygod/VPNHotspot](https://github.com/Mygod/VPNHotspot)，Apache-2.0，许可全文见 [VPNHOTSPOT-LICENSE.txt](VPNHOTSPOT-LICENSE.txt)。适配基线为 v2.17.1，提交 `58ef509708a84f4da84fc54d8008895d02adef34`：
+
+- `mobile/src/main/java/be/mygod/vpnhotspot/net/Routing.kt`：按下游接口安装策略路由、源地址限定的回程查询、成对增删 iptables 规则。
+- `mobile/src/main/java/be/mygod/vpnhotspot/util/RootSession.kt`：成功安装后保存逆序撤销命令、异常回滚及服务停止后撤销。
+- `mobile/src/main/java/be/mygod/vpnhotspot/net/TetheringManager.kt`：系统热点状态广播及 `tetherArray` 字段。
+
+修改集中于 `RootHttpRouting.kt` 和 `TeslaHttpCompatibility.kt`：将上游的通用 VPN 上网共享收窄为 WheelPlay 本地 HTTP 入口，通过 Root 分配 loopback `/32` 共享地址、安装局部投递及回程路由；Root shell 持有规则事务，App 管道关闭后撤销。未复制上游 App、UI、DNS 代理、客户端数据库或 Rust daemon，不提供通用 VPN Internet 转发。Tesla 模式不占用 VPN；有线 CarPlay 继续使用原有 IPv6 VPN。
+
+热点下游采用 [AOSP RouteController](https://android.googlesource.com/platform/system/netd/+/refs/heads/main/server/RouteController.cpp) 的 `local_network`（97）路由表；上游 `1000 + ifindex` 的物理上网接口表不适用于热点下游。
+
+`RootWebPorts.kt` 生成低位端口转发规则及占用检查，由 `RootHttpRouting.kt` 与共享 IPv4 地址、热点投递和回程规则在同一事务 shell 中管理。端口权限依据 [Linux 内核 ip_unprivileged_port_start 文档](https://docs.kernel.org/networking/ip-sysctl.html)；按 [Netfilter DNAT 文档](https://ipset.netfilter.org/iptables-extensions.man.html) 只修改 TCP 目标端口，限定到共享地址 `/32` 并保留目标 IP。普通 Web 监听使用无需 Root 的高位端口。此端口转发是 WheelPlay 的本地服务扩展。
+
+目标地址已限定为成功安装的本地 `/32`，端口规则无需额外的 `addrtype --dst-type LOCAL` 匹配。移除此依赖以兼容缺少 `addrtype` 内核模块的 ROM；TCP、comment、conntrack 及 DNAT 行为保留。事务 shell 记录具体失败命令和原始错误，回滚后仍保留首次失败的诊断。

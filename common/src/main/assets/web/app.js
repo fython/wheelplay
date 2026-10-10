@@ -485,11 +485,18 @@ if (typeof document !== 'undefined') {
   document.addEventListener('pointerdown', () => browserAudio.unlock(), { capture: true });
   $('secure-setup').addEventListener('toggle', async () => {
     if (!$('secure-setup').open) return;
-    $('https-entry').href = `https://${location.hostname}:8443/`;
+    $('https-entry').removeAttribute('href');
     try {
       const response = await fetch('/tls.json', { cache: 'no-store' });
       const info = await response.json();
-      $('tls-fingerprint').textContent = info.fingerprint || 'HTTPS 正在准备，请稍后重新展开。';
+      if (info.available && Number.isInteger(info.port) && info.port >= 1 && info.port <= 65535) {
+        const endpoint = new URL(location.href);
+        endpoint.protocol = 'https:'; endpoint.port = String(info.port); endpoint.pathname = '/';
+        endpoint.search = ''; endpoint.hash = '';
+        $('https-entry').href = endpoint.href;
+      }
+      $('tls-fingerprint').textContent = info.enabled === false ? 'HTTPS 已关闭，请在 App 的 Web 监听中开启。'
+        : info.fingerprint || 'HTTPS 正在准备，请稍后重新展开。';
       $('tls-error').textContent = info.error || '';
     } catch (_) { $('tls-error').textContent = '证书信息暂时无法读取'; }
   });

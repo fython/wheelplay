@@ -7,7 +7,6 @@ import android.os.Looper
 import com.shilapi.xcertplay.AirPlayPersistence
 import com.shilapi.xcertplay.CarPlayBackgroundSession
 import com.shilapi.xcertplay.DiPlayBootstrap
-import com.shilapi.xcertplay.network.TeslaHttpConfig
 import java.security.SecureRandom
 
 /** Service-owned web endpoint; media sinks only publish immutable latest frames. */
@@ -24,7 +23,9 @@ internal object WebSession {
     @Volatile var error: String? = null
         private set
     @Volatile private var server: LanWebServer? = null
-    @Volatile var httpPort = TeslaHttpConfig.DEFAULT_PORT
+    @Volatile var httpPort = WebListenSettings.DEFAULT_HTTP_PORT
+        private set
+    @Volatile var httpsPort = WebListenSettings.DEFAULT_HTTPS_PORT
         private set
     @Volatile private var secureServer: LanWebServer? = null
     @Volatile var tls: LanTls.Endpoint? = null
@@ -46,7 +47,10 @@ internal object WebSession {
     val touch = TouchLease { contacts ->
         CarPlayBackgroundSession.snapshot()?.controller?.sendTouch(contacts) ?: false
     }
-    val running get() = server != null
+    val running get() = server?.ready == true
+    val httpsReady get() = tls != null && secureServer?.ready == true
+    val httpListenerPort get() = server?.takeIf { it.ready }?.listeningPort
+    val httpsListenerPort get() = secureServer?.takeIf { it.ready }?.listeningPort
     val hasViewer get() = server?.hasViewer == true || secureServer?.hasViewer == true
     val audio = BrowserAudioBridge()
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -104,7 +108,8 @@ internal object WebSession {
     }
 
     @Synchronized fun start(context: Context) {
-        if (server != null) return
+        if (server?.ready == true) return
+        if (server != null) stop()
         if (runCatching { DiPlayBootstrap.ensure(context) }.isFailure) {
             error = "认证资源未就绪，请先在设置中导入认证资源"
             return
@@ -113,26 +118,30 @@ internal object WebSession {
         audio.configure(AirPlayPersistence.loadBrowserAudioPlayback(context),
             AirPlayPersistence.loadBrowserMicrophone(context))
         code = (100000 + SecureRandom().nextInt(900000)).toString()
-        val port = TeslaHttpCompatibility.config(context).port
+        val port = WebListenSettings.httpPort(context)
         val next = LanWebServer(context.applicationContext, code, port)
         try {
             next.start(5000, true); server = next; httpPort = port; error = null
+            httpsPort = WebListenSettings.httpsPort(context)
+            tlsError = null
             TeslaHttpCompatibility.start(context)
             val token = ++serverGeneration
+            if (!WebListenSettings.httpsEnabled(context)) return
             Thread({
                 var secure: LanWebServer? = null
                 try {
-                    val endpoint = LanTls.create(context.applicationContext, addresses(context).map { it.address })
+                    val endpoint = createTls(context.applicationContext)
                     synchronized(this) {
-                        if (serverGeneration != token || server == null) return@Thread
-                        secure = LanWebServer(context.applicationContext, code, 8443, true, next.pairing)
+                        if (serverGeneration != token || server == null || !WebListenSettings.httpsEnabled(context)) return@Thread
+                        secure = LanWebServer(context.applicationContext, code, httpsPort, true, next.pairing)
                         secure!!.makeSecure(endpoint.sockets, null)
                         secure!!.start(5000, true)
                         secureServer = secure; tls = endpoint; tlsError = null
+                        TeslaHttpCompatibility.retry()
                     }
                 } catch (error: Exception) {
-                    secure?.stop()
-                    synchronized(this) { if (serverGeneration == token) tlsError = "HTTPS 启动失败：${error.javaClass.simpleName}" }
+                    secure?.stopPreservingPairing()
+                    synchronized(this) { if (serverGeneration == token) tlsError = "HTTPS 启动失败：${error.message ?: error.javaClass.simpleName}" }
                 }
             }, "wheelplay-lan-tls").apply { isDaemon = true; start() }
         }
@@ -141,22 +150,133 @@ internal object WebSession {
 
     /** Bind before releasing the old listener, preserving media and pairing on failure. */
     @Synchronized fun setHttpPort(context: Context, port: Int): String? {
-        val config = TeslaHttpCompatibility.config(context).copy(port = port)
+        if (port !in 1024..65535) return "Web HTTP 监听端口必须为 1024–65535"
+        if (port == WebListenSettings.httpsPort(context)) return "HTTP 与 HTTPS 不能使用相同端口"
         val current = server
+        val previousPort = httpPort
         if (current != null && port != httpPort) {
             val next = LanWebServer(context.applicationContext, code, port, pairing = current.pairing)
             try {
                 next.start(5000, true)
+                WebListenSettings.saveHttpPort(context, port)
             } catch (e: Exception) {
                 next.stopPreservingPairing()
                 return "$port 端口启动失败：${e.message ?: e.javaClass.simpleName}；原端口 $httpPort 继续运行"
             }
+            try { current.stopPreservingPairing() }
+            catch (error: Exception) {
+                runCatching { next.stopPreservingPairing() }
+                this.error = "原端口规则清理失败，请检查规则或重新启动设备：${error.message}"
+                return this.error
+            }
             server = next
             httpPort = port
-            current.stopPreservingPairing()
         }
-        TeslaHttpCompatibility.save(context, config)
+        if (current == null || port == previousPort) WebListenSettings.saveHttpPort(context, port)
+        httpPort = port
+        TeslaHttpCompatibility.retry()
         return null
+    }
+
+    fun setHttpsPort(context: Context, port: Int): String? {
+        if (port !in 1024..65535) return "Web HTTPS 监听端口必须为 1024–65535"
+        if (port == WebListenSettings.httpPort(context)) return "HTTP 与 HTTPS 不能使用相同端口"
+        return runCatching {
+            if (!WebListenSettings.httpsEnabled(context)) {
+                WebListenSettings.saveHttpsPort(context, port); httpsPort = port; return null
+            }
+            val endpoint = tls ?: createTls(context)
+            replaceHttps(context, port, endpoint) { WebListenSettings.saveHttpsPort(context, port) }
+                .also { if (it == null) TeslaHttpCompatibility.retry() }
+        }.getOrElse { "HTTPS 配置失败：${it.message ?: it.javaClass.simpleName}" }
+    }
+
+    fun installCertificate(context: Context, prepared: LanTls.Prepared): String? =
+        replaceHttps(context, WebListenSettings.httpsPort(context), prepared.endpoint) { LanTls.saveCustom(context, prepared) }
+
+    @Synchronized fun setHttpsEnabled(context: Context, enabled: Boolean): String? = runCatching {
+        if (enabled) {
+            replaceHttps(context, WebListenSettings.httpsPort(context), tls ?: createTls(context), activate = true) {
+                WebListenSettings.saveHttpsEnabled(context, true)
+            }.also { if (it == null) TeslaHttpCompatibility.retry() }
+        } else {
+            WebListenSettings.saveHttpsEnabled(context, false)
+            serverGeneration++
+            val old = secureServer; secureServer = null; tls = null; tlsError = null
+            old?.stopPreservingPairing()
+            TeslaHttpCompatibility.retry()
+            null
+        }
+    }.getOrElse { "HTTPS 开关更新失败：${it.message ?: it.javaClass.simpleName}" }
+
+    fun setHostname(context: Context, hostname: String): String? = runCatching {
+        WebListenSettings.saveHostname(context, hostname)
+        refreshGeneratedCertificate(context)
+        null
+    }.getOrElse { it.message ?: "Web 域名保存失败" }
+
+    fun restoreDefaultCertificate(context: Context): String? = runCatching {
+        val config = TeslaHttpCompatibility.config(context)
+        val endpoint = LanTls.createDefault(context, (addresses(context).map { it.address } + config.address).distinct(), WebListenSettings.hostname(context))
+        replaceHttps(context, WebListenSettings.httpsPort(context), endpoint) { LanTls.clearCustom(context) }
+    }.getOrElse { "默认 HTTPS 证书恢复失败：${it.message ?: it.javaClass.simpleName}" }
+
+    private fun createTls(context: Context): LanTls.Endpoint {
+        val config = TeslaHttpCompatibility.config(context)
+        return LanTls.create(context, (addresses(context).map { it.address } + config.address).distinct(), WebListenSettings.hostname(context))
+    }
+
+    /** A changed port binds first. Certificate replacement on the same port rolls back on failure. */
+    @Synchronized private fun replaceHttps(context: Context, port: Int, endpoint: LanTls.Endpoint, activate: Boolean = false, persist: () -> Unit): String? {
+        val http = server
+        if (http == null || !activate && !WebListenSettings.httpsEnabled(context)) return runCatching { persist(); httpsPort = port; null }
+            .getOrElse { "HTTPS 配置保存失败：${it.javaClass.simpleName}" }
+        if (port == httpPort) return "HTTP 与 HTTPS 不能使用相同端口"
+        val old = secureServer
+        val oldTls = tls
+        val oldPort = httpsPort
+        val samePort = old != null && oldPort == port
+        val next = LanWebServer(context.applicationContext, code, port, true, http.pairing)
+        if (samePort) { old!!.stopPreservingPairing(); secureServer = null }
+        try {
+            next.makeSecure(endpoint.sockets, null)
+            next.start(5000, true)
+            persist()
+        } catch (error: Exception) {
+            next.stopPreservingPairing()
+            if (samePort && oldTls != null) {
+                val restored = LanWebServer(context.applicationContext, code, oldPort, true, http.pairing)
+                try {
+                    restored.makeSecure(oldTls.sockets, null); restored.start(5000, true)
+                    secureServer = restored
+                } catch (_: Exception) {
+                    restored.stopPreservingPairing(); tls = null
+                    tlsError = "HTTPS 原监听器恢复失败，请重新启动服务"
+                    return "HTTPS 更新失败，原证书和端口配置保留；请重新启动服务"
+                }
+            }
+            return "HTTPS 更新失败：${error.message ?: error.javaClass.simpleName}；原配置保留"
+        }
+        serverGeneration++ // Discard older initialization only after a successful replacement.
+        secureServer = next; tls = endpoint; httpsPort = port; tlsError = null
+        if (!samePort) old?.stopPreservingPairing()
+        return null
+    }
+
+    fun refreshGeneratedCertificate(context: Context) {
+        val generation = synchronized(this) { if (server == null || !WebListenSettings.httpsEnabled(context) || LanTls.hasCustom(context)) return; serverGeneration }
+        val hostname = WebListenSettings.hostname(context)
+        Thread({
+            val config = TeslaHttpCompatibility.config(context)
+            val result = runCatching { createTls(context) }
+            synchronized(this) {
+                if (serverGeneration != generation || server == null || LanTls.hasCustom(context) ||
+                    TeslaHttpCompatibility.config(context) != config || WebListenSettings.hostname(context) != hostname ||
+                    !WebListenSettings.httpsEnabled(context)) return@Thread
+                result.onSuccess { replaceHttps(context, httpsPort, it) {} }
+                    .onFailure { tlsError = "HTTPS 证书刷新失败：${it.javaClass.simpleName}" }
+            }
+        }, "https-address-refresh").apply { isDaemon = true; start() }
     }
 
     @Synchronized fun setBrowserAudioPlayback(context: Context, enabled: Boolean) {
@@ -217,9 +337,12 @@ internal object WebSession {
     @Synchronized fun stop() {
         serverGeneration++
         TeslaHttpCompatibility.stop()
-        val oldSecure = secureServer; secureServer = null; oldSecure?.stop(); tls = null; tlsError = null
+        val oldSecure = secureServer; secureServer = null
+        val cleanupError = runCatching { oldSecure?.stop() }.exceptionOrNull()
+        tls = null; tlsError = cleanupError?.message
         videoSource?.detach(); videoSource = null
-        val old = server; server = null; old?.stop()
+        val old = server; server = null
+        runCatching { old?.stop() }.exceptionOrNull()?.let { error = it.message }
         browserViewport = null
         frame = null; videoActive = false; code = ""; generation++
     }
@@ -227,8 +350,19 @@ internal object WebSession {
     fun inspectPairing(payload: String) = server?.pairing?.inspect(payload)
     fun approvePairing(payload: String) = server?.pairing?.approve(payload) == true
 
-    fun addresses(context: Context): List<LanAddresses.Entry> = LanAddresses.discover(
-        context, TeslaHttpCompatibility.status.address, TeslaHttpCompatibility.config(context).hostname, httpPort)
+    fun addresses(context: Context): List<LanAddresses.Entry> {
+        val status = TeslaHttpCompatibility.status
+        return LanAddresses.discover(context, status.address, WebListenSettings.hostname(context), httpPort, status.httpMappingPort)
+    }
+
+    fun httpsPortFor(context: Context, authority: String?, status: com.shilapi.xcertplay.network.TeslaHttpStatus = TeslaHttpCompatibility.status): Int {
+        val host = runCatching { java.net.URI("http://$authority") }.getOrNull() ?: return httpsPort
+        val http = if (host.port < 0) 80 else host.port
+        return status.httpsMappingPort?.takeIf {
+            status.address != null && http == status.httpMappingPort &&
+                (host.host == status.address || host.host?.equals(WebListenSettings.hostname(context), true) == true)
+        } ?: httpsPort
+    }
 
     private const val MIN_VIEWPORT_PIXELS = 320
     private const val MAX_VIEWPORT_PIXELS = 8192

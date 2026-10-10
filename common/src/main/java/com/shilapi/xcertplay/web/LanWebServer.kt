@@ -3,7 +3,6 @@ package com.shilapi.xcertplay.web
 import android.content.Context
 import android.os.SystemClock
 import com.shilapi.xcertplay.airplay.AirPlayContact
-import com.shilapi.xcertplay.network.TeslaHttpConfig
 import fi.iki.elonen.NanoHTTPD
 import fi.iki.elonen.NanoWSD
 import org.json.JSONObject
@@ -14,8 +13,10 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** Same-origin HTTP assets and a single paired, backpressured video/control WebSocket. */
-internal class LanWebServer(private val context: Context, private val code: String, port: Int = TeslaHttpConfig.DEFAULT_PORT,
+internal class LanWebServer(private val context: Context, private val code: String, port: Int = WebListenSettings.DEFAULT_HTTP_PORT,
     private val secure: Boolean = false, val pairing: QrPairing = QrPairing()) : NanoWSD("0.0.0.0", port) {
+    init { require(port == 0 || port in 1024..65535) { "Web 监听请使用高位端口；低位端口由 Tesla 兼容映射" } }
+    val ready get() = isAlive
     @Volatile private var viewer: Client? = null
     private val timer = Executors.newSingleThreadScheduledExecutor()
     @Volatile private var failures = 0
@@ -73,12 +74,14 @@ internal class LanWebServer(private val context: Context, private val code: Stri
         if (session.uri.startsWith("/pair/")) return servePairing(session)
         if (session.method != Method.GET) return response(Response.Status.METHOD_NOT_ALLOWED, "GET only")
         if (session.uri == "/tls.json") return newFixedLengthResponse(Response.Status.OK, "application/json",
-            JSONObject().put("available", WebSession.tls != null).put("fingerprint", WebSession.tls?.fingerprint)
+            JSONObject().put("available", WebSession.httpsReady).put("fingerprint", WebSession.tls?.fingerprint)
+                .put("port", WebSession.httpsPortFor(context, session.headers["host"])).put("customCertificate", WebSession.tls?.custom == true)
+                .put("enabled", WebListenSettings.httpsEnabled(context))
                 .put("error", WebSession.tlsError).toString()).apply { addHeader("Cache-Control", "no-store") }
         if (session.uri == "/certificate.crt") {
             val bytes = WebSession.tls?.certificate ?: return response(Response.Status.NOT_FOUND, "HTTPS not ready")
             return newFixedLengthResponse(Response.Status.OK, "application/x-x509-ca-cert", bytes.inputStream(), bytes.size.toLong()).apply {
-                addHeader("Content-Disposition", "attachment; filename=wheelplay-local-ca.crt")
+                addHeader("Content-Disposition", "attachment; filename=wheelplay-certificate.crt")
                 addHeader("Cache-Control", "no-store")
             }
         }

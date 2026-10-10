@@ -38,7 +38,7 @@ class LanWebServerTest {
             val port = java.net.ServerSocket(0).use { it.localPort }
             assertNull(WebSession.setHttpPort(context, port))
             assertEquals(port, WebSession.httpPort)
-            assertEquals(port, TeslaHttpCompatibility.config(context).port)
+            assertEquals(port, WebListenSettings.httpPort(context))
             assertFalse(TeslaHttpCompatibility.config(context).enabled)
             assertEquals(oldCode, WebSession.code)
             assertSame(oldFrame, WebSession.frame)
