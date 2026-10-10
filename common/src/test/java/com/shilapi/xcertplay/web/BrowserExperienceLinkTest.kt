@@ -5,6 +5,12 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class BrowserExperienceLinkTest {
+    @Test fun customPortIsUsedByPreviewAndInvalidPortsNeverProduceALink() {
+        assertEquals("http://127.0.0.1:9090/?code=123456", BrowserExperienceLink.local("123456", 9090))
+        assertNull(BrowserExperienceLink.local("123456", 0))
+        assertNull(BrowserExperienceLink.local("123456", 65536))
+    }
+
     @Test fun localLinkCarriesAValidSixDigitCode() {
         assertEquals("http://127.0.0.1:8080/?code=123456", BrowserExperienceLink.local("123456"))
     }

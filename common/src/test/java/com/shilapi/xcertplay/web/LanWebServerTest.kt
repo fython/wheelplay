@@ -20,6 +20,78 @@ import javax.net.ssl.HttpsURLConnection
 @RunWith(org.robolectric.RobolectricTestRunner::class)
 @org.robolectric.annotation.Config(sdk = [29])
 class LanWebServerTest {
+    @Test fun changingHttpPortPreservesMediaPairingAndUsesSavedPortOnRestart() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        WebSession.start(context)
+        try {
+            val oldCode = WebSession.code
+            val token = org.json.JSONObject(pairPost("code", mapOf("X-Pair-Code" to oldCode)).second).getString("token")
+            val owner = WebSession.beginVideo(640, 480)
+            WebSession.publish(owner, byteArrayOf(1, 2, 3))
+            val oldFrame = WebSession.frame
+            val port = java.net.ServerSocket(0).use { it.localPort }
+            assertNull(WebSession.setHttpPort(context, port))
+            assertEquals(port, WebSession.httpPort)
+            assertEquals(port, TeslaHttpCompatibility.config(context).port)
+            assertFalse(TeslaHttpCompatibility.config(context).enabled)
+            assertEquals(oldCode, WebSession.code)
+            assertSame(oldFrame, WebSession.frame)
+            assertTrue(URL("http://127.0.0.1:$port/").readText().contains("设备上的六位配对码"))
+            for (host in listOf("100.96.0.1:$port", "car.example.com:$port")) {
+                handshake("", "http://$host", token, host, port).use {
+                    assertTrue(readHeaders(it).startsWith("HTTP/1.1 101"))
+                }
+                handshake("", "http://${host.substringBefore(':')}:8080", token, host, port).use {
+                    assertTrue(readHeaders(it).startsWith("HTTP/1.1 403"))
+                }
+            }
+            WebSession.stop(); WebSession.start(context)
+            assertEquals(port, WebSession.httpPort)
+            assertTrue(URL("http://127.0.0.1:$port/app.js").readText().contains("pointercancel"))
+            handshake("", "http://127.0.0.1:$port", token, "127.0.0.1:$port", port).use {
+                assertTrue("A full service stop still revokes tokens", readHeaders(it).startsWith("HTTP/1.1 401"))
+            }
+        } finally { WebSession.stop() }
+    }
+
+    @Test fun occupiedPortKeepsTheOriginalListenerConfigAndPairingUsable() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        WebSession.start(context)
+        try {
+            val oldConfig = TeslaHttpCompatibility.config(context)
+            val token = org.json.JSONObject(pairPost("code", mapOf("X-Pair-Code" to WebSession.code)).second).getString("token")
+            java.net.ServerSocket(0).use { occupied ->
+                val failure = WebSession.setHttpPort(context, occupied.localPort)
+                assertNotNull(failure)
+                assertTrue(failure!!.contains("原端口 8080 继续运行"))
+            }
+            assertTrue(WebSession.running)
+            assertNull(WebSession.error)
+            assertEquals(8080, WebSession.httpPort)
+            assertEquals(oldConfig, TeslaHttpCompatibility.config(context))
+            assertTrue(URL("http://127.0.0.1:8080/").readText().contains("设备上的六位配对码"))
+            handshake("", token = token).use { assertTrue(readHeaders(it).startsWith("HTTP/1.1 101")) }
+        } finally { WebSession.stop() }
+    }
+
+    @Test fun httpVirtualIpAndDomainKeepPairingAndSameOriginChecks() {
+        WebSession.start(org.robolectric.RuntimeEnvironment.getApplication())
+        try {
+            for (host in listOf("100.96.0.1:8080", "car.example.com:8080")) {
+                handshake("000000", "http://$host", host = host).use {
+                    assertTrue(readHeaders(it).startsWith("HTTP/1.1 401"))
+                }
+                handshake(WebSession.code, "http://evil.invalid", host = host).use {
+                    assertTrue(readHeaders(it).startsWith("HTTP/1.1 403"))
+                }
+                handshake(WebSession.code, "http://$host", host = host).use {
+                    assertTrue(readHeaders(it).startsWith("HTTP/1.1 101"))
+                    assertEquals("audio-route", org.json.JSONObject(frame(it).toString(Charsets.UTF_8)).getString("type"))
+                }
+            }
+        } finally { WebSession.stop() }
+    }
+
     @Test fun trustedHttpsViewerCanSupplyNegotiatedMicrophonePcm() {
         val context = org.robolectric.RuntimeEnvironment.getApplication()
         WebSession.start(context)
@@ -361,9 +433,9 @@ class LanWebServerTest {
             headers.split(" ")[1].toInt() to socket.getInputStream().readBytes().toString(Charsets.UTF_8)
         }
 
-    private fun handshake(code: String, origin: String = "http://127.0.0.1:8080", token: String = ""): Socket = Socket("127.0.0.1", 8080).apply {
+    private fun handshake(code: String, origin: String = "http://127.0.0.1:8080", token: String = "", host: String = "127.0.0.1:8080", port: Int = 8080): Socket = Socket("127.0.0.1", port).apply {
         soTimeout = 3000
-        getOutputStream().write(("GET /stream?code=$code&token=$token HTTP/1.1\r\nHost: 127.0.0.1:8080\r\n" +
+        getOutputStream().write(("GET /stream?code=$code&token=$token HTTP/1.1\r\nHost: $host\r\n" +
             "Origin: $origin\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
             "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n").toByteArray())
         getOutputStream().flush()

@@ -40,6 +40,8 @@ Enable browser audio and microphone input separately under Settings → Display 
 
 ## Requirements and limitations
 
+An optional experimental Tesla HTTP mode creates a local virtual IPv4 address through Android's VPN API without changing the system hotspot subnet or requiring certificates. Connect the car to the server device's hotspot, enable the mode in Settings, approve VPN access, and try `http://100.96.0.1:8080/`. A custom shared-space address, HTTP port (default `8080`), and a self-managed HTTP hostname are supported. Port changes apply to all HTTP entries, including same-device preview; if a new port cannot bind, the running listener and saved configuration are retained. Hotspot routing and Tesla HTTP support require device testing; creating the interface does not prove browser reachability. See the [Tesla HTTP guide](docs/TESLA_HTTP.md) (Chinese). This mode shares WheelPlay's USB CarPlay VPN and may replace another VPN.
+
 - The server device requires Android 9 or later. The car's browser must support modern web features and touch interaction.
 - The server device and car must be able to reach each other over the local network. Wireless connection compatibility depends on the devices' networking capabilities.
 - Android handles audio and microphone input by default; browser routing must be enabled manually. Browser microphone input also requires the car's browser to allow installing and trusting a local certificate.

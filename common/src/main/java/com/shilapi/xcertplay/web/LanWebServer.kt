@@ -3,6 +3,7 @@ package com.shilapi.xcertplay.web
 import android.content.Context
 import android.os.SystemClock
 import com.shilapi.xcertplay.airplay.AirPlayContact
+import com.shilapi.xcertplay.network.TeslaHttpConfig
 import fi.iki.elonen.NanoHTTPD
 import fi.iki.elonen.NanoWSD
 import org.json.JSONObject
@@ -13,7 +14,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** Same-origin HTTP assets and a single paired, backpressured video/control WebSocket. */
-internal class LanWebServer(private val context: Context, private val code: String, port: Int = 8080,
+internal class LanWebServer(private val context: Context, private val code: String, port: Int = TeslaHttpConfig.DEFAULT_PORT,
     private val secure: Boolean = false, val pairing: QrPairing = QrPairing()) : NanoWSD("0.0.0.0", port) {
     @Volatile private var viewer: Client? = null
     private val timer = Executors.newSingleThreadScheduledExecutor()
@@ -198,9 +199,13 @@ internal class LanWebServer(private val context: Context, private val code: Stri
 
     override fun openWebSocket(handshake: IHTTPSession): WebSocket = Client(handshake)
 
-    override fun stop() {
+    override fun stop() = stopListener(clearPairing = true)
+
+    fun stopPreservingPairing() = stopListener(clearPairing = false)
+
+    private fun stopListener(clearPairing: Boolean) {
         viewer?.disconnect("服务已停止")
-        if (!secure) pairing.clear()
+        if (!secure && clearPairing) pairing.clear()
         timer.shutdownNow()
         super.stop()
     }

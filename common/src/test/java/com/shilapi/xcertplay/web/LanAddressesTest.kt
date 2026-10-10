@@ -6,6 +6,39 @@ import com.shilapi.xcertplay.web.LanAddresses.Kind
 import com.shilapi.xcertplay.web.LanAddresses.Entry
 
 class LanAddressesTest {
+    @Test fun customPortIsUsedByBothTeslaAndOtherLanEntries() {
+        val owned = LanAddresses.entry("tun0", "100.96.0.1", Kind.VPN, false,
+            "100.96.0.1", "car.example.com", 9090)
+        assertEquals("http://car.example.com:9090", owned.url)
+        assertEquals("http://100.96.0.1:9090", owned.ipUrl)
+        val hotspot = LanAddresses.entry("ap0", "192.168.43.1", Kind.HOTSPOT, false,
+            "100.96.0.1", "car.example.com", 9090)
+        assertEquals("http://192.168.43.1:9090", hotspot.url)
+    }
+
+    @Test fun sharedAddressesAreShownWithoutAdvertisingArbitraryPublicAddresses() {
+        fun ip(value: String) = java.net.InetAddress.getByName(value) as java.net.Inet4Address
+        assertTrue(LanAddresses.isDiscoverable(ip("100.96.0.1")))
+        assertTrue(LanAddresses.isDiscoverable(ip("192.168.1.1")))
+        assertFalse(LanAddresses.isDiscoverable(ip("3.3.3.3")))
+        assertFalse(LanAddresses.isDiscoverable(ip("127.0.0.1")))
+        assertFalse(LanAddresses.isDiscoverable(ip("169.254.1.1")))
+    }
+
+    @Test fun onlyTheActiveOwnedVpnAliasGetsATeslaEntryAndOptionalDomain() {
+        val owned = LanAddresses.entry("tun0", "100.96.0.1", Kind.VPN, false, "100.96.0.1", "car.example.com")
+        assertEquals(Kind.TESLA_HTTP, owned.kind)
+        assertEquals("http://car.example.com:8080", owned.url)
+        assertEquals("http://100.96.0.1:8080", owned.ipUrl)
+        val cellular = LanAddresses.entry("rmnet0", "100.96.0.1", Kind.CELLULAR, true, "100.96.0.1", "car.example.com")
+        val otherVpn = LanAddresses.entry("tun1", "100.96.0.2", Kind.VPN, false, "100.96.0.1", "car.example.com")
+        val disabled = LanAddresses.entry("tun0", "100.96.0.1", Kind.VPN, false, null, "car.example.com")
+        assertEquals(Kind.CELLULAR, cellular.kind)
+        assertEquals(Kind.VPN, otherVpn.kind)
+        assertEquals("http://100.96.0.1:8080", disabled.url)
+        assertEquals(owned, LanAddresses.ranked(listOf(cellular, otherVpn, owned)).first())
+    }
+
     @Test fun lanBeatsPrivateCellularVpnAndCarPlayDirectAddresses() {
         val entries = listOf(
             Entry("rmnet_data0", "10.70.125.52", Kind.CELLULAR, true),

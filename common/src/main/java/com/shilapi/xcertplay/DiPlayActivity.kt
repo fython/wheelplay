@@ -9,6 +9,8 @@ import com.google.android.material.textfield.TextInputLayout
 import com.google.android.material.textfield.TextInputEditText
 import com.shilapi.xcertplay.web.WebSession
 import com.shilapi.xcertplay.web.LanAddresses
+import com.shilapi.xcertplay.web.TeslaHttpCompatibility
+import com.shilapi.xcertplay.network.CarPlayVpnService
 import com.shilapi.xcertplay.web.BrowserExperienceLink
 import io.github.g00fy2.quickie.QRResult
 import io.github.g00fy2.quickie.ScanQRCode
@@ -51,6 +53,17 @@ class DiPlayActivity : AppCompatActivity() {
     private lateinit var shell: ServerUi.Shell
     private var webAddress: TextView? = null
     private var webInterface: TextView? = null
+    private var teslaStatus: TextView? = null
+    private var pendingTeslaEnable = false
+    private val teslaVpnConsent = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val enable = pendingTeslaEnable
+        pendingTeslaEnable = false
+        if (enable && result.resultCode == RESULT_OK) saveTeslaHttpEnabled(true)
+        else {
+            toast("未授权本地 VPN，无法启动 Tesla HTTP 模式")
+            render()
+        }
+    }
     private var otherAddresses: LinearLayout? = null
     private var otherAddressesToggle: ServerUi.DisclosureRow? = null
     private var addressesExpanded = false
@@ -130,6 +143,7 @@ class DiPlayActivity : AppCompatActivity() {
         setupError = runCatching { DiPlayBootstrap.ensure(this) }.exceptionOrNull()?.let {
             "认证资产未就绪，请安装包含认证资产的完整 APK 后重试。"
         }
+        pendingTeslaEnable = savedInstanceState?.getBoolean("pendingTeslaEnable") ?: false
         page = savedInstanceState?.getString("page") ?: intent.getStringExtra("page") ?: "service"
         createShell()
         startForegroundService(Intent(this, DiPlaySessionService::class.java))
@@ -145,7 +159,7 @@ class DiPlayActivity : AppCompatActivity() {
         super.onNewIntent(intent); setIntent(intent)
         navigate(intent.getStringExtra("page") ?: "service")
     }
-    override fun onSaveInstanceState(outState: Bundle) { outState.putString("page", page); super.onSaveInstanceState(outState) }
+    override fun onSaveInstanceState(outState: Bundle) { outState.putString("page", page); outState.putBoolean("pendingTeslaEnable", pendingTeslaEnable); super.onSaveInstanceState(outState) }
     override fun onConfigurationChanged(newConfig: Configuration) { super.onConfigurationChanged(newConfig); createShell() }
     override fun onResume() {
         super.onResume(); ServerWindow.showSystemBars(window); handler.removeCallbacks(tick); handler.post(tick)
@@ -160,7 +174,7 @@ class DiPlayActivity : AppCompatActivity() {
         if (!initialLaunch) { refreshPhone(); refreshService() }
         if (initialLaunch) {
             initialLaunch = false
-            if (setupError == null && !CarPlayBackgroundSession.hasSession() &&
+            if (setupError == null && !pendingTeslaEnable && !CarPlayBackgroundSession.hasSession() &&
                 DiPlayPreferences.autoConnect(this) && intent.getStringExtra("page") == null) {
                 handler.post { connect(AirPlayPersistence.loadWirelessEnabled(this)) }
             }
@@ -266,7 +280,11 @@ class DiPlayActivity : AppCompatActivity() {
         val addressText = WebSession.error ?: if (WebSession.running) primary?.url
             ?: "未找到局域网地址，请连接 Wi-Fi" else "正在启动服务…"
         if (webAddress?.text?.toString() != addressText) webAddress?.text = addressText
-        webInterface?.text = primary?.description.orEmpty()
+        webInterface?.text = primary?.let { it.description + if (it.hostname.isNotEmpty()) "\n直接 IP：${it.ipUrl}" else "" }.orEmpty()
+        val compatibility = TeslaHttpCompatibility.status
+        teslaStatus?.text = if (!TeslaHttpCompatibility.config(this).enabled) "已关闭"
+            else compatibility.error ?: compatibility.address?.let { "虚拟地址已创建：$it；请用车机测试访问" }
+            ?: "正在准备 HTTP 虚拟地址…"
         webInterface?.visibility = if (primary == null) View.GONE else View.VISIBLE
         if (displayedAddresses != addresses) {
             displayedAddresses = addresses
@@ -280,7 +298,7 @@ class DiPlayActivity : AppCompatActivity() {
             updateAddressExpansion()
         }
         webCode?.text = if (WebSession.running) WebSession.code else "— — — — — —"
-        quickBrowserButton?.isEnabled = WebSession.running && BrowserExperienceLink.local(WebSession.code) != null
+        quickBrowserButton?.isEnabled = WebSession.running && BrowserExperienceLink.local(WebSession.code, WebSession.httpPort) != null
         val viewerConnected = WebSession.hasViewer
         webPairingControls?.visibility = if (viewerConnected) View.GONE else View.VISIBLE
         webViewer?.text = if (viewerConnected) "车机浏览器已连接" else "等待车机浏览器连接"
@@ -288,7 +306,7 @@ class DiPlayActivity : AppCompatActivity() {
     }
 
     private fun openLocalBrowserExperience() {
-        val url = BrowserExperienceLink.local(WebSession.code)
+        val url = BrowserExperienceLink.local(WebSession.code, WebSession.httpPort)
         if (!WebSession.running || url == null) {
             toast("请等待 Web 服务启动后再打开")
             return
@@ -347,6 +365,47 @@ class DiPlayActivity : AppCompatActivity() {
         section(content, "浏览器设备") { card ->
             card.addView(label("配对后的浏览器会被记住，下次打开时自动恢复配对；选择启动选项后，点击网页上的「启动显示」。", 16, MUTED))
             card.addView(ui.preference("连接过的设备", "查看、重命名或移除浏览器") { showBrowserDevices() })
+        }
+        section(content, "Tesla HTTP 兼容（实验）") { card ->
+            val config = TeslaHttpCompatibility.config(this)
+            toggle(card, "Tesla HTTP 模式", "车机连接此设备热点后，尝试通过虚拟地址访问；无需证书。部分车机版本仍可能拒绝 HTTP。", config.enabled) {
+                setTeslaHttpEnabled(it)
+            }
+            teslaStatus = label("", 14, MUTED)
+            card.addView(teslaStatus)
+            card.addView(ui.preference("HTTP 端口", config.port.toString()) {
+                textInput("HTTP 端口（1–65535）", config.port.toString(), false) { value ->
+                    val port = value.toIntOrNull()
+                    if (port == null || port !in 1..65535) toast("HTTP 端口必须为 1–65535")
+                    else {
+                        val failure = WebSession.setHttpPort(this, port)
+                        if (failure != null) toast(failure)
+                        else {
+                            startForegroundService(Intent(this, DiPlaySessionService::class.java))
+                            toast("HTTP 端口已保存，浏览器请使用新地址重新连接")
+                        }
+                        render(); refreshService()
+                    }
+                }
+            })
+            card.addView(label("HTTP 端口适用于全部 IP 和域名入口，修改后立即生效。端口被占用或系统禁止绑定时保留原端口。", 14, MUTED))
+            card.addView(ui.preference("虚拟 IP", config.address) {
+                if (CarPlayBackgroundSession.hasSession()) toast("请先断开 iPhone，再修改虚拟 IP")
+                else textInput("虚拟 IP", config.address, false) { value ->
+                    if (CarPlayBackgroundSession.hasSession()) toast("请先断开 iPhone，再修改虚拟 IP")
+                    else runCatching { TeslaHttpCompatibility.save(this, TeslaHttpCompatibility.config(this).copy(address = value)) }
+                        .onSuccess { render(); refreshService() }.onFailure { toast(it.message ?: "虚拟 IP 无效") }
+                }
+            })
+            card.addView(ui.preference("HTTP 域名（可选）", config.hostname.ifEmpty { "使用虚拟 IP" }) {
+                textInput("HTTP 域名（可选）", config.hostname, false) { value ->
+                    runCatching { TeslaHttpCompatibility.save(this, TeslaHttpCompatibility.config(this).copy(hostname = value.lowercase(Locale.ROOT))) }
+                        .onSuccess { render(); refreshService() }.onFailure { toast(it.message ?: "域名无效") }
+                }
+            })
+            card.addView(label("自备域名需解析到上述虚拟 IP；填写域名不会自动配置 DNS。首次启用需要本地 VPN 授权，可能替换其他 VPN。浏览器麦克风仍需要可信 HTTPS。", 14, MUTED))
+            card.addView(button("重新授权并启动", false) { setTeslaHttpEnabled(true) }, ui.secondaryButtonLayout(12))
+            card.addView(button("打开热点设置", false) { openCarWifiSettings() }, ui.secondaryButtonLayout(12))
         }
         section(content, "画面与音频") { card ->
             carPlaySizeControl(card)
@@ -416,6 +475,38 @@ class DiPlayActivity : AppCompatActivity() {
                 }.onFailure { toast("未找到可打开网页的浏览器") }
             })
         }
+    }
+
+    private fun setTeslaHttpEnabled(enabled: Boolean) {
+        if (CarPlayBackgroundSession.hasSession()) {
+            toast("请先断开 iPhone，再修改 Tesla HTTP 模式")
+            handler.post { render(); refreshService() }
+            return
+        }
+        if (enabled) {
+            val consent = CarPlayVpnService.prepare(this)
+            if (consent != null) {
+                pendingTeslaEnable = true
+                runCatching { teslaVpnConsent.launch(consent) }.onFailure {
+                    pendingTeslaEnable = false
+                    toast("无法打开本地 VPN 授权，请检查系统设置")
+                    handler.post { render(); refreshService() }
+                }
+                return
+            }
+        }
+        saveTeslaHttpEnabled(enabled)
+    }
+
+    private fun saveTeslaHttpEnabled(enabled: Boolean) {
+        if (CarPlayBackgroundSession.hasSession()) {
+            toast("请先断开 iPhone，再修改 Tesla HTTP 模式")
+            handler.post { render(); refreshService() }
+            return
+        }
+        TeslaHttpCompatibility.save(this, TeslaHttpCompatibility.config(this).copy(enabled = enabled))
+        if (!WebSession.running) startForegroundService(Intent(this, DiPlaySessionService::class.java))
+        handler.post { render(); refreshService() }
     }
 
     // The car hotspot link needs the hotspot on; DiPlay only checks it (turning it on needs ADB-only permission).
@@ -757,6 +848,8 @@ class DiPlayActivity : AppCompatActivity() {
                     appendLine("Saved video preference (may differ from active session): ${if (AirPlayPersistence.loadHevcEnabled(appContext)) "HEVC" else "H.264"}; ${AirPlayPersistence.loadFps(appContext)} fps")
                     appendLine("CarPlay size: ${com.shilapi.xcertplay.airplay.CarPlaySize.fromWidthMillimeters(AirPlayPersistence.loadWidthPhysicalMm(appContext)).label}")
                     appendLine("Saved resolution preference (may differ from active session): ${AirPlayPersistence.loadDisplayScaleTenths(appContext) * 10}%")
+                    appendLine("Tesla HTTP mode: enabled=${TeslaHttpCompatibility.config(appContext).enabled}; aliasCreated=${TeslaHttpCompatibility.status.address != null}")
+                    TeslaHttpCompatibility.status.error?.let { appendLine("Tesla HTTP status: $it") }
                     appendLine("Session: ${if (CarPlayBackgroundSession.active) "active" else if (CarPlayBackgroundSession.hasSession()) "connecting" else "stopped"}")
                     appendLine("Head-unit board: ${Build.BOARD}; hardware: ${Build.HARDWARE}; build: ${Build.DISPLAY}")
                     appendLine()
