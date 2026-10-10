@@ -32,6 +32,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.*
+import androidx.lifecycle.ViewModelProvider
 import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
@@ -97,6 +98,23 @@ class DiPlayActivity : AppCompatActivity() {
         if (uri != null) exportDiagnostics(uri)
     }
 
+    private val authenticationImport by lazy { ViewModelProvider(this)[AuthenticationImportModel::class.java] }
+    private var selectedPrivateKey: Uri? = null
+    private val selectAuthenticationKey = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            selectedPrivateKey = uri
+            launchAuthenticationPicker { selectAuthenticationCertificate.launch(arrayOf("*/*")) }
+        }
+    }
+    private val selectAuthenticationCertificate = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val key = selectedPrivateKey
+        selectedPrivateKey = null
+        if (uri != null && key != null) authenticationImport.import(key = key, certificate = uri)
+    }
+    private val selectAuthenticationApk = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) authenticationImport.import(apk = uri)
+    }
+
     private val scan = registerForActivityResult(ScanQRCode()) { result ->
         val payload = when (result) {
             is QRResult.QRSuccess -> result.content.rawValue?.take(257)
@@ -140,14 +158,19 @@ class DiPlayActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         com.shilapi.xcertplay.hud.BydNavigationOutputs.onAppOpened(applicationContext)
         ServerWindow.showSystemBars(window)
-        setupError = runCatching { DiPlayBootstrap.ensure(this) }.exceptionOrNull()?.let {
-            "认证资产未就绪，请安装包含认证资产的完整 APK 后重试。"
-        }
+        refreshAuthentication()
+        selectedPrivateKey = savedInstanceState?.getString("selectedPrivateKey")?.let(Uri::parse)
         pendingTeslaEnable = savedInstanceState?.getBoolean("pendingTeslaEnable") ?: false
         page = savedInstanceState?.getString("page") ?: intent.getStringExtra("page") ?: "service"
         createShell()
         startForegroundService(Intent(this, DiPlaySessionService::class.java))
         handleWirelessRecovery()
+        authenticationImport.state.observe(this) { state ->
+            refreshAuthentication()
+            render(); refreshService()
+            state.result?.let { toast(it); authenticationImport.consumeResult() }
+        }
+        if (savedInstanceState == null) handleAuthenticationIntent(intent)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (page != "service") navigate("service") else moveTaskToBack(true)
@@ -157,12 +180,17 @@ class DiPlayActivity : AppCompatActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent); setIntent(intent)
-        navigate(intent.getStringExtra("page") ?: "service")
+        if (!handleAuthenticationIntent(intent)) navigate(intent.getStringExtra("page") ?: "service")
     }
-    override fun onSaveInstanceState(outState: Bundle) { outState.putString("page", page); outState.putBoolean("pendingTeslaEnable", pendingTeslaEnable); super.onSaveInstanceState(outState) }
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString("page", page)
+        outState.putString("selectedPrivateKey", selectedPrivateKey?.toString())
+        outState.putBoolean("pendingTeslaEnable", pendingTeslaEnable)
+        super.onSaveInstanceState(outState)
+    }
     override fun onConfigurationChanged(newConfig: Configuration) { super.onConfigurationChanged(newConfig); createShell() }
     override fun onResume() {
-        super.onResume(); ServerWindow.showSystemBars(window); handler.removeCallbacks(tick); handler.post(tick)
+        super.onResume(); refreshAuthentication(); render(); ServerWindow.showSystemBars(window); handler.removeCallbacks(tick); handler.post(tick)
         WebSession.setPhoneConnectHandler {
             if (setupError != null) setupError!!
             else {
@@ -174,7 +202,9 @@ class DiPlayActivity : AppCompatActivity() {
         if (!initialLaunch) { refreshPhone(); refreshService() }
         if (initialLaunch) {
             initialLaunch = false
-            if (setupError == null && !pendingTeslaEnable && !CarPlayBackgroundSession.hasSession() &&
+            if (setupError == null && !DiPlayBootstrap.importing && selectedPrivateKey == null &&
+                intent.action != Intent.ACTION_SEND && intent.action != Intent.ACTION_VIEW &&
+                !pendingTeslaEnable && !CarPlayBackgroundSession.hasSession() &&
                 DiPlayPreferences.autoConnect(this) && intent.getStringExtra("page") == null) {
                 handler.post { connect(AirPlayPersistence.loadWirelessEnabled(this)) }
             }
@@ -356,6 +386,25 @@ class DiPlayActivity : AppCompatActivity() {
     private fun settings(content: LinearLayout) {
         content.addView(label("设置", 30, TEXT, true))
         content.addView(label("修改画面尺寸、分辨率、音频缓冲、帧率或串流技术时会重新连接。其他设置在下次连接生效。", 17, MUTED).apply { setPadding(0, dp(8), 0, dp(24)) })
+        section(content, "CarPlay 认证资源") { card ->
+            card.addView(label(if (DiPlayBootstrap.importing) "正在本机导入…" else if (setupError == null)
+                "资源已就绪 · 私钥与证书校验通过" else "尚未配置有效资源", 16, if (setupError == null) TEXT else WARNING))
+            card.addView(label("开源安装包不包含认证资源。可选择现有的两份文件，或下载 DiPlay 官网 APK 后在此导入，无需安装 DiPlay。", 14, MUTED))
+            card.addView(button("从 DiPlay APK 导入", false) {
+                if (canImportAuthentication()) launchAuthenticationPicker { selectAuthenticationApk.launch(arrayOf("*/*")) }
+            }.apply { isEnabled = !DiPlayBootstrap.importing }, ui.secondaryButtonLayout(12))
+            card.addView(button("手动选择认证资源", false) {
+                if (canImportAuthentication()) MaterialAlertDialogBuilder(this)
+                    .setTitle("选择两份匹配的资源")
+                    .setMessage("先选择 identity.pk8（PKCS#8 私钥），再选择 certificate.p7b（P-256 证书）。两份文件必须来自同一套资源；取消或校验失败不会替换原有资源。")
+                    .setNegativeButton("取消", null)
+                    .setPositiveButton("选择私钥") { _, _ -> launchAuthenticationPicker { selectAuthenticationKey.launch(arrayOf("*/*")) } }.show()
+            }.apply { isEnabled = !DiPlayBootstrap.importing }, ui.secondaryButtonLayout(12))
+            card.addView(ui.preference("DiPlay 官网下载", "下载 APK 后返回导入，或分享给 WheelPlay") {
+                openSystem(Intent(Intent.ACTION_VIEW, Uri.parse("https://shihabal3amri.github.io/DiPlay/")))
+            })
+            card.addView(label("仅提取认证资源并保存在此设备的应用私有目录，不上传。导入结束后删除临时 APK；卸载 WheelPlay 将删除已导入资源。", 14, MUTED))
+        }
         section(content, "自动连接") { card ->
             toggle(card, "打开应用时自动连接", "使用上次的连接方式和已选择的 iPhone。", DiPlayPreferences.autoConnect(this)) { DiPlayPreferences.saveAutoConnect(this, it) }
             toggle(card, "设备启动后打开", "需要系统允许应用自启动。", AirPlayPersistence.loadAutoStartOnBoot(this)) { AirPlayPersistence.saveAutoStartOnBoot(this, it) }
@@ -475,6 +524,39 @@ class DiPlayActivity : AppCompatActivity() {
                 }.onFailure { toast("未找到可打开网页的浏览器") }
             })
         }
+    }
+
+    private fun refreshAuthentication() {
+        setupError = if (DiPlayBootstrap.importing) "正在导入认证资源，请稍候"
+        else runCatching { DiPlayBootstrap.ensure(this) }.exceptionOrNull()?.let {
+            "认证资源未就绪，请到设置 → CarPlay 认证资源导入文件或 DiPlay APK。"
+        }
+    }
+
+    private fun canImportAuthentication(): Boolean {
+        if (DiPlayBootstrap.importing) { toast("正在导入认证资源，请稍候"); return false }
+        if (CarPlayBackgroundSession.hasSession()) { toast("请先断开 iPhone，再导入认证资源"); return false }
+        return true
+    }
+
+    private fun launchAuthenticationPicker(launch: () -> Unit) {
+        runCatching(launch).onFailure {
+            selectedPrivateKey = null
+            toast("无法打开文件选择器，请启用系统文件管理器；APK 也可以通过文件管理器分享给 WheelPlay")
+        }
+    }
+
+    private fun handleAuthenticationIntent(incoming: Intent): Boolean {
+        if (incoming.action != Intent.ACTION_SEND && incoming.action != Intent.ACTION_VIEW) return false
+        navigate("settings")
+        val uri = AuthenticationImportIntents.apk(incoming)
+        if (uri == null) { toast("无法读取 APK，请在设置中通过文件选择器导入"); return true }
+        if (!canImportAuthentication()) return true
+        MaterialAlertDialogBuilder(this).setTitle("从此 APK 导入认证资源？")
+            .setMessage("WheelPlay 只在本机读取 DiPlay APK 内的两份认证资源，不安装 APK。校验通过后将替换原有资源。")
+            .setNegativeButton("取消", null)
+            .setPositiveButton("导入") { _, _ -> authenticationImport.import(apk = uri) }.show()
+        return true
     }
 
     private fun setTeslaHttpEnabled(enabled: Boolean) {
@@ -687,6 +769,7 @@ class DiPlayActivity : AppCompatActivity() {
     }
 
     private fun connect(wireless: Boolean) {
+        refreshAuthentication()
         if (setupError != null) { toast(setupError!!); return }
         if (wireless && carHotspotOff()) { carHotspotOffDialog(); return }
         if (wireless && DiPlayPreferences.phoneAddress(this) == null) {
@@ -814,10 +897,10 @@ class DiPlayActivity : AppCompatActivity() {
             disconnectButton?.isEnabled = true
             lastRunning = running
         }
-        connectButton?.isEnabled = setupError == null
+        connectButton?.isEnabled = setupError == null && !DiPlayBootstrap.importing
         sessionConnectButton?.visibility = if (!running && !CarPlayBackgroundSession.active &&
             DiPlayPreferences.phoneAddress(this) != null) View.VISIBLE else View.GONE
-        sessionConnectButton?.isEnabled = setupError == null
+        sessionConnectButton?.isEnabled = setupError == null && !DiPlayBootstrap.importing
     }
     private fun reportFileName() = "WheelPlay-${SimpleDateFormat("yyyyMMdd-HHmmss-SSS", Locale.US).format(Date())}.txt"
 

@@ -425,7 +425,7 @@ class CarPlayHostActivity : ComponentActivity() {
         setContentView(buildContentView().also(ServerWindow::fitContent))
         activeDisplaySize = DisplaySize(1280, 720)
         if (!authenticationReady) {
-            setConnectionStage("Web service started; configure the original CarPlay authentication assets to connect an iPhone")
+            setConnectionStage("认证资源未就绪，请到设置 → CarPlay 认证资源导入文件或 DiPlay APK")
             return
         }
         WebSession.setBrowserViewportListener { width, height ->
@@ -2931,6 +2931,14 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun startCarPlay(size: DisplaySize) {
         if (CarPlayBackgroundSession.hasSession() && !CarPlayBackgroundSession.isOwner(this)) return
         if (shuttingDown.get() || menuOpen || handshakeResetInProgress || controller != null) return
+        if (DiPlayBootstrap.importing) {
+            setConnectionStage("认证资源正在导入，请完成后重新连接")
+            return
+        }
+        if (runCatching { DiPlayBootstrap.ensure(this) }.isFailure) {
+            setConnectionStage("认证资源未就绪，请到设置 → CarPlay 认证资源导入文件或 DiPlay APK")
+            return
+        }
         val controllerGeneration = restartGeneration
         val config = createRuntimeConfig()
         val airPlayConfig = createAirPlayConfig(size)

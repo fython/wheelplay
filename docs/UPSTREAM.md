@@ -13,7 +13,7 @@ Android Gradle 工程已提升至项目根目录：`mobile/`、`common/`、`shar
 
 ## 本地运行时资产
 
-运行时认证资产仅在本地配置，未纳入 Git；本地构建按配置包含所需资产。打包验证见 [VALIDATION.md](VALIDATION.md)。
+认证资源未纳入 Git；公开构建不包含资源，用户可在设置中手动导入，或从自己下载的 DiPlay APK 本地提取。开发者也可显式配置本地构建资产。打包验证见 [VALIDATION.md](VALIDATION.md)。
 
 ## CarPlay 返回入口图标
 

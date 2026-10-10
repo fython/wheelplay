@@ -2,43 +2,28 @@ package com.shilapi.xcertplay
 
 import android.content.Context
 import com.shilapi.xcertplay.airplay.AirPlayIdentity
-import com.shilapi.xcertplay.mfi.LocalMfiAuthenticationClient
 import com.shilapi.xcertplay.orchestration.MfiTarget
-import java.io.File
 import java.security.MessageDigest
 
-/** Installs the private beta's experimental identity. It has no remote fallback. */
+/** Uses user-imported resources, with optional privately provisioned APK assets as a fallback. */
 internal object DiPlayBootstrap {
-    @Volatile private var ready = false
+    private val importInProgress = java.util.concurrent.atomic.AtomicBoolean(false)
+    val importing: Boolean get() = importInProgress.get()
+    @Synchronized fun beginImport(): Boolean = importInProgress.compareAndSet(false, true)
+    fun finishImport() { importInProgress.set(false) }
 
     @Synchronized fun ensure(context: Context) {
-        if (ready) return
-        val target = File(context.noBackupFilesDir, LocalMfiAuthenticationClient.DIRECTORY)
-        if (!target.exists()) {
-            val staging = File(context.noBackupFilesDir, "offline-mfi-staging")
-            staging.deleteRecursively()
-            check(staging.mkdirs()) { "Could not prepare local authentication" }
-            staging.setReadable(false, false); staging.setReadable(true, true)
-            staging.setExecutable(false, false); staging.setExecutable(true, true)
-            try {
-                for (name in listOf("identity.pk8", "certificate.p7b")) {
-                    val file = File(staging, name)
-                    context.assets.open("offline-mfi/$name").use { input ->
-                        file.outputStream().use { output -> input.copyTo(output) }
-                    }
-                    file.setReadable(false, false); file.setReadable(true, true)
-                    file.setWritable(false, false); file.setWritable(true, true)
-                }
-                LocalMfiAuthenticationClient.load(staging)
-                check(staging.renameTo(target)) { "Could not install local authentication" }
-            } finally {
-                staging.deleteRecursively()
-            }
+        check(!importing) { "Authentication import in progress" }
+        val store = MfiAssetStore(context.noBackupFilesDir)
+        if (!store.exists()) {
+            store.installFiles(
+                { context.assets.open("offline-mfi/identity.pk8") },
+                { context.assets.open("offline-mfi/certificate.p7b") },
+            )
         }
-        LocalMfiAuthenticationClient.load(target)
+        store.load()
         AirPlayPersistence.saveMfiTarget(context, MfiTarget.LOCAL)
         AirPlayPersistence.saveDebugLogsEnabled(context, false)
-        ready = true
     }
 
     fun deviceId(identity: AirPlayIdentity): String {

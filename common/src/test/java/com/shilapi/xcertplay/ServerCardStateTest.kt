@@ -110,14 +110,15 @@ class ServerCardStateTest {
     }
 
     @Test fun selectedPhoneCanConnectFromLaunchAndRunningSessionsHideBothConnectActions() {
+        val identity = SyntheticMfiIdentity.create()
+        MfiAssetStore(RuntimeEnvironment.getApplication().noBackupFilesDir).installFiles(
+            { identity.key.inputStream() }, { identity.certificate.inputStream() })
         val activity = activity()
         val connect = button(activity, "连接")
         val wireless = button(activity, "连接 iPhone")
         val disconnect = button(activity, "断开 iPhone")
         assertEquals(View.GONE, connect.visibility)
         DiPlayPreferences.savePhone(activity, "00:11:22:33:44:55", "测试 iPhone")
-        // Unit builds omit runtime authentication assets; model a provisioned APK.
-        ReflectionHelpers.setField(activity, "setupError", null)
         AirPlayPersistence.saveWirelessHotspotMode(activity,
             com.shilapi.xcertplay.orchestration.WirelessHotspotMode.WIFI_P2P)
         refresh()
