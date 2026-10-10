@@ -1,7 +1,8 @@
 package com.shilapi.xcertplay
 
 import com.shilapi.xcertplay.web.WebSession
-import com.shilapi.xcertplay.web.TeslaHttpCompatibility
+import com.shilapi.xcertplay.web.WebListenSettings
+import com.shilapi.xcertplay.web.RootAccess
 import com.shilapi.xcertplay.media.CarPlayMediaSessionBridge
 import com.shilapi.xcertplay.media.MediaCommand
 import com.shilapi.xcertplay.media.NowPlayingState
@@ -40,6 +41,7 @@ class DiPlaySessionService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        RootAccess.checkOnStartup()
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(CHANNEL, "CarPlay 服务", NotificationManager.IMPORTANCE_LOW))
         media = CarPlayMediaSessionBridge(this) { state, session, artwork ->
@@ -59,7 +61,7 @@ class DiPlaySessionService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             media.close()
-            WebSession.stop()
+            runWebAction { WebSession.stop() }
             CarPlayBackgroundSession.stop()
             stopSelf()
             return START_NOT_STICKY
@@ -91,13 +93,23 @@ class DiPlaySessionService : Service() {
             }
             return START_NOT_STICKY
         }
-        WebSession.start(this)
-        updateNotification()
-        if (WebSession.running && wakeLock == null) {
-            wakeLock = getSystemService(PowerManager::class.java)
-                .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "WheelPlay:server").apply { acquire() }
+        runWebAction {
+            if (!destroyed) WebSession.start(this)
+            updateNotification()
+            val acquireWakeLock = {
+                if (!destroyed && WebSession.running && wakeLock == null) {
+                    wakeLock = getSystemService(PowerManager::class.java)
+                        .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "WheelPlay:server").apply { acquire() }
+                }
+            }
+            if (Looper.myLooper() == Looper.getMainLooper()) acquireWakeLock() else main.post { acquireWakeLock() }
         }
         return START_NOT_STICKY
+    }
+
+    private fun runWebAction(action: () -> Unit) {
+        // Ordinary Web listeners are unprivileged; Tesla routing has its own worker.
+        action()
     }
 
     private fun mediaAction(command: MediaCommand, icon: Int, title: Int): Notification.Action {
@@ -130,7 +142,7 @@ class DiPlaySessionService : Service() {
         } else {
             val stop = PendingIntent.getService(this, 1, Intent(this, DiPlaySessionService::class.java)
                 .setAction(ACTION_STOP), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-            val port = if (WebSession.running) WebSession.httpPort else TeslaHttpCompatibility.config(this).port
+            val port = if (WebSession.running) WebSession.httpPort else WebListenSettings.httpPort(this)
             builder.setContentTitle(getString(R.string.app_name)).setContentText(
                 if (WebSession.running) "局域网串流服务运行中 · $port" else "正在准备串流服务…")
                 .addAction(Notification.Action.Builder(Icon.createWithResource(this, R.drawable.ic_media_stop),
@@ -151,7 +163,7 @@ class DiPlaySessionService : Service() {
         destroyed = true
         sessionSubscription?.close()
         media.close()
-        WebSession.stop()
+        runWebAction { WebSession.stop() }
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
         CarPlayBackgroundSession.stop()

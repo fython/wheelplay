@@ -5,7 +5,8 @@ export function decodeAudioPacket(buffer) {
   if (header.getUint32(0, true) !== 0x31415057) return null;
   const stream = header.getInt32(4, true), rate = header.getUint32(8, true), channels = header.getUint16(12, true);
   if (rate < 8000 || rate > 96000 || channels < 1 || channels > 2 || (buffer.byteLength - 20) % (channels * 2)) return null;
-  return { stream, rate, channels, sequence: header.getUint32(16, true), pcm: new Int16Array(buffer, 20) };
+  return { stream, rate, channels, media: !!(header.getUint16(14, true) & 1),
+    sequence: header.getUint32(16, true), pcm: new Int16Array(buffer, 20) };
 }
 
 // Continuous box-filter resampling preserves phase across render quanta and averages before
@@ -40,6 +41,7 @@ export function createBrowserAudio({
   let context = null, playback = false, microphone = false, connected = false;
   let playbackGeneration = 0, microphoneGeneration = 0;
   let desiredPlayback = false, desiredMicrophone = false, gestureRetry = false;
+  let mediaBufferMillis = 300;
   let stream = null, source = null, worklet = null, micId = null, micSequence = 0;
   const streams = new Map(), nodes = new Set();
   function state(error = '') { onState({ playback, microphone, connected, error }); }
@@ -109,16 +111,20 @@ export function createBrowserAudio({
     send({ type: 'audio-ack', sequence: frame.sequence });
     if (!playback || !connected || context?.state !== 'running') return true;
     const now = context.currentTime;
-    let next = streams.get(frame.stream) ?? now + .06;
-    if (next < now || next - now > .25) { stopPlayback(frame.stream); next = now + .06; }
-    if (nodes.size >= 64) { stopPlayback(); next = now + .06; }
+    const delay = frame.media ? mediaBufferMillis / 1000 : .06;
+    // A media burst after a radio gap must fit above the selected start buffer.
+    const maxAhead = frame.media ? delay + 1 : .25;
+    let next = streams.get(frame.stream) ?? now + delay;
+    if (next < now) { stopPlayback(frame.stream); next = now + delay; }
+    // Bound latency and allocation without cancelling sound that is already queued.
+    if (next - now > maxAhead || nodes.size >= 512) return true;
     const count = frame.pcm.length / frame.channels;
     const audioBuffer = context.createBuffer(frame.channels, count, frame.rate);
     for (let channel = 0; channel < frame.channels; channel++) {
       const output = audioBuffer.getChannelData(channel);
       for (let i = 0; i < count; i++) output[i] = frame.pcm[i * frame.channels + channel] / 32768;
     }
-    const node = context.createBufferSource(); node.buffer = audioBuffer; node.stream = frame.stream;
+    const node = context.createBufferSource(); node.buffer = audioBuffer; node.stream = frame.stream; node.media = frame.media;
     node.connect(context.destination); nodes.add(node);
     node.onended = () => { nodes.delete(node); node.disconnect(); };
     node.start(next); streams.set(frame.stream, next + count / frame.rate);
@@ -126,6 +132,11 @@ export function createBrowserAudio({
   }
   function control(message) {
     if (message.type === 'audio-route') {
+      const nextBufferMillis = [300, 500, 1000].includes(message.mediaBufferMillis) ? message.mediaBufferMillis : 300;
+      if (nextBufferMillis !== mediaBufferMillis) {
+        mediaBufferMillis = nextBufferMillis;
+        for (const id of new Set([...nodes].filter(node => node.media).map(node => node.stream))) stopPlayback(id);
+      }
       const nextPlayback = message.playback === true, nextMicrophone = message.microphone === true;
       if (nextPlayback && !playback || nextMicrophone && !microphone) state('如果浏览器阻止自动播放，请点按画面继续。');
       if (desiredPlayback !== nextPlayback) { desiredPlayback = nextPlayback; if (connected) setPlayback(nextPlayback); }
@@ -153,6 +164,7 @@ export function createBrowserAudio({
   function close() {
     playbackGeneration++; microphoneGeneration++; connected = false; microphone = playback = false;
     desiredPlayback = desiredMicrophone = gestureRetry = false;
+    mediaBufferMillis = 300;
     stopMicrophone(); stopPlayback();
     const old = context; context = null; old?.close().catch(() => {}); state();
   }

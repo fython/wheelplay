@@ -4,25 +4,26 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class TeslaHttpConfigTest {
-    @Test fun customPortsIncludeBoundariesAndRejectInvalidValues() {
-        for (port in listOf(1, 80, 9090, 65535)) {
-            val config = TeslaHttpConfig(hostname = "car.example.com", port = port)
+    @Test fun mappedPortsArePrivilegedDistinctPorts() {
+        for (port in listOf(1, 80, 1023)) {
+            val config = TeslaHttpConfig(httpMappingPort = port)
             assertEquals("http://100.96.0.1:$port/", config.ipUrl)
-            assertEquals("http://car.example.com:$port/", config.hostnameUrl)
         }
-        for (port in listOf(-1, 0, 65536, Int.MAX_VALUE)) {
-            try { TeslaHttpConfig(port = port); fail("Invalid port $port must be rejected") }
-            catch (_: IllegalArgumentException) { }
+        for (port in listOf(-1, 0, 1024, 65535, Int.MAX_VALUE)) {
+            assertTrue(runCatching { TeslaHttpConfig(httpMappingPort = port) }.isFailure)
+            assertTrue(runCatching { TeslaHttpConfig(httpsMappingPort = port) }.isFailure)
         }
+        assertTrue(runCatching { TeslaHttpConfig(httpMappingPort = 80, httpsMappingPort = 80) }.isFailure)
     }
 
-    @Test fun onlySharedSpaceLiteralsAreAcceptedWithoutDns() {
-        for (address in listOf("100.64.0.0", "100.96.0.1", "100.127.255.255")) {
-            assertTrue(address, TeslaHttpConfig.isSharedAddress(address))
+    @Test fun rootModeAcceptsGeneralUnicastAddressesWithoutDns() {
+        for (address in listOf("100.64.0.0", "100.96.0.1", "100.127.255.255", "192.168.1.2", "10.0.0.1", "3.3.3.3")) {
+            assertTrue(address, TeslaHttpConfig.isHttpAddress(address))
+            assertEquals(address, TeslaHttpConfig(address = address).address)
         }
-        for (address in listOf("100.63.255.255", "100.128.0.0", "192.168.1.1", "3.3.3.3",
+        for (address in listOf("0.0.0.0", "0.1.2.3", "127.0.0.1", "169.254.1.1", "224.0.0.1", "255.255.255.255",
             "100.96.0.256", "100.096.0.1", "100.96.0", "100.96.0.1/32", "localhost", "::1", " 100.96.0.1")) {
-            assertFalse(address, TeslaHttpConfig.isSharedAddress(address))
+            assertFalse(address, TeslaHttpConfig.isHttpAddress(address))
         }
     }
 
@@ -35,8 +36,6 @@ class TeslaHttpConfigTest {
             "100.96.0.1", "localhost", "car.example.com\n", "a".repeat(64) + ".example.com")) {
             assertFalse(hostname, TeslaHttpConfig.isHostname(hostname))
         }
-        assertEquals("http://100.96.0.1:8080/", TeslaHttpConfig().ipUrl)
-        assertNull(TeslaHttpConfig().hostnameUrl)
-        assertEquals("http://car.example.com:8080/", TeslaHttpConfig(hostname = "car.example.com").hostnameUrl)
+        assertEquals("http://100.96.0.1:80/", TeslaHttpConfig().ipUrl)
     }
 }

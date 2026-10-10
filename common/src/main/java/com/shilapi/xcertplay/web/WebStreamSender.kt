@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.web
 
 import android.os.SystemClock
+import com.shilapi.xcertplay.media.MediaAudioBuffer
 import fi.iki.elonen.NanoWSD.WebSocketFrame
 import java.io.Closeable
 import java.util.concurrent.ExecutorService
@@ -23,14 +24,44 @@ internal class WebStreamSender(
     private var inFlight = false
     private var sentAt = 0L
     private var sequence = -1L
-    private data class Audio(val frame: WebSocketFrame, val sequence: Long, val at: Long)
+    private data class Audio(val frame: WebSocketFrame, val sequence: Long, val at: Long,
+        val stream: Int, val media: Boolean, val durationMillis: Double)
     private val audio = java.util.ArrayDeque<Audio>()
     private val audioInFlight = linkedMapOf<Long, Long>()
+    private var mediaBufferMillis = MediaAudioBuffer.DEFAULT_MILLIS
+
+    fun configureAudioBuffer(millis: Int) = synchronized(lock) {
+        mediaBufferMillis = MediaAudioBuffer.sanitize(millis)
+    }
+
+    private fun audioFrame(packet: ByteArray, sequence: Long): Audio {
+        val header = java.nio.ByteBuffer.wrap(packet).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        if (packet.size >= 22 && header.int == BrowserAudioBridge.AUDIO_MAGIC) {
+            val stream = header.int
+            val rate = header.int
+            val channels = header.short.toInt()
+            val media = header.short.toInt() and BrowserAudioBridge.AUDIO_FLAG_MEDIA != 0
+            if (rate in 8_000..96_000 && channels in 1..2 && (packet.size - 20) % (channels * 2) == 0) {
+                return Audio(WebSocketFrame(WebSocketFrame.OpCode.Binary, true, packet), sequence, now(),
+                    stream, media, (packet.size - 20) * 1000.0 / (rate * channels * 2))
+            }
+        }
+        return Audio(WebSocketFrame(WebSocketFrame.OpCode.Binary, true, packet), sequence, now(), 0, false, 100.0 / 16)
+    }
+
+    private fun audioBudgetMillis(frame: Audio) = if (frame.media) mediaBufferMillis + 200 else 100
 
     fun audio(packet: ByteArray, sequence: Long) = synchronized(lock) {
         if (!closed) {
-            while (audio.size >= 16) audio.removeFirst()
-            audio.addLast(Audio(WebSocketFrame(WebSocketFrame.OpCode.Binary, true, packet), sequence, now()))
+            val next = audioFrame(packet, sequence)
+            audio.addLast(next)
+            var queuedMillis = audio.filter { it.stream == next.stream }.sumOf { it.durationMillis }
+            while (queuedMillis > audioBudgetMillis(next) && audio.count { it.stream == next.stream } > 1) {
+                val oldest = audio.first { it.stream == next.stream }
+                audio.remove(oldest); queuedMillis -= oldest.durationMillis
+            }
+            // Duration is the main bound; this also caps pathological tiny PCM packets.
+            while (audio.size > 128) audio.removeFirst()
             scheduleLocked()
         }
     }
@@ -86,7 +117,7 @@ internal class WebStreamSender(
                         controls.remove(control.key)
                         control.value
                     } else if (audio.isNotEmpty() && audioInFlight.size < 4) {
-                        while (audio.isNotEmpty() && now() - audio.first.at > 100) audio.removeFirst()
+                        audio.removeAll { now() - it.at > audioBudgetMillis(it) }
                         if (audio.isEmpty()) { scheduled = false; scheduleLocked(); return }
                         val next = audio.removeFirst()
                         audioInFlight[next.sequence] = now()
