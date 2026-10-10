@@ -549,6 +549,12 @@ class DiPlayActivity : AppCompatActivity() {
                 AirPlayPersistence.saveStreamTechnology(this, technologies[it])
             }
             card.addView(label("WebRTC 支持 H.264 / HEVC 直通，浏览器不支持时自动回退 JPEG（约 15 fps）。追求 60 fps 请将协商帧率设为 60；实际帧率以网页显示为准。", 14, MUTED))
+            val recoveryPolicies = com.shilapi.xcertplay.web.RtcRecoveryPolicy.entries
+            choice(card, "WebRTC 卡顿容忍时间", recoveryPolicies.map { it.label },
+                recoveryPolicies.indexOf(AirPlayPersistence.loadRtcRecoveryPolicy(this))) {
+                AirPlayPersistence.saveRtcRecoveryPolicy(this, recoveryPolicies[it])
+            }
+            card.addView(label("短暂断流时保留最后一帧并等待恢复，持续异常超过所选时间才回退 JPEG。不增加视频缓冲；不支持的编码或彻底失败的连接仍立即回退。下次浏览器连接生效。", 14, MUTED))
             toggle(card, "允许 iPhone 使用 HEVC", "下次连接生效。需要浏览器支持 HEVC / WebRTC，否则回退 JPEG；关闭时使用 H.264。", AirPlayPersistence.loadHevcEnabled(this)) { AirPlayPersistence.saveHevcEnabled(this, it) }
             toggle(card, "右舵布局", "将 CarPlay 控件移到右侧。", AirPlayPersistence.loadRightHandDrive(this)) { AirPlayPersistence.saveRightHandDrive(this, it) }
 

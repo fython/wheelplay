@@ -1,7 +1,7 @@
 package com.shilapi.xcertplay.web
 
 /** Receiver counters complement local UDP acceptance; they never imply delivery of a sent frame. */
-internal class RtcReceiverHealth {
+internal class RtcReceiverHealth(private val recoveryGraceMs: Long = RtcRecoveryPolicy.BALANCED.graceMs) {
     data class Report(val packets: Long, val lost: Long, val decoded: Long, val nack: Long, val rttMs: Double?)
     enum class Action { NONE, KEYFRAME, FALLBACK }
     private var last: Report? = null
@@ -25,7 +25,7 @@ internal class RtcReceiverHealth {
         }
         val since = stalledSince ?: nowMs.also { stalledSince = it }
         return when {
-            nowMs - since >= 4000 -> Action.FALLBACK
+            nowMs - since >= recoveryGraceMs -> Action.FALLBACK
             nowMs - since >= 2000 && received > 0 -> Action.KEYFRAME
             else -> Action.NONE
         }

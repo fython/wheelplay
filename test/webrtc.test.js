@@ -18,6 +18,7 @@ function fixture(createPeer, supportsCodec = () => true) {
     cancel(id) { timers.delete(id); },
   });
   return { receiver, video, pc, sent, measurements, timers, get ready() { return ready; }, get stopped() { return stopped; },
+    setTime(at) { clock = at; },
     async tick(delay, at) { clock = at; const entry = [...timers].find(([, t]) => t.delay === delay); assert.ok(entry); timers.delete(entry[0]); await entry[1].fn(); },
   };
 }
@@ -33,8 +34,10 @@ test('JPEG remains active until the browser actually decodes a video frame', asy
   f.video.onloadeddata(); assert.equal(f.ready, 1);
   assert.equal(f.sent.at(-1).type, 'rtc-ready');
   f.pc.connectionState = 'disconnected'; f.pc.onconnectionstatechange();
-  assert.equal(f.receiver.active, false); assert.equal(f.video.srcObject, null);
-  assert.deepEqual(f.sent.at(-1), { type: 'rtc-fallback', id: 1 });
+  assert.equal(f.receiver.active, true); assert.notEqual(f.video.srcObject, null);
+  f.pc.connectionState = 'connected'; f.pc.onconnectionstatechange();
+  assert.equal([...f.timers.values()].some(t => t.delay === 10000), false);
+  assert.equal(f.sent.some(m => m.type === 'rtc-fallback'), false);
 });
 
 test('missing WebRTC and first-frame timeout both fall back without closing the control socket', async () => {
@@ -42,7 +45,7 @@ test('missing WebRTC and first-frame timeout both fall back without closing the 
   await absent.receiver.receive({ type: 'rtc-offer', id: 2, sdp: 'offer' });
   assert.deepEqual(absent.sent, [{ type: 'rtc-fallback', id: 2 }]);
   const f = fixture(); await f.receiver.receive({ type: 'rtc-offer', id: 3, sdp: 'offer' });
-  await f.tick(8000, 8000);
+  await f.tick(10000, 10000);
   assert.equal(f.pc.closed, true); assert.equal(f.stopped, 1);
 });
 
@@ -58,13 +61,98 @@ test('late SDP and stale stop cannot affect a replacement connection', async () 
   assert.equal(f.sent.at(-1).id, 5); assert.equal(f.stopped, 0);
 });
 
-test('static scenes remain connected, but incoming undecodable frames trigger fallback', async () => {
+test('a static scene resuming updates gets a fresh recovery window', async () => {
   const f = fixture(); await f.receiver.receive({ type: 'rtc-offer', id: 6, sdp: 'offer' });
   f.pc.ontrack({ streams: [{}] }); await Promise.resolve();
   await f.tick(1000, 1000);
   await f.tick(1000, 10000); assert.equal(f.receiver.active, true);
   f.receiver.progress(100);
-  await f.tick(1000, 11000); assert.equal(f.receiver.active, false);
+  f.setTime(11000); f.receiver.progress(200);
+  await f.tick(1000, 11000); assert.equal(f.receiver.active, true);
+  for (let at = 12000; at <= 21000; at += 1000) {
+    f.setTime(at); f.receiver.progress(at); await f.tick(1000, at);
+  }
+  assert.equal(f.receiver.active, false);
+});
+
+test('each configured grace period applies to transient disconnections and first-frame setup', async () => {
+  for (const grace of [4000, 10000, 30000]) {
+    const f = fixture();
+    await f.receiver.receive({ type: 'rtc-offer', id: grace, sdp: 'offer', recoveryGraceMs: grace });
+    assert.ok([...f.timers.values()].some(t => t.delay === Math.max(10000, grace)));
+    f.pc.ontrack({ streams: [{}] }); await Promise.resolve();
+    f.pc.connectionState = 'disconnected'; f.pc.onconnectionstatechange();
+    assert.equal(f.receiver.active, true);
+    await f.tick(grace, grace);
+    assert.equal(f.receiver.active, false);
+    assert.deepEqual(f.sent.at(-1), { type: 'rtc-fallback', id: grace });
+  }
+});
+
+test('decode progress resets a stall deadline while continuous stalled input eventually falls back', async () => {
+  const f = fixture(); let decoded = 10;
+  f.pc.getStats = async () => new Map([['video', { type: 'inbound-rtp', kind: 'video', framesDecoded: decoded }]]);
+  await f.receiver.receive({ type: 'rtc-offer', id: 7, sdp: 'offer', recoveryGraceMs: 4000 });
+  f.pc.ontrack({ streams: [{}] }); await Promise.resolve();
+  for (let at = 1000; at <= 5000; at += 1000) {
+    f.setTime(at); f.receiver.progress(at);
+    if (at === 5000) decoded++;
+    await f.tick(1000, at); assert.equal(f.receiver.active, true);
+  }
+  for (let at = 6000; at <= 10000; at += 1000) {
+    f.setTime(at); f.receiver.progress(at); await f.tick(1000, at);
+  }
+  assert.equal(f.receiver.active, false);
+});
+
+test('a temporary getStats failure recovers, but persistent sampling failures exhaust the grace period', async () => {
+  const f = fixture(); const goodStats = f.pc.getStats;
+  await f.receiver.receive({ type: 'rtc-offer', id: 8, sdp: 'offer', recoveryGraceMs: 4000 });
+  f.pc.ontrack({ streams: [{}] }); await Promise.resolve();
+  f.pc.getStats = async () => { throw new Error('temporary stats error'); };
+  await f.tick(1000, 1000); assert.equal(f.receiver.active, true);
+  f.pc.getStats = goodStats;
+  await f.tick(1000, 2000); assert.equal(f.receiver.active, true);
+  f.pc.getStats = async () => { throw new Error('persistent stats error'); };
+  for (let at = 3000; at <= 6000; at += 1000) {
+    await f.tick(1000, at); assert.equal(f.receiver.active, true);
+  }
+  await f.tick(1000, 7000); assert.equal(f.receiver.active, false);
+});
+
+test('terminal failures stay immediate and stale disconnect timers cannot stop a new session', async () => {
+  const f = fixture();
+  await f.receiver.receive({ type: 'rtc-offer', id: 9, sdp: 'offer', recoveryGraceMs: 30000 });
+  f.pc.ontrack({ streams: [{}] }); await Promise.resolve();
+  f.pc.connectionState = 'disconnected'; f.pc.onconnectionstatechange();
+  const stale = [...f.timers.values()].find(t => t.delay === 30000).fn;
+  await f.receiver.receive({ type: 'rtc-offer', id: 10, sdp: 'offer' });
+  stale();
+  assert.equal(f.sent.some(m => m.type === 'rtc-fallback'), false);
+  f.pc.connectionState = 'failed'; f.pc.onconnectionstatechange();
+  assert.deepEqual(f.sent.at(-1), { type: 'rtc-fallback', id: 10 });
+});
+
+test('a cancelled disconnect timer cannot expire a later interruption on the same peer', async () => {
+  const f = fixture();
+  await f.receiver.receive({ type: 'rtc-offer', id: 21, sdp: 'offer' });
+  f.pc.ontrack({ streams: [{}] }); await Promise.resolve();
+  f.pc.connectionState = 'disconnected'; f.pc.onconnectionstatechange();
+  const stale = [...f.timers.values()].find(t => t.delay === 10000).fn;
+  f.pc.connectionState = 'connected'; f.pc.onconnectionstatechange();
+  f.pc.connectionState = 'disconnected'; f.pc.onconnectionstatechange();
+  stale(); assert.equal(f.receiver.active, true);
+  await f.tick(10000, 10000); assert.equal(f.receiver.active, false);
+});
+
+test('checking a disconnected connection does not cancel its recovery deadline', async () => {
+  const f = fixture();
+  await f.receiver.receive({ type: 'rtc-offer', id: 22, sdp: 'offer', recoveryGraceMs: 4000 });
+  f.pc.ontrack({ streams: [{}] }); await Promise.resolve();
+  f.pc.connectionState = 'disconnected'; f.pc.onconnectionstatechange();
+  f.pc.connectionState = 'connecting'; f.pc.onconnectionstatechange();
+  assert.equal(f.receiver.recovering, true);
+  await f.tick(4000, 4000); assert.equal(f.receiver.active, false);
 });
 
 test('SDP backpressure retains signaling order and prioritizes the JPEG acknowledgement', () => {

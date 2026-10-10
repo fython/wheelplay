@@ -239,6 +239,22 @@ test('default WebRTC presents native video without allocating a Canvas', async (
   assert.equal(ws.sent.at(-1).type, 'rtc-ready');
 });
 
+test('a recoverable WebRTC disconnect preserves video and touch and reports recovery', async () => {
+  const f = fixture(), ws = await f.connect(); await f.offer(ws);
+  const peer = f.peers.at(-1);
+  peer.connectionState = 'disconnected'; peer.onconnectionstatechange();
+  ws.onmessage({ data: JSON.stringify({ type: 'status', width: 1280, height: 720, streaming: true }) });
+  assert.equal(f.element('video').hidden, false);
+  assert.equal(f.element('waiting').hidden, true);
+  assert.match(f.element('status').textContent, /WebRTC.*等待恢复/);
+  f.pointer('pointerdown', 100, 'touch-surface'); f.pointer('pointerup', 100, 'touch-surface');
+  assert.equal(ws.sent.filter(m => m.type === 'touch').length, 2);
+  assert.equal(ws.sent.some(m => m.type === 'rtc-fallback'), false);
+  peer.connectionState = 'connected'; peer.onconnectionstatechange();
+  ws.onmessage({ data: JSON.stringify({ type: 'status', width: 1280, height: 720, streaming: true }) });
+  assert.doesNotMatch(f.element('status').textContent, /等待恢复/);
+});
+
 test('Canvas WebRTC handles touch, late JPEG loads, and reconnection without leaving old callbacks', async () => {
   const f = fixture({ storedCanvas: 'true' }), ws = await f.connect();
   ws.onmessage({ data: {} }); const lateImage = f.element('screen').onload;

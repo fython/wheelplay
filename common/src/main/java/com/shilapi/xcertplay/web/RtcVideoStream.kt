@@ -13,15 +13,16 @@ import java.util.concurrent.atomic.AtomicBoolean
 internal class RtcVideoStream(
     private val source: WebVideoSource,
     private val config: WebVideoSource.Config,
+    private val recovery: RtcRecoveryPolicy,
     private val offer: (String) -> Unit,
     private val failure: () -> Unit,
 ) : Closeable {
     private val worker = Executors.newSingleThreadScheduledExecutor()
     private val closed = AtomicBoolean(false)
     private val lock = Any()
-    private val queue = RtcFrameQueue()
+    private val queue = RtcFrameQueue(recoveryGraceNs = recovery.graceMs * 1_000_000)
     private val performance = VideoPerformance()
-    private val health = RtcReceiverHealth()
+    private val health = RtcReceiverHealth(recovery.graceMs)
     @Volatile private var receiverReport: RtcReceiverHealth.Report? = null
     @Volatile private var congested = false
     @Volatile private var srtpStats: Map<String, Any?>? = null
@@ -29,12 +30,14 @@ internal class RtcVideoStream(
     private var handle = 0L
     private var native: RtcNative? = null
     private var ptsOrigin: Long? = null
-    private var blockedSince = 0L
+    private var blockedSince: Long? = null
+    private var disconnectedSince: Long? = null
     @Volatile var connected = false
         private set
     @Volatile var sentFrames = 0L
         private set
     @Volatile private var displayed = false
+    val holdingFrame get() = displayed
 
     fun start() {
         execute {
@@ -43,16 +46,29 @@ internal class RtcVideoStream(
                     "offer" -> offer(value)
                     "connected" -> {
                         Log.i("WheelPlayRtc", "${config.codec} direct stream connected profile=${config.profile}")
+                        disconnectedSince = null
+                        blockedSince = null
                         connected = true; source.requestKeyframe(force = true)
                     }
+                    "disconnected" -> {
+                        connected = false
+                        synchronized(lock) { queue.invalidate(System.nanoTime()) }
+                        if (disconnectedSince == null) {
+                            val since = System.nanoTime()
+                            disconnectedSince = since
+                            worker.schedule({
+                                if (!closed.get() && disconnectedSince == since) fail("disconnect timeout")
+                            }, recovery.graceMs, TimeUnit.MILLISECONDS)
+                        }
+                    }
                     "keyframe" -> source.requestKeyframe()
-                    "failed" -> fail()
+                    "failed" -> fail("native connection failed")
                 }
             } }
             handle = native!!.create(config.fmtp, config.codec == VideoCodec.H265)
             native!!.begin(handle)
         }
-        try { worker.schedule({ if (!closed.get() && !displayed) fail() }, 10, TimeUnit.SECONDS) }
+        try { worker.schedule({ if (!closed.get() && !displayed) fail("first-frame timeout") }, recovery.firstFrameMs, TimeUnit.MILLISECONDS) }
         catch (_: RejectedExecutionException) { }
     }
 
@@ -67,7 +83,11 @@ internal class RtcVideoStream(
         synchronized(lock) {
             if (closed.get()) return
             if (!queue.offer(frame, pts, idr, System.nanoTime(), if (idr) config.parameters.size else 0)) {
-                if (queue.recoveryExpired(System.nanoTime())) execute { fail() }
+                if (queue.recoveryExpired(System.nanoTime())) execute {
+                    // A fresh keyframe may have arrived before this worker task ran.
+                    val expired = synchronized(lock) { queue.recoveryExpired(System.nanoTime()) }
+                    if (expired) fail("keyframe recovery timeout")
+                }
                 else if (queue.needsKeyframe) source.requestKeyframe()
                 return
             }
@@ -99,14 +119,15 @@ internal class RtcVideoStream(
                 }
             } finally { next.data.close() }
             performance.timing("send", System.nanoTime() - started)
-            if (accepted) { sentFrames++; performance.count("accepted"); blockedSince = 0L }
+            if (accepted) { sentFrames++; performance.count("accepted"); blockedSince = null }
             else {
                 performance.count("sendFailures")
-                if (blockedSince == 0L) {
-                    blockedSince = System.nanoTime()
+                if (blockedSince == null) {
+                    val since = System.nanoTime()
+                    blockedSince = since
                     worker.schedule({
-                        if (!closed.get() && blockedSince != 0L && System.nanoTime() - blockedSince >= 2_000_000_000L) fail()
-                    }, 2, TimeUnit.SECONDS)
+                        if (!closed.get() && blockedSince == since) fail("send recovery timeout")
+                    }, recovery.graceMs, TimeUnit.MILLISECONDS)
                 }
                 synchronized(lock) { queue.invalidate(System.nanoTime()) }
                 source.requestKeyframe()
@@ -119,7 +140,7 @@ internal class RtcVideoStream(
         receiverReport = report
         when (health.update(report, sentFrames, System.nanoTime() / 1_000_000)) {
             RtcReceiverHealth.Action.KEYFRAME -> source.requestKeyframe()
-            RtcReceiverHealth.Action.FALLBACK -> fail()
+            RtcReceiverHealth.Action.FALLBACK -> fail("decoder recovery timeout")
             RtcReceiverHealth.Action.NONE -> Unit
         }
         congested = health.congested
@@ -132,7 +153,7 @@ internal class RtcVideoStream(
     }
 
     fun snapshot(): Map<String, Any?> = synchronized(lock) {
-        mapOf("sender" to performance.snapshot(), "srtp" to srtpStats, "queueFrames" to queue.size, "queueBytes" to queue.bytes,
+        mapOf("recoveryGraceMs" to recovery.graceMs, "sender" to performance.snapshot(), "srtp" to srtpStats, "queueFrames" to queue.size, "queueBytes" to queue.bytes,
             "expiredFrames" to queue.expired, "overflowFrames" to queue.overflow, "keyframeSkips" to queue.skipped,
             "congested" to congested, "receiver" to receiverReport?.let {
                 mapOf("packets" to it.packets, "lost" to it.lost, "decoded" to it.decoded, "nack" to it.nack, "rttMs" to it.rttMs)
@@ -143,12 +164,17 @@ internal class RtcVideoStream(
         if (closed.get()) return
         try { worker.execute {
             if (!closed.get()) try { task() }
-            catch (error: Exception) { Log.w("WheelPlayRtc", "Direct stream failed; using JPEG", error); fail() }
-            catch (error: LinkageError) { Log.w("WheelPlayRtc", "Native transport unavailable; using JPEG", error); fail() }
+            catch (error: Exception) { Log.w("WheelPlayRtc", "Direct stream failed; using JPEG", error); fail("transport exception") }
+            catch (error: LinkageError) { Log.w("WheelPlayRtc", "Native transport unavailable; using JPEG", error); fail("native transport unavailable") }
         } } catch (_: RejectedExecutionException) { }
     }
 
-    private fun fail() { if (!closed.get()) failure() }
+    private fun fail(reason: String) {
+        if (!closed.get()) {
+            Log.w("WheelPlayRtc", "Using JPEG: $reason (grace=${recovery.graceMs}ms)")
+            failure()
+        }
+    }
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return

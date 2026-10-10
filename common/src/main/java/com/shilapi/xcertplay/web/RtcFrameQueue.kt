@@ -8,10 +8,12 @@ internal class RtcFrameQueue(
     private val maxAgeNs: Long = 50_000_000,
     private val maxBytes: Int = 2 * 1024 * 1024,
     private val maxFrames: Int = 6,
+    private val recoveryGraceNs: Long = RtcRecoveryPolicy.BALANCED.graceMs * 1_000_000,
 ) {
     data class Frame(val data: CompressedVideoFrame, val pts: Long, val queuedAtNs: Long, val keyframe: Boolean, val cost: Int)
     private val frames = ArrayDeque<Frame>()
     private var waitingSinceNs: Long? = null
+    private var lastOfferedNs: Long? = null
     var bytes = 0; private set
     val size get() = frames.size
     var needsKeyframe = true; private set
@@ -21,6 +23,9 @@ internal class RtcFrameQueue(
 
     fun offer(data: ByteArray, pts: Long, keyframe: Boolean, now: Long) = offer(HeapVideoFrame(data), pts, keyframe, now)
     fun offer(data: CompressedVideoFrame, pts: Long, keyframe: Boolean, now: Long, extraBytes: Int = 0): Boolean {
+        // Count active recovery time, not a static screen's preceding idle period.
+        if (waitingSinceNs != null && lastOfferedNs?.let { now - it >= 2_000_000_000L } == true) waitingSinceNs = now
+        lastOfferedNs = now
         expire(now)
         val cost = data.size.toLong() + extraBytes
         if (cost > maxBytes || extraBytes < 0) { overflow++; invalidate(now); return false }
@@ -42,7 +47,7 @@ internal class RtcFrameQueue(
             invalidate(now)
         }
     }
-    fun recoveryExpired(now: Long) = waitingSinceNs?.let { now - it >= 3_000_000_000L } == true
+    fun recoveryExpired(now: Long) = waitingSinceNs?.let { now - it >= recoveryGraceNs } == true
     fun invalidate(now: Long? = null) {
         frames.forEach { it.data.close() }; frames.clear(); bytes = 0; needsKeyframe = true
         if (waitingSinceNs == null) waitingSinceNs = now

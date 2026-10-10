@@ -53,6 +53,7 @@ object AirPlayPersistence {
     private const val KEY_OEM_LABEL = "oem_label"
     private const val KEY_FPS = "display_fps"
     private const val KEY_STREAM_TECHNOLOGY = "web_stream_technology"
+    private const val KEY_RTC_RECOVERY = "web_rtc_recovery"
     private const val KEY_MEDIA_BUFFER_MS = "media_buffer_ms"
     private const val KEY_WIDTH_PHYSICAL_MM = "display_width_physical_mm"
     private const val KEY_PHYSICAL_SIZE_BASIS = "display_physical_size_basis"
@@ -375,6 +376,16 @@ object AirPlayPersistence {
 
     fun saveStreamTechnology(context: Context, value: com.shilapi.xcertplay.web.StreamTechnology) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_STREAM_TECHNOLOGY, value.name).apply()
+    }
+
+    fun loadRtcRecoveryPolicy(context: Context): com.shilapi.xcertplay.web.RtcRecoveryPolicy {
+        val value = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_RTC_RECOVERY, null)
+        return com.shilapi.xcertplay.web.RtcRecoveryPolicy.entries.firstOrNull { it.name == value }
+            ?: com.shilapi.xcertplay.web.RtcRecoveryPolicy.BALANCED
+    }
+
+    fun saveRtcRecoveryPolicy(context: Context, value: com.shilapi.xcertplay.web.RtcRecoveryPolicy) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_RTC_RECOVERY, value.name).apply()
     }
 
     fun loadMediaBufferMillis(context: Context): Int = com.shilapi.xcertplay.media.MediaAudioBuffer.sanitize(

@@ -165,9 +165,12 @@ export function createRtcReceiver(video, {
   let frameCallback = null, presented = 0, previousStats = null;
   let codec = 'H264';
   let peer = null, id = null, generation = 0, timeout = null, statsTimer = null, ready = false;
-  let lastDecoded = 0, lastDecodedAt = 0, lastSample = 0, sent = 0, lastSentAt = 0;
+  let lastDecoded = 0, sent = 0, lastSentAt = 0, sentAtLastProgress = 0;
+  let stalledSince = null, statsFailedSince = null, disconnectTimer = null, recoveryGraceMs = 10000;
   function close() {
-    generation++; cancel(timeout); cancel(statsTimer); timeout = null; statsTimer = null;
+    generation++; cancel(timeout); cancel(statsTimer); cancel(disconnectTimer);
+    timeout = null; statsTimer = null; disconnectTimer = null;
+    stalledSince = null; statsFailedSince = null;
     const old = peer; peer = null; ready = false; id = null;
     if (frameCallback !== null && video.cancelVideoFrameCallback) video.cancelVideoFrameCallback(frameCallback);
     frameCallback = null; presented = 0; previousStats = null;
@@ -188,15 +191,16 @@ export function createRtcReceiver(video, {
     }
     if (message.type !== 'rtc-offer') return;
     close(); id = message.id; codec = message.codec === 'H265' ? 'H265' : 'H264';
+    recoveryGraceMs = [4000, 10000, 30000].includes(message.recoveryGraceMs) ? message.recoveryGraceMs : 10000;
     const token = generation, current = () => generation === token && peer !== null;
-    timeout = schedule(() => { if (generation === token) fallback(); }, 8000);
+    timeout = schedule(() => { if (generation === token) fallback(); }, Math.max(10000, recoveryGraceMs));
     try {
       if (!supportsCodec(codec)) { fallback(); return; }
       const pc = createPeer(); peer = pc;
       const displayed = () => {
         if (!current() || ready || !video.videoWidth || video.readyState < 2) return;
         ready = true; cancel(timeout); timeout = null;
-        lastDecodedAt = lastSample = now(); lastDecoded = 0; sent = 0; lastSentAt = now();
+        lastDecoded = 0; sent = 0; sentAtLastProgress = 0; lastSentAt = now();
         send({ type: 'rtc-ready', id }); onReady();
         if (current()) statsTimer = schedule(sample, 1000);
       };
@@ -205,10 +209,13 @@ export function createRtcReceiver(video, {
         try {
           const report = await pc.getStats();
           if (!current()) return;
+          statsFailedSince = null;
           report.forEach(stat => {
             if (stat.type !== 'inbound-rtp' || (stat.kind || stat.mediaType) !== 'video') return;
             const decoded = stat.framesDecoded || 0, at = now();
-            if (decoded > lastDecoded) lastDecodedAt = at;
+            if (decoded !== lastDecoded || sent <= sentAtLastProgress || at - lastSentAt >= 2000) {
+              stalledSince = null; sentAtLastProgress = sent;
+            } else if (stalledSince === null) stalledSince = at;
             const previous = previousStats;
             const elapsed = previous ? Math.max(1, at - previous.at) : 0;
             const delta = key => previous && Number.isFinite(stat[key]) && Number.isFinite(previous.stat[key])
@@ -233,15 +240,31 @@ export function createRtcReceiver(video, {
             send({ type: 'rtc-feedback', id, packets: Math.max(0, stat.packetsReceived || 0),
               lost: Math.max(0, stat.packetsLost || 0), decoded, nack: Math.max(0, stat.nackCount || 0), rttMs });
             previousStats = { at, stat, presented };
-            lastDecoded = decoded; lastSample = at;
+            lastDecoded = decoded;
             // Static CarPlay screens legitimately stop producing frames.
-            if (at - lastDecodedAt > 5000 && at - lastSentAt < 2000 && sent > 0) fallback();
+            if (stalledSince !== null && at - stalledSince >= recoveryGraceMs) fallback();
           });
-        } catch (_) { if (current()) fallback(); }
+        } catch (_) {
+          if (current()) {
+            if (statsFailedSince === null) statsFailedSince = now();
+            if (now() - statsFailedSince >= recoveryGraceMs) fallback();
+          }
+        }
         if (current()) statsTimer = schedule(sample, 1000);
       };
       pc.onconnectionstatechange = () => {
-        if (current() && ['failed', 'disconnected', 'closed'].includes(pc.connectionState)) fallback();
+        if (!current()) return;
+        if (['failed', 'closed'].includes(pc.connectionState)) { fallback(); return; }
+        if (pc.connectionState === 'disconnected') {
+          if (disconnectTimer === null) {
+            const timer = schedule(() => {
+              if (current() && disconnectTimer === timer && pc.connectionState !== 'connected') fallback();
+            }, recoveryGraceMs);
+            disconnectTimer = timer;
+          }
+        } else if (pc.connectionState === 'connected') {
+          cancel(disconnectTimer); disconnectTimer = null;
+        }
       };
       pc.ontrack = event => {
         if (!current()) return;
@@ -281,7 +304,14 @@ export function createRtcReceiver(video, {
     } catch (_) { if (generation === token) fallback(); }
   }
   return { receive, close, fallback, get active() { return ready; }, get codec() { return codec; },
-    progress(count) { if (count > sent) lastSentAt = now(); sent = count; },
+    get recovering() { return ready && (disconnectTimer !== null || stalledSince !== null || statsFailedSince !== null); },
+    progress(count) {
+      if (count > sent) {
+        if (now() - lastSentAt >= 2000) stalledSince = null;
+        lastSentAt = now();
+      }
+      sent = count;
+    },
   };
 }
 
@@ -659,7 +689,7 @@ if (typeof document !== 'undefined') {
           if (!data.rtcAvailable) rtcRequested = false;
           setLive(Boolean(data.streaming && (rtc.active || lastFrame && screen.naturalWidth)));
           const transport = rtc.active ? `${rtc.codec === 'H265' ? 'HEVC' : 'H.264'} / WebRTC${useCanvas ? ' / Canvas' : ''}${rtcFps === null ? '' : ` · ${rtcFps} fps`}` : `JPEG${data.fallback ? ' · 已回退' : ''}`;
-          $('status').textContent = live ? `${transport} · 触控已连接` : '已连接 · 等待 iPhone 画面';
+          $('status').textContent = live ? `${transport}${rtc.recovering ? ' · 等待恢复' : ''} · 触控已连接` : '已连接 · 等待 iPhone 画面';
         }
         if (data.type === 'input-unavailable') $('status').textContent = '等待 iPhone 触控通道就绪';
         return;

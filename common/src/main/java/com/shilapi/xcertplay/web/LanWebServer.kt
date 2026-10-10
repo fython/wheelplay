@@ -259,10 +259,12 @@ internal class LanWebServer(private val context: Context, private val code: Stri
             val config = rtcConfig ?: return
             rtcAttempted = true; rtcAnswered = false
             val id = ++rtcId
-            val stream = RtcVideoStream(source, config, offer = { sdp ->
+            val recovery = com.shilapi.xcertplay.AirPlayPersistence.loadRtcRecoveryPolicy(context)
+            val stream = RtcVideoStream(source, config, recovery, offer = { sdp ->
                 synchronized(rtcLock) {
                     if (!ended.get() && rtc != null && rtcId == id) reply(WebStreamSender.Control.RTC,
-                        JSONObject().put("type", "rtc-offer").put("id", id).put("codec", config.codec.name).put("sdp", sdp).toString())
+                        JSONObject().put("type", "rtc-offer").put("id", id).put("codec", config.codec.name)
+                            .put("recoveryGraceMs", recovery.graceMs).put("sdp", sdp).toString())
                 }
             }, failure = { synchronized(rtcLock) { if (rtcId == id) stopRtc() } })
             rtc = stream
@@ -368,7 +370,7 @@ internal class LanWebServer(private val context: Context, private val code: Stri
                         synchronized(rtcLock) { reply(WebStreamSender.Control.STATUS,
                             JSONObject().put("type", "status").put("width", WebSession.width)
                             .put("height", WebSession.height).put("stage", WebSession.stage)
-                            .put("streaming", WebSession.videoActive && (frame != null || rtc?.connected == true))
+                            .put("streaming", WebSession.videoActive && (frame != null || rtc?.connected == true || rtc?.holdingFrame == true))
                             .put("rtcAvailable", rtcConfig != null && !rtcAttempted && WebSession.videoActive)
                             .put("rtcFrames", rtc?.sentFrames ?: 0)
                             .put("performance", JSONObject().put("source", rtcSource?.performanceSnapshot()?.let(::JSONObject))

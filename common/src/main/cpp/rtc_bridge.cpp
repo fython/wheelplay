@@ -72,7 +72,8 @@ Java_com_shilapi_xcertplay_web_RtcNative_create(JNIEnv* env, jobject owner, jstr
         }));
         check(rtcSetStateChangeCallback(p->pc, [](int, rtcState state, void* ptr) {
             if (state == RTC_CONNECTED) static_cast<Peer*>(ptr)->emit("connected");
-            if (state == RTC_FAILED || state == RTC_DISCONNECTED) static_cast<Peer*>(ptr)->emit("failed");
+            if (state == RTC_DISCONNECTED) static_cast<Peer*>(ptr)->emit("disconnected");
+            if (state == RTC_FAILED) static_cast<Peer*>(ptr)->emit("failed");
         }));
         const char* format = env->GetStringUTFChars(profile, nullptr);
         rtcTrackInit track{};

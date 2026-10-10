@@ -36,7 +36,7 @@ class RtcFrameQueueTest {
         assertEquals(0, q.size)
     }
     @Test fun missingRecoveryKeyframeHasABoundedDeadlineAndFreshKeyframeResetsIt() {
-        val q = RtcFrameQueue()
+        val q = RtcFrameQueue(recoveryGraceNs = 3_000_000_000)
         q.offer(frame, 0, true, 0); q.invalidate(1)
         assertFalse(q.offer(frame, 1, false, 1_000_000_001))
         assertFalse(q.recoveryExpired(2_999_999_999))
@@ -61,6 +61,26 @@ class RtcFrameQueueTest {
         val sent = q.poll(53)!!; assertEquals(1, c.references); sent.data.close(); assertEquals(0, c.references)
         val rejected = Buffer(); assertFalse(q.offer(rejected, 3, true, 54, 3 * 1024 * 1024))
         assertEquals(1, rejected.references); rejected.close()
+    }
+
+    @Test fun recoveryGraceCanIncreaseWithoutIncreasingQueueAgeOrMemory() {
+        val q = RtcFrameQueue(maxAgeNs = 50, recoveryGraceNs = 30_000_000_000)
+        q.offer(frame, 0, true, 0)
+        assertNull(q.poll(50))
+        assertEquals(0, q.bytes)
+        assertFalse(q.recoveryExpired(10_000_000_050))
+        assertTrue(q.recoveryExpired(30_000_000_050))
+        assertTrue(q.offer(frame, 1, true, 30_000_000_051))
+        assertFalse(q.recoveryExpired(60_000_000_051))
+    }
+
+    @Test fun waitingForAKeyframeDoesNotCountAnIdleScreensPause() {
+        val q = RtcFrameQueue(recoveryGraceNs = 4_000_000_000)
+        assertFalse(q.offer(frame, 0, false, 0))
+        assertFalse(q.offer(frame, 1, false, 30_000_000_000))
+        assertFalse(q.recoveryExpired(30_000_000_000))
+        for (second in 31L..34L) assertFalse(q.offer(frame, second, false, second * 1_000_000_000))
+        assertTrue(q.recoveryExpired(34_000_000_000))
     }
 
 }
