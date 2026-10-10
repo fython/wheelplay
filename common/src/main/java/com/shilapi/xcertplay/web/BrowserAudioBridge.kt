@@ -3,6 +3,7 @@ package com.shilapi.xcertplay.web
 import com.shilapi.xcertplay.airplay.AudioFormat
 import com.shilapi.xcertplay.airplay.MicrophoneConfig
 import com.shilapi.xcertplay.media.PcmInput
+import com.shilapi.xcertplay.media.MediaAudioBuffer
 import com.shilapi.xcertplay.media.RemoteAudioRoute
 import com.shilapi.xcertplay.media.isMediaPlayback
 import org.json.JSONObject
@@ -20,6 +21,7 @@ internal class BrowserAudioBridge {
     private var secureOwner = false
     private var requestedPlayback = false
     private var requestedCapture = false
+    private var mediaBufferMillis = MediaAudioBuffer.DEFAULT_MILLIS
     private var playback = false
     private var capture = false
     private var sequence = 0L
@@ -33,9 +35,10 @@ internal class BrowserAudioBridge {
         sendRoute()
     }
 
-    fun configure(playback: Boolean, capture: Boolean) {
+    fun configure(playback: Boolean, capture: Boolean, mediaBufferMillis: Int = MediaAudioBuffer.DEFAULT_MILLIS) {
         val change = synchronized(lock) {
             requestedPlayback = playback; requestedCapture = capture
+            this.mediaBufferMillis = MediaAudioBuffer.sanitize(mediaBufferMillis)
             sendRoute()
             this.playback = this.playback && playback
             val nextCapture = this.capture && capture
@@ -70,7 +73,8 @@ internal class BrowserAudioBridge {
 
     private fun sendRoute() {
         if (owner != null) control?.invoke(JSONObject().put("type", "audio-route")
-            .put("playback", requestedPlayback).put("microphone", requestedCapture && secureOwner).toString())
+            .put("playback", requestedPlayback).put("microphone", requestedCapture && secureOwner)
+            .put("mediaBufferMillis", mediaBufferMillis).toString())
     }
 
     fun detach(owner: Any) {
@@ -130,7 +134,9 @@ internal class BrowserAudioBridge {
                 val seq = ++sequence
                 val packet = ByteBuffer.allocate(20 + length).order(ByteOrder.LITTLE_ENDIAN)
                     .putInt(AUDIO_MAGIC).putInt(type).putInt(format.sampleRate)
-                    .putShort(format.channels.toShort()).putShort(0).putInt(seq.toInt())
+                    .putShort(format.channels.toShort())
+                    .putShort(if (format.isMediaPlayback()) AUDIO_FLAG_MEDIA.toShort() else 0)
+                    .putInt(seq.toInt())
                     .put(pcm, offset, length).array()
                 Triple(send!!, packet, seq)
             }
@@ -201,6 +207,7 @@ internal class BrowserAudioBridge {
 
     companion object {
         const val AUDIO_MAGIC = 0x31415057 // WPA1
+        const val AUDIO_FLAG_MEDIA = 1 // reserved WPA1 flags word at byte 14
         const val MIC_MAGIC = 0x314d5057 // WPM1
     }
 }

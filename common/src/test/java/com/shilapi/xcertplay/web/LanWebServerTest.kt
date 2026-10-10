@@ -171,12 +171,43 @@ class LanWebServerTest {
                     assertEquals(3, received.int)
                     assertEquals(48_000, received.int)
                     assertEquals(1, received.short.toInt())
-                    received.short
+                    assertEquals(BrowserAudioBridge.AUDIO_FLAG_MEDIA, received.short.toInt())
                     val sequence = received.int.toLong() and 0xffff_ffffL
                     val samples = ByteArray(4); received.get(samples)
                     assertArrayEquals(byteArrayOf(1,2,3,4), samples)
                     text(client, """{"type":"audio-ack","sequence":$sequence}""")
                 } finally { route.close() }
+            }
+        } finally { WebSession.stop() }
+    }
+
+    @Test fun browserMediaBufferFollowsSavedSettingsLiveAndAfterServiceRestart() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        com.shilapi.xcertplay.AirPlayPersistence.saveMediaBufferMillis(context, 1000)
+        com.shilapi.xcertplay.AirPlayPersistence.saveBrowserAudioPlayback(context, true)
+        WebSession.start(context)
+        try {
+            handshake(WebSession.code).use { client ->
+                client.soTimeout = 3000
+                assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                val initial = org.json.JSONObject(frame(client).toString(Charsets.UTF_8))
+                assertEquals(1000, initial.getInt("mediaBufferMillis"))
+                assertTrue(initial.getBoolean("playback"))
+                WebSession.setMediaBufferMillis(context, 500)
+                assertEquals(500, org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).getInt("mediaBufferMillis"))
+                assertEquals(500, com.shilapi.xcertplay.AirPlayPersistence.loadMediaBufferMillis(context))
+                WebSession.setBrowserAudioPlayback(context, false)
+                val disabled = org.json.JSONObject(frame(client).toString(Charsets.UTF_8))
+                assertFalse(disabled.getBoolean("playback"))
+                assertEquals(500, disabled.getInt("mediaBufferMillis"))
+                WebSession.setBrowserMicrophone(context, false)
+                assertEquals(500, org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).getInt("mediaBufferMillis"))
+            }
+            WebSession.stop(); WebSession.start(context)
+            handshake(WebSession.code).use { client ->
+                client.soTimeout = 3000
+                assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                assertEquals(500, org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).getInt("mediaBufferMillis"))
             }
         } finally { WebSession.stop() }
     }

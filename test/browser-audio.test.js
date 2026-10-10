@@ -2,10 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createBrowserAudio, createMicResampler, decodeAudioPacket } from '../common/src/main/assets/web/browser-audio.js';
 
-function packet(samples, sequence = 1) {
+function packet(samples, sequence = 1, { media = false, stream = 7 } = {}) {
   const bytes = new ArrayBuffer(20 + samples.length * 2), view = new DataView(bytes);
-  view.setUint32(0, 0x31415057, true); view.setInt32(4, 7, true);
-  view.setUint32(8, 48000, true); view.setUint16(12, 1, true); view.setUint32(16, sequence, true);
+  view.setUint32(0, 0x31415057, true); view.setInt32(4, stream, true);
+  view.setUint32(8, 48000, true); view.setUint16(12, 1, true);
+  view.setUint16(14, media ? 1 : 0, true); view.setUint32(16, sequence, true);
   samples.forEach((sample, i) => view.setInt16(20 + 2 * i, sample, true));
   return bytes;
 }
@@ -14,9 +15,91 @@ test('PCM frames validate format and preserve stream, rate, channels and sequenc
   const decoded = decodeAudioPacket(packet([16384, -16384], 9));
   assert.deepEqual([decoded.stream, decoded.rate, decoded.channels, decoded.sequence], [7, 48000, 1, 9]);
   assert.deepEqual([...decoded.pcm], [16384, -16384]);
+  assert.equal(decoded.media, false);
+  assert.equal(decodeAudioPacket(packet([1], 2, { media: true })).media, true);
   const malformed = packet([1]); new DataView(malformed).setUint16(12, 3, true);
   assert.equal(decodeAudioPacket(malformed), null);
   assert.equal(decodeAudioPacket(new Uint8Array([1]).buffer), null);
+});
+
+async function playbackPlayer(mediaBufferMillis) {
+  const sources = [], controls = [];
+  const context = {
+    state: 'running', currentTime: 0, destination: {}, async resume() {}, async close() {},
+    createBuffer(channels, count, rate) {
+      const data = Array.from({ length: channels }, () => new Float32Array(count));
+      return { duration: count / rate, getChannelData(channel) { return data[channel]; } };
+    },
+    createBufferSource() {
+      const node = { connect() {}, disconnect() {}, start(at) { this.at = at; }, stop() { this.stopped = true; } };
+      sources.push(node); return node;
+    },
+  };
+  const audio = createBrowserAudio({ send: value => controls.push(value), createContext: () => context });
+  audio.attach(); audio.control({ type: 'audio-route', playback: true, microphone: false, mediaBufferMillis });
+  await new Promise(resolve => setImmediate(resolve));
+  function advance(time) {
+    context.currentTime = time;
+    for (const node of sources) {
+      if (!node.ended && !node.stopped && node.at + node.buffer.duration <= time) {
+        node.ended = true; node.onended();
+      }
+    }
+  }
+  return { audio, context, sources, controls, advance };
+}
+
+test('all media buffer presets preserve continuous playback across repeated 400 ms delivery bursts', async () => {
+  for (const millis of [300, 500, 1000]) {
+    const { audio, sources, advance } = await playbackPlayer(millis);
+    let sequence = 0, peakNodes = 0;
+    for (let burst = 0; burst < 6; burst++) {
+      advance(burst * .4);
+      for (let i = 0; i < 20; i++) audio.receive(packet(new Int16Array(960).fill(123), ++sequence, { media: true }));
+      peakNodes = Math.max(peakNodes, sources.filter(node => !node.ended && !node.stopped).length);
+    }
+    assert.equal(sources.length, 120);
+    assert.equal(sources[0].at, millis / 1000);
+    assert.equal(sources.filter(node => node.stopped).length, 0);
+    for (let i = 1; i < sources.length; i++) {
+      assert.ok(Math.abs(sources[i].at - sources[i - 1].at - .02) < 1e-9, `Gap in ${millis} ms playback`);
+    }
+    if (millis === 1000) assert.ok(peakNodes > 64, 'A one-second buffer must survive the former 64-node cap');
+    audio.close();
+  }
+});
+
+test('changing media buffering rebuilds only media playback while calls keep the short delay', async () => {
+  const { audio, sources, advance } = await playbackPlayer(500);
+  audio.receive(packet(new Int16Array(960), 1, { media: true }));
+  audio.receive(packet(new Int16Array(960), 2, { stream: 8 }));
+  assert.equal(sources[0].at, .5); assert.equal(sources[1].at, .06);
+  advance(.02);
+  audio.control({ type: 'audio-route', playback: true, microphone: false, mediaBufferMillis: 1000 });
+  assert.equal(sources[0].stopped, true); assert.equal(sources[1].stopped, undefined);
+  audio.receive(packet(new Int16Array(960), 3, { media: true }));
+  assert.equal(sources[2].at, 1.02);
+  audio.control({ type: 'audio-route', playback: true, microphone: false, mediaBufferMillis: 37 });
+  audio.receive(packet(new Int16Array(960), 4, { media: true }));
+  assert.equal(sources[3].at, .32);
+  audio.close();
+});
+
+test('media resumes with the selected buffer after starvation and keeps queued audio on overflow', async () => {
+  const { audio, sources, advance, controls } = await playbackPlayer(1000);
+  audio.receive(packet(new Int16Array(960), 1, { media: true }));
+  advance(1.5);
+  audio.receive(packet(new Int16Array(960), 2, { media: true }));
+  assert.equal(sources[1].at, 2.5);
+  for (let sequence = 3; sequence < 153; sequence++) audio.receive(packet(new Int16Array(960), sequence, { media: true }));
+  assert.ok(sources.length < 152, 'Excess audio must remain bounded');
+  assert.equal(sources.filter(node => node.stopped).length, 0, 'Overflow must not cancel pending sound');
+  assert.equal(controls.at(-1).sequence, 152, 'Dropped incoming packets still release the server ACK window');
+  const previousCount = sources.length;
+  advance(1.7);
+  audio.receive(packet(new Int16Array(960), 153, { media: true }));
+  assert.equal(sources.length, previousCount + 1);
+  audio.close();
 });
 
 test('continuous 48-to-16 kHz microphone resampling emits 20 ms bounded PCM frames', () => {

@@ -308,6 +308,7 @@ internal class LanWebServer(private val context: Context, private val code: Stri
                         "mic-config" -> WebStreamSender.Control.MIC_CONFIG
                         "mic-stop" -> WebStreamSender.Control.MIC_STOP
                         "audio-route" -> {
+                            sender.configureAudioBuffer(data.getInt("mediaBufferMillis"))
                             if (!data.getBoolean("playback")) sender.clearAudio()
                             WebStreamSender.Control.AUDIO_ROUTE
                         }

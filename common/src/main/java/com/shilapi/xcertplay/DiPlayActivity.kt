@@ -534,7 +534,7 @@ class DiPlayActivity : AppCompatActivity() {
             val bufferPresets = com.shilapi.xcertplay.media.MediaAudioBuffer.presets
             choice(card, "音频缓冲", listOf("300 ms · 默认", "500 ms", "1000 ms · 更稳定"),
                 bufferPresets.indexOf(AirPlayPersistence.loadMediaBufferMillis(this)).coerceAtLeast(0)) {
-                AirPlayPersistence.saveMediaBufferMillis(this, bufferPresets[it])
+                WebSession.setMediaBufferMillis(this, bufferPresets[it])
             }
             toggle(card, "转发音频到浏览器", "开启后将 CarPlay 音频发送到已配对的浏览器播放。", AirPlayPersistence.loadBrowserAudioPlayback(this)) {
                 WebSession.setBrowserAudioPlayback(this, it)

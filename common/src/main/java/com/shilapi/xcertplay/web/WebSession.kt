@@ -116,7 +116,7 @@ internal object WebSession {
         }
         adaptiveBrowserSize = AirPlayPersistence.loadAdaptiveBrowserSize(context)
         audio.configure(AirPlayPersistence.loadBrowserAudioPlayback(context),
-            AirPlayPersistence.loadBrowserMicrophone(context))
+            AirPlayPersistence.loadBrowserMicrophone(context), AirPlayPersistence.loadMediaBufferMillis(context))
         code = (100000 + SecureRandom().nextInt(900000)).toString()
         val port = WebListenSettings.httpPort(context)
         val next = LanWebServer(context.applicationContext, code, port)
@@ -281,12 +281,20 @@ internal object WebSession {
 
     @Synchronized fun setBrowserAudioPlayback(context: Context, enabled: Boolean) {
         AirPlayPersistence.saveBrowserAudioPlayback(context, enabled)
-        audio.configure(enabled, AirPlayPersistence.loadBrowserMicrophone(context))
+        audio.configure(enabled, AirPlayPersistence.loadBrowserMicrophone(context),
+            AirPlayPersistence.loadMediaBufferMillis(context))
     }
 
     @Synchronized fun setBrowserMicrophone(context: Context, enabled: Boolean) {
         AirPlayPersistence.saveBrowserMicrophone(context, enabled)
-        audio.configure(AirPlayPersistence.loadBrowserAudioPlayback(context), enabled)
+        audio.configure(AirPlayPersistence.loadBrowserAudioPlayback(context), enabled,
+            AirPlayPersistence.loadMediaBufferMillis(context))
+    }
+
+    @Synchronized fun setMediaBufferMillis(context: Context, millis: Int) {
+        AirPlayPersistence.saveMediaBufferMillis(context, millis)
+        audio.configure(AirPlayPersistence.loadBrowserAudioPlayback(context),
+            AirPlayPersistence.loadBrowserMicrophone(context), AirPlayPersistence.loadMediaBufferMillis(context))
     }
 
     fun setAdaptiveBrowserSize(enabled: Boolean) {

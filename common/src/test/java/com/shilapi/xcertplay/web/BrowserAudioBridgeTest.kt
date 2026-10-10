@@ -37,7 +37,7 @@ class BrowserAudioBridgeTest {
         val header = ByteBuffer.wrap(packets.single()).order(ByteOrder.LITTLE_ENDIAN)
         assertEquals(BrowserAudioBridge.AUDIO_MAGIC, header.int)
         assertEquals(1, header.int); assertEquals(48_000, header.int); assertEquals(2, header.short.toInt())
-        assertEquals(0, header.short.toInt()); assertEquals(1, header.int)
+        assertEquals(BrowserAudioBridge.AUDIO_FLAG_MEDIA, header.short.toInt()); assertEquals(1, header.int)
         assertArrayEquals(byteArrayOf(1,2,3,4), packets.single().copyOfRange(20, 24))
         var routeChanges = 0
         route.onMicrophoneRouteChanged { routeChanges++ }
@@ -88,6 +88,30 @@ class BrowserAudioBridgeTest {
         assertFalse(route.output(1, format, byteArrayOf(1,2,3,4), 0, 4))
         assertFalse(changes.last())
         route.close()
+    }
+
+    @Test fun selectedBufferReachesNewAndExistingViewersAndOnlyMediaPcmIsFlagged() {
+        val bridge = BrowserAudioBridge(); val owner = Any()
+        val controls = mutableListOf<String>(); val packets = mutableListOf<ByteArray>()
+        bridge.configure(true, false, 1000)
+        bridge.attach(owner, false, { packet, _ -> packets.add(packet) }, controls::add)
+        assertEquals(1000, org.json.JSONObject(controls.last()).getInt("mediaBufferMillis"))
+        bridge.ready(owner, true, false)
+        val route = bridge.createRoute()
+        try {
+            assertTrue(route.output(1, format, byteArrayOf(1,2,3,4), 0, 4))
+            assertTrue(route.output(2, format.copy(audioType = "telephony"), byteArrayOf(1,2,3,4), 0, 4))
+            assertEquals(BrowserAudioBridge.AUDIO_FLAG_MEDIA,
+                ByteBuffer.wrap(packets[0]).order(ByteOrder.LITTLE_ENDIAN).getShort(14).toInt())
+            assertEquals(0, ByteBuffer.wrap(packets[1]).order(ByteOrder.LITTLE_ENDIAN).getShort(14).toInt())
+            bridge.configure(true, false, 500)
+            assertEquals(500, org.json.JSONObject(controls.last()).getInt("mediaBufferMillis"))
+            bridge.detach(owner)
+            bridge.attach(owner, false, { _, _ -> }, controls::add)
+            assertEquals(500, org.json.JSONObject(controls.last()).getInt("mediaBufferMillis"))
+            bridge.configure(true, false, 37)
+            assertEquals(300, org.json.JSONObject(controls.last()).getInt("mediaBufferMillis"))
+        } finally { route.close(); bridge.detach(owner) }
     }
 
 }

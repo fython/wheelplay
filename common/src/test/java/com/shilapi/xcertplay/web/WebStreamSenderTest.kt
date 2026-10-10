@@ -25,6 +25,10 @@ class WebStreamSenderTest {
     }
     private fun frame(id: Long) = WebSession.Frame(byteArrayOf(id.toByte()), 0, id)
     private fun text(value: String) = WebSocketFrame(WebSocketFrame.OpCode.Text, true, value)
+    private fun pcm(sequence: Int, media: Boolean = true) = java.nio.ByteBuffer.allocate(20 + 960 * 2)
+        .order(java.nio.ByteOrder.LITTLE_ENDIAN).putInt(BrowserAudioBridge.AUDIO_MAGIC).putInt(7)
+        .putInt(48_000).putShort(1).putShort(if (media) BrowserAudioBridge.AUDIO_FLAG_MEDIA.toShort() else 0)
+        .putInt(sequence).array()
 
     @Test fun publicationAndAckWakeTheWriterAndSkipSupersededFrames() {
         val executor = ManualExecutor()
@@ -147,6 +151,49 @@ class WebStreamSenderTest {
             assertEquals(1, sent.size)
             assertArrayEquals(packet(2), sent.single())
         } finally { sender.close() }
+    }
+
+    @Test fun mediaBurstSurvivesFourHundredMillisecondWriterDelayWithAOneSecondBuffer() {
+        val executor = ManualExecutor(); val sent = mutableListOf<Int>(); var time = 0L
+        val sender = WebStreamSender({ null }, {
+            sent.add(java.nio.ByteBuffer.wrap(it.binaryPayload).order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt(16))
+        }, { fail() }, executor, { time })
+        try {
+            sender.configureAudioBuffer(1000)
+            for (id in 1..30) sender.audio(pcm(id), id.toLong())
+            time = 400
+            executor.runNext()
+            assertEquals(listOf(1, 2, 3, 4), sent)
+            while (sent.size < 30) {
+                sender.acknowledgeAudio(sent.last().toLong()); executor.runNext()
+            }
+            assertEquals((1..30).toList(), sent)
+            sender.acknowledgeAudio(30)
+            for (id in 31..36) sender.audio(pcm(id), id.toLong())
+            time = 1601
+            executor.runNext()
+            assertEquals(30, sent.size)
+            sender.audio(pcm(37, false), 37)
+            time = 1802
+            executor.runNext()
+            assertEquals("Calls retain the 100 ms expiration", 30, sent.size)
+        } finally { sender.close() }
+    }
+
+    @Test fun mediaQueueIsBoundedByPcmDurationForEachSelectedPreset() {
+        for (millis in listOf(300, 500, 1000)) {
+            val executor = ManualExecutor(); val sent = mutableListOf<Int>()
+            val sender = WebStreamSender({ null }, {
+                sent.add(java.nio.ByteBuffer.wrap(it.binaryPayload).order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt(16))
+            }, { fail() }, executor, { 0 })
+            try {
+                sender.configureAudioBuffer(millis)
+                for (id in 1..80) sender.audio(pcm(id), id.toLong())
+                executor.runNext()
+                assertEquals(81 - (millis + 200) / 20, sent.first())
+                assertEquals(4, sent.size)
+            } finally { sender.close() }
+        }
     }
 
     @Test fun stopControlsForDistinctAudioStreamsAreBothDelivered() {
