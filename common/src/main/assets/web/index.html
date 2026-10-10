@@ -16,6 +16,7 @@
 <h1 id="title">连接 CarPlay 车机屏幕</h1>
 <p id="pair-instructions">首次连接时，在服务端 App 点击「扫描二维码配对」，<br class="wide">扫描下方二维码并允许连接。</p>
 <label class="launch-option" for="hide-toolbar"><input id="hide-toolbar" type="checkbox"><span><strong>连接后隐藏顶部栏</strong><small>让 CarPlay 画面占满整个页面；刷新页面可返回连接界面。</small></span></label>
+<label class="launch-option" for="fullscreen-on-start"><input id="fullscreen-on-start" type="checkbox"><span><strong>启动后隐藏顶栏并全屏</strong><small>点击启动时进入全屏，连接后隐藏顶栏；退出全屏可恢复顶栏。不支持全屏时仅隐藏顶栏，刷新页面可返回连接界面。</small></span></label>
 <label class="launch-option" for="canvas-video"><input id="canvas-video" type="checkbox"><span><strong>使用 Canvas 显示视频（实验性）</strong><small>视频在屏幕外解码，再绘制到画布；适用于视频元素显示异常的浏览器。可能增加耗电，本浏览器会记住选择。</small></span></label>
 <details class="secure-setup" id="secure-setup"><summary>浏览器麦克风需要 HTTPS</summary><p>普通局域网 HTTP 页面无法申请麦克风权限。先在 Android 应用的「设置 → 权限与连接帮助 → 浏览器 HTTPS 证书」查看本设备的指纹，逐字核对下方 SHA-256 指纹，再下载证书并在车机浏览器信任。随后打开 HTTPS 页面。</p><code id="tls-fingerprint">正在读取…</code><div class="secure-links"><a href="/certificate.crt" download="wheelplay-local-ca.crt">下载本地证书</a><a id="https-entry" href="#">打开 HTTPS 页面</a></div><p id="tls-error" role="status"></p></details>
 <div id="remembered-device" role="status" hidden><strong id="device-name"></strong><p id="device-status">已恢复配对。选择上方选项后，点击「启动显示」。</p></div>

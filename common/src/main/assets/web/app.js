@@ -302,6 +302,7 @@ if (typeof document !== 'undefined') {
   let width = 1280, height = 720, live = false, objectUrl = null, lastFrame = 0, lastStatus = 0;
   let heartbeat = null, movePending = false, moveGeneration = 0, outbox = null;
   let authGeneration = 0, deviceCredential = null, storageAvailable = false;
+  let launchPresentation = null;
   const devicePreference = 'wheelplay.browserDevice';
   let pairingToken = null, qrGeneration = 0, qrTimer = null, qrRequest = null;
   let viewportReportTimer = null, lastViewportSignature = '';
@@ -532,9 +533,31 @@ if (typeof document !== 'undefined') {
     performanceStats.source = performanceStats.transport = performanceStats.receiver = null;
     screen.hidden = !(screen.complete && screen.naturalWidth > 0); video.hidden = true;
   }
+  function exitLaunchFullscreen() {
+    try { Promise.resolve(document.exitFullscreen()).catch(() => {}); } catch (_) {}
+  }
+  function prepareLaunchPresentation() {
+    const presentation = { immersive: $('fullscreen-on-start').checked, ownsFullscreen: false, cancelled: false };
+    launchPresentation = presentation;
+    if (!presentation.immersive || document.fullscreenElement || !document.documentElement?.requestFullscreen) return;
+    presentation.ownsFullscreen = true;
+    try {
+      // Keep the request in the submit gesture, before asynchronous pairing or WebSocket setup.
+      Promise.resolve(document.documentElement.requestFullscreen()).then(() => {
+        if (presentation.cancelled && !launchPresentation?.immersive && document.fullscreenElement) exitLaunchFullscreen();
+      }).catch(() => { presentation.ownsFullscreen = false; });
+    } catch (_) { presentation.ownsFullscreen = false; }
+  }
+  function restoreLaunchPresentation() {
+    if (!launchPresentation) return;
+    launchPresentation.cancelled = true;
+    launchPresentation.immersive = false;
+    if (launchPresentation.ownsFullscreen && document.fullscreenElement) exitLaunchFullscreen();
+  }
   function disconnect(refreshQr = true) {
     stopQr();
     authGeneration++;
+    restoreLaunchPresentation();
     stopped = true; paired = false; release();
     if (outbox) { outbox.close(); outbox = null; }
     clearTimeout(retry); clearInterval(heartbeat);
@@ -587,7 +610,7 @@ if (typeof document !== 'undefined') {
       $('phone-connect').disabled = false;
       $('phone-connect-message').textContent = '请保持 Android 上的 WheelPlay 在前台；点击连接 iPhone，按提示完成授权。';
       $('pairing').hidden = true; $('display').hidden = false; $('disconnect').hidden = false;
-      $('topbar').hidden = $('hide-toolbar').checked;
+      $('topbar').hidden = $('hide-toolbar').checked || Boolean(launchPresentation?.immersive);
       lastViewportSignature = '';
       scheduleViewportReport();
       $('status').textContent = '已连接 · 等待画面';
@@ -684,6 +707,7 @@ if (typeof document !== 'undefined') {
   $('connect-form').addEventListener('submit', event => {
     event.preventDefault();
     const generation = ++authGeneration;
+    prepareLaunchPresentation();
     stopQr(); $('connect').disabled = true; $('message').textContent = '';
     const start = () => { if (generation === authGeneration) { stopped = false; attempts = 0; connect(); } };
     if (pairingToken && !deviceCredential) { start(); return; }
@@ -701,6 +725,7 @@ if (typeof document !== 'undefined') {
         start();
       } catch (error) {
         if (generation !== authGeneration) return;
+        restoreLaunchPresentation();
         $('connect').disabled = false;
         if (error.status === 401 && deviceCredential) {
           pairingToken = null; deviceCredential = null;
@@ -730,6 +755,11 @@ if (typeof document !== 'undefined') {
   });
   document.addEventListener('fullscreenchange', () => {
     $('fullscreen').textContent = document.fullscreenElement ? '退出全屏' : '全屏';
+    if (!document.fullscreenElement && launchPresentation?.immersive) {
+      launchPresentation.immersive = false;
+      launchPresentation.ownsFullscreen = false;
+      $('topbar').hidden = false;
+    }
     scheduleViewportReport();
   });
   // A separate layer prevents Android Chrome's native video gestures cancelling drags.
