@@ -4,6 +4,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class TeslaHttpConfigTest {
+    @Test fun customPortsIncludeBoundariesAndRejectInvalidValues() {
+        for (port in listOf(1, 80, 9090, 65535)) {
+            val config = TeslaHttpConfig(hostname = "car.example.com", port = port)
+            assertEquals("http://100.96.0.1:$port/", config.ipUrl)
+            assertEquals("http://car.example.com:$port/", config.hostnameUrl)
+        }
+        for (port in listOf(-1, 0, 65536, Int.MAX_VALUE)) {
+            try { TeslaHttpConfig(port = port); fail("Invalid port $port must be rejected") }
+            catch (_: IllegalArgumentException) { }
+        }
+    }
+
     @Test fun onlySharedSpaceLiteralsAreAcceptedWithoutDns() {
         for (address in listOf("100.64.0.0", "100.96.0.1", "100.127.255.255")) {
             assertTrue(address, TeslaHttpConfig.isSharedAddress(address))

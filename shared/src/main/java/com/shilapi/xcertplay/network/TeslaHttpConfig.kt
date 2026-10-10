@@ -5,17 +5,20 @@ data class TeslaHttpConfig(
     val enabled: Boolean = false,
     val address: String = DEFAULT_ADDRESS,
     val hostname: String = "",
+    val port: Int = DEFAULT_PORT,
 ) {
     init {
         require(isSharedAddress(address)) { "虚拟 IP 必须位于 100.64.0.0–100.127.255.255" }
         require(isHostname(hostname)) { "请输入域名，不要包含协议、端口或路径" }
+        require(port in 1..65535) { "HTTP 端口必须为 1–65535" }
     }
 
-    val ipUrl get() = "http://$address:8080/"
-    val hostnameUrl get() = hostname.takeIf { it.isNotEmpty() }?.let { "http://$it:8080/" }
+    val ipUrl get() = "http://$address:$port/"
+    val hostnameUrl get() = hostname.takeIf { it.isNotEmpty() }?.let { "http://$it:$port/" }
 
     companion object {
         const val DEFAULT_ADDRESS = "100.96.0.1"
+        const val DEFAULT_PORT = 8080
 
         // Parse literals without DNS, accepting only canonical dotted decimal notation.
         fun isSharedAddress(value: String): Boolean {

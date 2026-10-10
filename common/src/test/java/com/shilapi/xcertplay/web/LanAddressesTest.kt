@@ -6,6 +6,16 @@ import com.shilapi.xcertplay.web.LanAddresses.Kind
 import com.shilapi.xcertplay.web.LanAddresses.Entry
 
 class LanAddressesTest {
+    @Test fun customPortIsUsedByBothTeslaAndOtherLanEntries() {
+        val owned = LanAddresses.entry("tun0", "100.96.0.1", Kind.VPN, false,
+            "100.96.0.1", "car.example.com", 9090)
+        assertEquals("http://car.example.com:9090", owned.url)
+        assertEquals("http://100.96.0.1:9090", owned.ipUrl)
+        val hotspot = LanAddresses.entry("ap0", "192.168.43.1", Kind.HOTSPOT, false,
+            "100.96.0.1", "car.example.com", 9090)
+        assertEquals("http://192.168.43.1:9090", hotspot.url)
+    }
+
     @Test fun sharedAddressesAreShownWithoutAdvertisingArbitraryPublicAddresses() {
         fun ip(value: String) = java.net.InetAddress.getByName(value) as java.net.Inet4Address
         assertTrue(LanAddresses.isDiscoverable(ip("100.96.0.1")))

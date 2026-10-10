@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay
 
 import com.shilapi.xcertplay.web.WebSession
+import com.shilapi.xcertplay.web.TeslaHttpCompatibility
 import com.shilapi.xcertplay.media.CarPlayMediaSessionBridge
 import com.shilapi.xcertplay.media.MediaCommand
 import com.shilapi.xcertplay.media.NowPlayingState
@@ -112,7 +113,8 @@ class DiPlaySessionService : Service() {
         } else {
             val stop = PendingIntent.getService(this, 1, Intent(this, DiPlaySessionService::class.java)
                 .setAction(ACTION_STOP), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-            builder.setContentTitle(getString(R.string.app_name)).setContentText("局域网串流服务运行中 · 8080")
+            val port = if (WebSession.running) WebSession.httpPort else TeslaHttpCompatibility.config(this).port
+            builder.setContentTitle(getString(R.string.app_name)).setContentText("局域网串流服务运行中 · $port")
                 .addAction(Notification.Action.Builder(Icon.createWithResource(this, R.drawable.ic_media_stop),
                     "停止服务", stop).build())
         }

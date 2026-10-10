@@ -298,7 +298,7 @@ class DiPlayActivity : AppCompatActivity() {
             updateAddressExpansion()
         }
         webCode?.text = if (WebSession.running) WebSession.code else "— — — — — —"
-        quickBrowserButton?.isEnabled = WebSession.running && BrowserExperienceLink.local(WebSession.code) != null
+        quickBrowserButton?.isEnabled = WebSession.running && BrowserExperienceLink.local(WebSession.code, WebSession.httpPort) != null
         val viewerConnected = WebSession.hasViewer
         webPairingControls?.visibility = if (viewerConnected) View.GONE else View.VISIBLE
         webViewer?.text = if (viewerConnected) "车机浏览器已连接" else "等待车机浏览器连接"
@@ -306,7 +306,7 @@ class DiPlayActivity : AppCompatActivity() {
     }
 
     private fun openLocalBrowserExperience() {
-        val url = BrowserExperienceLink.local(WebSession.code)
+        val url = BrowserExperienceLink.local(WebSession.code, WebSession.httpPort)
         if (!WebSession.running || url == null) {
             toast("请等待 Web 服务启动后再打开")
             return
@@ -373,6 +373,22 @@ class DiPlayActivity : AppCompatActivity() {
             }
             teslaStatus = label("", 14, MUTED)
             card.addView(teslaStatus)
+            card.addView(ui.preference("HTTP 端口", config.port.toString()) {
+                textInput("HTTP 端口（1–65535）", config.port.toString(), false) { value ->
+                    val port = value.toIntOrNull()
+                    if (port == null || port !in 1..65535) toast("HTTP 端口必须为 1–65535")
+                    else {
+                        val failure = WebSession.setHttpPort(this, port)
+                        if (failure != null) toast(failure)
+                        else {
+                            startForegroundService(Intent(this, DiPlaySessionService::class.java))
+                            toast("HTTP 端口已保存，浏览器请使用新地址重新连接")
+                        }
+                        render(); refreshService()
+                    }
+                }
+            })
+            card.addView(label("HTTP 端口适用于全部 IP 和域名入口，修改后立即生效。端口被占用或系统禁止绑定时保留原端口。", 14, MUTED))
             card.addView(ui.preference("虚拟 IP", config.address) {
                 if (CarPlayBackgroundSession.hasSession()) toast("请先断开 iPhone，再修改虚拟 IP")
                 else textInput("虚拟 IP", config.address, false) { value ->

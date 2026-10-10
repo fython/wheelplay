@@ -14,9 +14,10 @@ internal object LanAddresses {
         USB("USB 网络", 30), OTHER("其它网络", 50), P2P("Wi-Fi Direct", 60),
         VPN("VPN / 隧道", 90), CELLULAR("移动网络", 100)
     }
-    data class Entry(val interfaceName: String, val address: String, val kind: Kind, val active: Boolean = false, val hostname: String = "") {
-        val url get() = "http://${hostname.ifEmpty { address }}:8080"
-        val ipUrl get() = "http://$address:8080"
+    data class Entry(val interfaceName: String, val address: String, val kind: Kind, val active: Boolean = false,
+                     val hostname: String = "", val port: Int = TeslaHttpConfig.DEFAULT_PORT) {
+        val url get() = "http://${hostname.ifEmpty { address }}:$port"
+        val ipUrl get() = "http://$address:$port"
         val description get() = "${kind.label} · $interfaceName" + when (kind) {
             Kind.TESLA_HTTP -> " · 请将车机连接此设备热点；HTTP 可用性需实测"
             Kind.P2P -> " · 通常用于 iPhone 连接"
@@ -46,11 +47,12 @@ internal object LanAddresses {
         address.isSiteLocalAddress || TeslaHttpConfig.isSharedAddress(address.hostAddress ?: "")
 
     fun entry(name: String, address: String, kind: Kind, active: Boolean,
-              teslaAddress: String?, hostname: String): Entry =
-        if (kind == Kind.VPN && address == teslaAddress) Entry(name, address, Kind.TESLA_HTTP, active, hostname)
-        else Entry(name, address, kind, active)
+              teslaAddress: String?, hostname: String, port: Int = TeslaHttpConfig.DEFAULT_PORT): Entry =
+        if (kind == Kind.VPN && address == teslaAddress) Entry(name, address, Kind.TESLA_HTTP, active, hostname, port)
+        else Entry(name, address, kind, active, port = port)
 
-    fun discover(context: Context, teslaAddress: String? = null, hostname: String = ""): List<Entry> {
+    fun discover(context: Context, teslaAddress: String? = null, hostname: String = "",
+                 port: Int = TeslaHttpConfig.DEFAULT_PORT): List<Entry> {
         val transports = mutableMapOf<String, Kind>()
         var activeInterface: String? = null
         // Framework metadata is authoritative; interface-name heuristics cover tethering/P2P.
@@ -76,7 +78,7 @@ internal object LanAddresses {
                     if (!iface.isUp || iface.isLoopback) emptyList() else iface.inetAddresses.toList()
                         .filterIsInstance<Inet4Address>().filter(::isDiscoverable)
                         .map { entry(iface.name, it.hostAddress!!, classify(iface.name, transports[iface.name]),
-                            iface.name == activeInterface, teslaAddress, hostname) }
+                            iface.name == activeInterface, teslaAddress, hostname, port) }
                 }.getOrDefault(emptyList())
             }
         }.getOrDefault(emptyList())

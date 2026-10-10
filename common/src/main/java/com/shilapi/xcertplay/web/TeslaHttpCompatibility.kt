@@ -28,13 +28,15 @@ internal object TeslaHttpCompatibility {
         return runCatching {
             TeslaHttpConfig(prefs.getBoolean("enabled", false),
                 prefs.getString("address", TeslaHttpConfig.DEFAULT_ADDRESS)!!,
-                prefs.getString("hostname", "")!!)
+                prefs.getString("hostname", "")!!,
+                prefs.getInt("port", TeslaHttpConfig.DEFAULT_PORT))
         }.getOrDefault(TeslaHttpConfig())
     }
 
     fun save(context: Context, config: TeslaHttpConfig) {
         preferences(context).edit().putBoolean("enabled", config.enabled)
-            .putString("address", config.address).putString("hostname", config.hostname).apply()
+            .putString("address", config.address).putString("hostname", config.hostname)
+            .putInt("port", config.port).apply()
         main.post { owner?.let(::applyConfig) }
     }
 

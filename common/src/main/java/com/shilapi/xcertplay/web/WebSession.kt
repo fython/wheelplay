@@ -6,6 +6,7 @@ import android.os.Handler
 import android.os.Looper
 import com.shilapi.xcertplay.AirPlayPersistence
 import com.shilapi.xcertplay.CarPlayBackgroundSession
+import com.shilapi.xcertplay.network.TeslaHttpConfig
 import java.security.SecureRandom
 
 /** Service-owned web endpoint; media sinks only publish immutable latest frames. */
@@ -22,6 +23,8 @@ internal object WebSession {
     @Volatile var error: String? = null
         private set
     @Volatile private var server: LanWebServer? = null
+    @Volatile var httpPort = TeslaHttpConfig.DEFAULT_PORT
+        private set
     @Volatile private var secureServer: LanWebServer? = null
     @Volatile var tls: LanTls.Endpoint? = null
         private set
@@ -105,9 +108,10 @@ internal object WebSession {
         audio.configure(AirPlayPersistence.loadBrowserAudioPlayback(context),
             AirPlayPersistence.loadBrowserMicrophone(context))
         code = (100000 + SecureRandom().nextInt(900000)).toString()
-        val next = LanWebServer(context.applicationContext, code)
+        val port = TeslaHttpCompatibility.config(context).port
+        val next = LanWebServer(context.applicationContext, code, port)
         try {
-            next.start(5000, true); server = next; error = null
+            next.start(5000, true); server = next; httpPort = port; error = null
             TeslaHttpCompatibility.start(context)
             val token = ++serverGeneration
             Thread({
@@ -127,7 +131,27 @@ internal object WebSession {
                 }
             }, "wheelplay-lan-tls").apply { isDaemon = true; start() }
         }
-        catch (e: Exception) { next.stop(); error = "8080 端口启动失败：${e.javaClass.simpleName}" }
+        catch (e: Exception) { next.stop(); error = "$port 端口启动失败：${e.message ?: e.javaClass.simpleName}" }
+    }
+
+    /** Bind before releasing the old listener, preserving media and pairing on failure. */
+    @Synchronized fun setHttpPort(context: Context, port: Int): String? {
+        val config = TeslaHttpCompatibility.config(context).copy(port = port)
+        val current = server
+        if (current != null && port != httpPort) {
+            val next = LanWebServer(context.applicationContext, code, port, pairing = current.pairing)
+            try {
+                next.start(5000, true)
+            } catch (e: Exception) {
+                next.stopPreservingPairing()
+                return "$port 端口启动失败：${e.message ?: e.javaClass.simpleName}；原端口 $httpPort 继续运行"
+            }
+            server = next
+            httpPort = port
+            current.stopPreservingPairing()
+        }
+        TeslaHttpCompatibility.save(context, config)
+        return null
     }
 
     @Synchronized fun setBrowserAudioPlayback(context: Context, enabled: Boolean) {
@@ -199,7 +223,7 @@ internal object WebSession {
     fun approvePairing(payload: String) = server?.pairing?.approve(payload) == true
 
     fun addresses(context: Context): List<LanAddresses.Entry> = LanAddresses.discover(
-        context, TeslaHttpCompatibility.status.address, TeslaHttpCompatibility.config(context).hostname)
+        context, TeslaHttpCompatibility.status.address, TeslaHttpCompatibility.config(context).hostname, httpPort)
 
     private const val MIN_VIEWPORT_PIXELS = 320
     private const val MAX_VIEWPORT_PIXELS = 8192
