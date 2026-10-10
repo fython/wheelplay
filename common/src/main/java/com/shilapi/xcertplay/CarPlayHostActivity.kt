@@ -413,6 +413,12 @@ class CarPlayHostActivity : ComponentActivity() {
             AirPlayPersistence.saveWirelessEnabled(this, false)
         }
         val authenticationReady = runCatching { DiPlayBootstrap.ensure(this) }.isSuccess
+        if (!authenticationReady) {
+            // Do not retain a partially initialized host after USB/other external launches.
+            showDiPlayHome("settings")
+            finish()
+            return
+        }
         startForegroundService(Intent(this, DiPlaySessionService::class.java))
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         initializeSessionLog()
@@ -424,10 +430,6 @@ class CarPlayHostActivity : ComponentActivity() {
         locationPermissionAvailable = hasFineLocationPermission()
         setContentView(buildContentView().also(ServerWindow::fitContent))
         activeDisplaySize = DisplaySize(1280, 720)
-        if (!authenticationReady) {
-            setConnectionStage("认证资源未就绪，请到设置 → CarPlay 认证资源导入文件或 DiPlay APK")
-            return
-        }
         WebSession.setBrowserViewportListener { width, height ->
             mainHandler.post { scheduleBrowserDisplaySize(width, height) }
         }

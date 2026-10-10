@@ -38,6 +38,9 @@ class ServerCardStateTest {
     @Before fun resetSession() {
         CarPlayBackgroundSession.clear()
         WebSession.stop()
+        val identity = SyntheticMfiIdentity.create()
+        MfiAssetStore(RuntimeEnvironment.getApplication().noBackupFilesDir).installFiles(
+            { identity.key.inputStream() }, { identity.certificate.inputStream() })
         RuntimeEnvironment.getApplication().getSharedPreferences("diplay", 0).edit().clear().commit()
     }
 
@@ -110,9 +113,6 @@ class ServerCardStateTest {
     }
 
     @Test fun selectedPhoneCanConnectFromLaunchAndRunningSessionsHideBothConnectActions() {
-        val identity = SyntheticMfiIdentity.create()
-        MfiAssetStore(RuntimeEnvironment.getApplication().noBackupFilesDir).installFiles(
-            { identity.key.inputStream() }, { identity.certificate.inputStream() })
         val activity = activity()
         val connect = button(activity, "连接")
         val wireless = button(activity, "连接 iPhone")

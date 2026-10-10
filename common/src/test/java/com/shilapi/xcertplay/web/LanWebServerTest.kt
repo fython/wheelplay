@@ -20,6 +20,12 @@ import javax.net.ssl.HttpsURLConnection
 @RunWith(org.robolectric.RobolectricTestRunner::class)
 @org.robolectric.annotation.Config(sdk = [29])
 class LanWebServerTest {
+    @org.junit.Before fun provisionAuthentication() {
+        val identity = com.shilapi.xcertplay.SyntheticMfiIdentity.create()
+        com.shilapi.xcertplay.MfiAssetStore(org.robolectric.RuntimeEnvironment.getApplication().noBackupFilesDir)
+            .installFiles({ identity.key.inputStream() }, { identity.certificate.inputStream() })
+    }
+
     @Test fun changingHttpPortPreservesMediaPairingAndUsesSavedPortOnRestart() {
         val context = org.robolectric.RuntimeEnvironment.getApplication()
         WebSession.start(context)

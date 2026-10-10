@@ -55,7 +55,7 @@ Canvas 模式需要蔚来等车机实测：若遮罩只覆盖原生视频元素�
 
 使用 Android NDK 28.2.13676358 和 CMake 3.22.1。首次构建会从 GitHub 获取固定版本的 libdatachannel 及 Mbed TLS；后续复用本地 CMake 缓存。运行 `./gradlew :mobile:assembleDebug`。
 
-源码构建默认不包含 CarPlay 认证资源。安装后，在 **设置 → CarPlay 认证资源** 中手动选择 `identity.pk8` 和 `certificate.p7b`，或通过下载入口获取 DiPlay 官网 APK，再选择“从 DiPlay APK 导入”；也可在文件管理器中将该 APK 分享给 WheelPlay，无需安装 DiPlay。导入在本机完成，校验私钥与证书匹配后才替换原有资源；资源保存在应用私有目录，不上传、不参与备份。详见 [认证资源导入说明](docs/AUTHENTICATION_IMPORT.md)。
+源码构建默认不包含 CarPlay 认证资源。未配置有效资源时不会启动 Web 服务或 CarPlay；导入校验通过后自动启动 Web 服务。包内自带有效资源的安装包可直接使用，仍允许用户导入替换，且用户资源优先。在 **设置 → CarPlay 认证资源** 中手动选择 `identity.pk8` 和 `certificate.p7b`，或通过下载入口获取 DiPlay 官网 APK，再选择“从 DiPlay APK 导入”；也可在文件管理器中将该 APK 分享给 WheelPlay，无需安装 DiPlay。导入在本机完成，校验私钥与证书匹配后才替换原有资源；资源保存在应用私有目录，不上传、不参与备份。详见 [认证资源导入说明](docs/AUTHENTICATION_IMPORT.md)。
 
 开发者仍可通过 `WHEELPLAY_AUTH_ASSETS_DIR`（兼容 `DIPLAY_AUTH_ASSETS_DIR`）指定本地资产目录，或放置在 `.local/auth-assets/`；目录下必须有 `offline-mfi/identity.pk8` 和 `offline-mfi/certificate.p7b`。这些文件不纳入 Git。配置后运行 `./gradlew :mobile:assembleProvisionedDebug`，构建并校验 APK 内的两项资产与本地配置一致。公开分发的开源安装包请使用不配置认证资产的普通构建，由用户安装后导入。
 

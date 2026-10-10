@@ -33,6 +33,7 @@ class DiPlaySessionService : Service() {
     private var sessionSubscription: AutoCloseable? = null
     private val main = Handler(Looper.getMainLooper())
     private var destroyed = false
+    private var activationBlocked = false
     private var currentState = NowPlayingState()
     private var currentSession: MediaSession? = null
     private var currentArtwork: Bitmap? = null
@@ -67,7 +68,21 @@ class DiPlaySessionService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        activationBlocked = false
         updateNotification()
+        // Foreground startup must be acknowledged even when an external start is rejected.
+        // Never open listeners or acquire a wake lock without a validated identity.
+        if (!(DiPlayBootstrap.importing && WebSession.running) &&
+            runCatching { DiPlayBootstrap.ensure(this) }.isFailure) {
+            activationBlocked = true
+            WebSession.stop()
+            CarPlayBackgroundSession.stop()
+            wakeLock?.let { if (it.isHeld) it.release() }
+            wakeLock = null
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return START_NOT_STICKY
+        }
         if (intent?.action == ACTION_MEDIA) {
             if (intent.getLongExtra(EXTRA_GENERATION, -1) == media.commandGeneration) {
                 intent.getStringExtra(EXTRA_COMMAND)?.let { name ->
@@ -77,6 +92,7 @@ class DiPlaySessionService : Service() {
             return START_NOT_STICKY
         }
         WebSession.start(this)
+        updateNotification()
         if (WebSession.running && wakeLock == null) {
             wakeLock = getSystemService(PowerManager::class.java)
                 .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "WheelPlay:server").apply { acquire() }
@@ -94,6 +110,7 @@ class DiPlaySessionService : Service() {
     }
 
     private fun updateNotification() {
+        if (destroyed || activationBlocked) return
         val open = PendingIntent.getActivity(this, 0, Intent(this, DiPlayActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val builder = Notification.Builder(this, CHANNEL)
@@ -114,7 +131,8 @@ class DiPlaySessionService : Service() {
             val stop = PendingIntent.getService(this, 1, Intent(this, DiPlaySessionService::class.java)
                 .setAction(ACTION_STOP), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             val port = if (WebSession.running) WebSession.httpPort else TeslaHttpCompatibility.config(this).port
-            builder.setContentTitle(getString(R.string.app_name)).setContentText("局域网串流服务运行中 · $port")
+            builder.setContentTitle(getString(R.string.app_name)).setContentText(
+                if (WebSession.running) "局域网串流服务运行中 · $port" else "正在准备串流服务…")
                 .addAction(Notification.Action.Builder(Icon.createWithResource(this, R.drawable.ic_media_stop),
                     "停止服务", stop).build())
         }

@@ -6,6 +6,7 @@ import android.os.Handler
 import android.os.Looper
 import com.shilapi.xcertplay.AirPlayPersistence
 import com.shilapi.xcertplay.CarPlayBackgroundSession
+import com.shilapi.xcertplay.DiPlayBootstrap
 import com.shilapi.xcertplay.network.TeslaHttpConfig
 import java.security.SecureRandom
 
@@ -104,6 +105,10 @@ internal object WebSession {
 
     @Synchronized fun start(context: Context) {
         if (server != null) return
+        if (runCatching { DiPlayBootstrap.ensure(context) }.isFailure) {
+            error = "认证资源未就绪，请先在设置中导入认证资源"
+            return
+        }
         adaptiveBrowserSize = AirPlayPersistence.loadAdaptiveBrowserSize(context)
         audio.configure(AirPlayPersistence.loadBrowserAudioPlayback(context),
             AirPlayPersistence.loadBrowserMicrophone(context))

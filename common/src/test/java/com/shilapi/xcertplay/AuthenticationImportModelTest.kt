@@ -33,6 +33,7 @@ class AuthenticationImportModelTest {
     private val apkUri = Uri.parse("content://documents/DiPlay.apk")
 
     @After fun cleanup() {
+        com.shilapi.xcertplay.web.WebSession.stop()
         CarPlayBackgroundSession.clear()
         assertFalse(DiPlayBootstrap.importing)
     }
@@ -96,6 +97,7 @@ class AuthenticationImportModelTest {
         }
         val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
         val model = ViewModelProvider(controller.get())[AuthenticationImportModel::class.java]
+        assertSame(app, model.getApplication<android.app.Application>())
         try {
             model.import(apk = apkUri)
             assertTrue(entered.await(2, TimeUnit.SECONDS))
@@ -108,10 +110,16 @@ class AuthenticationImportModelTest {
         }
         fun views(view: View): List<View> = listOf(view) + if (view is ViewGroup)
             (0 until view.childCount).flatMap { views(view.getChildAt(it)) } else emptyList()
+        DiPlayBootstrap.ensure(controller.get())
         assertTrue(views(controller.get().window.decorView).filterIsInstance<TextView>().any {
             it.text.toString().startsWith("资源已就绪")
         })
+        assertNotNull(shadowOf(controller.get()).nextStartedService)
         assertArrayEquals(identity.certificate, store.load().readCertificate())
+        val service = Robolectric.buildService(DiPlaySessionService::class.java).create()
+        service.get().onStartCommand(Intent(app, DiPlaySessionService::class.java), 0, 1)
+        assertTrue(com.shilapi.xcertplay.web.WebSession.running)
+        service.destroy()
         controller.pause().stop().destroy()
     }
 

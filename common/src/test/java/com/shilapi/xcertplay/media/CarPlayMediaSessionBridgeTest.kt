@@ -147,6 +147,9 @@ class CarPlayMediaSessionBridgeTest {
     }
 
     @Test fun serviceUsesMediaStyleAndRestoresConnectionNotificationOnDisconnect() {
+        val identity = com.shilapi.xcertplay.SyntheticMfiIdentity.create()
+        com.shilapi.xcertplay.MfiAssetStore(RuntimeEnvironment.getApplication().noBackupFilesDir)
+            .installFiles({ identity.key.inputStream() }, { identity.certificate.inputStream() })
         val serviceController = org.robolectric.Robolectric.buildService(com.shilapi.xcertplay.DiPlaySessionService::class.java).create()
         val service = serviceController.get(); idle()
         val bridge = org.robolectric.util.ReflectionHelpers.getField<CarPlayMediaSessionBridge>(service, "media")

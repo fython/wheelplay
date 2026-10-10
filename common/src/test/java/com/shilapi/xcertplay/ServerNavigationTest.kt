@@ -18,6 +18,12 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29], qualifiers = "zh-rCN-w360dp-h800dp")
 class ServerNavigationTest {
+    @org.junit.Before fun provisionAuthentication() {
+        val identity = SyntheticMfiIdentity.create()
+        MfiAssetStore(org.robolectric.RuntimeEnvironment.getApplication().noBackupFilesDir)
+            .installFiles({ identity.key.inputStream() }, { identity.certificate.inputStream() })
+    }
+
     private fun views(view: View): List<View> = listOf(view) +
         if (view is ViewGroup) (0 until view.childCount).flatMap { views(view.getChildAt(it)) } else emptyList()
     private fun tabs(activity: DiPlayActivity) = views(activity.window.decorView).filterIsInstance<BottomNavigationView>().single()

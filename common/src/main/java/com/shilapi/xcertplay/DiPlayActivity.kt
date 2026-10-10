@@ -98,7 +98,9 @@ class DiPlayActivity : AppCompatActivity() {
         if (uri != null) exportDiagnostics(uri)
     }
 
-    private val authenticationImport by lazy { ViewModelProvider(this)[AuthenticationImportModel::class.java] }
+    private val authenticationImport by lazy {
+        ViewModelProvider(this, ViewModelProvider.AndroidViewModelFactory(application))[AuthenticationImportModel::class.java]
+    }
     private var selectedPrivateKey: Uri? = null
     private val selectAuthenticationKey = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -161,14 +163,18 @@ class DiPlayActivity : AppCompatActivity() {
         refreshAuthentication()
         selectedPrivateKey = savedInstanceState?.getString("selectedPrivateKey")?.let(Uri::parse)
         pendingTeslaEnable = savedInstanceState?.getBoolean("pendingTeslaEnable") ?: false
-        page = savedInstanceState?.getString("page") ?: intent.getStringExtra("page") ?: "service"
+        page = savedInstanceState?.getString("page") ?: intent.getStringExtra("page")
+            ?: if (setupError == null) "service" else "settings"
         createShell()
-        startForegroundService(Intent(this, DiPlaySessionService::class.java))
+        startWebServiceIfReady()
         handleWirelessRecovery()
         authenticationImport.state.observe(this) { state ->
             refreshAuthentication()
             render(); refreshService()
-            state.result?.let { toast(it); authenticationImport.consumeResult() }
+            state.result?.let {
+                startWebServiceIfReady()
+                toast(it); authenticationImport.consumeResult()
+            }
         }
         if (savedInstanceState == null) handleAuthenticationIntent(intent)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -307,12 +313,14 @@ class DiPlayActivity : AppCompatActivity() {
     private fun refreshService() {
         val addresses = if (WebSession.running && WebSession.error == null) WebSession.addresses(this) else emptyList()
         val primary = addresses.firstOrNull()
-        val addressText = WebSession.error ?: if (WebSession.running) primary?.url
-            ?: "未找到局域网地址，请连接 Wi-Fi" else "正在启动服务…"
+        val addressText = if (!WebSession.running && setupError != null) "请先导入认证资源以激活 Web 服务"
+            else WebSession.error ?: if (WebSession.running) primary?.url
+                ?: "未找到局域网地址，请连接 Wi-Fi" else "正在启动服务…"
         if (webAddress?.text?.toString() != addressText) webAddress?.text = addressText
         webInterface?.text = primary?.let { it.description + if (it.hostname.isNotEmpty()) "\n直接 IP：${it.ipUrl}" else "" }.orEmpty()
         val compatibility = TeslaHttpCompatibility.status
         teslaStatus?.text = if (!TeslaHttpCompatibility.config(this).enabled) "已关闭"
+            else if (!WebSession.running && setupError != null) "导入认证资源后启动"
             else compatibility.error ?: compatibility.address?.let { "虚拟地址已创建：$it；请用车机测试访问" }
             ?: "正在准备 HTTP 虚拟地址…"
         webInterface?.visibility = if (primary == null) View.GONE else View.VISIBLE
@@ -331,7 +339,8 @@ class DiPlayActivity : AppCompatActivity() {
         quickBrowserButton?.isEnabled = WebSession.running && BrowserExperienceLink.local(WebSession.code, WebSession.httpPort) != null
         val viewerConnected = WebSession.hasViewer
         webPairingControls?.visibility = if (viewerConnected) View.GONE else View.VISIBLE
-        webViewer?.text = if (viewerConnected) "车机浏览器已连接" else "等待车机浏览器连接"
+        webViewer?.text = if (!WebSession.running && setupError != null) "导入认证资源后可配对浏览器"
+            else if (viewerConnected) "车机浏览器已连接" else "等待车机浏览器连接"
         webStage?.text = setupError ?: if (WebSession.videoActive) "CarPlay 画面正在串流" else WebSession.stage
     }
 
@@ -365,7 +374,7 @@ class DiPlayActivity : AppCompatActivity() {
             disconnectButton = button("断开 iPhone", false) {
                 disconnectButton?.isEnabled = false
                 CarPlayBackgroundSession.stop { runOnUiThread {
-                    startForegroundService(Intent(this, DiPlaySessionService::class.java))
+                    startWebServiceIfReady()
                     WebSession.stage = "iPhone 已断开"
                     refreshStatus(); refreshService()
                 } }
@@ -430,7 +439,7 @@ class DiPlayActivity : AppCompatActivity() {
                         val failure = WebSession.setHttpPort(this, port)
                         if (failure != null) toast(failure)
                         else {
-                            startForegroundService(Intent(this, DiPlaySessionService::class.java))
+                            startWebServiceIfReady()
                             toast("HTTP 端口已保存，浏览器请使用新地址重新连接")
                         }
                         render(); refreshService()
@@ -533,6 +542,12 @@ class DiPlayActivity : AppCompatActivity() {
         }
     }
 
+    private fun startWebServiceIfReady() {
+        if (setupError == null && !DiPlayBootstrap.importing) {
+            startForegroundService(Intent(this, DiPlaySessionService::class.java))
+        }
+    }
+
     private fun canImportAuthentication(): Boolean {
         if (DiPlayBootstrap.importing) { toast("正在导入认证资源，请稍候"); return false }
         if (CarPlayBackgroundSession.hasSession()) { toast("请先断开 iPhone，再导入认证资源"); return false }
@@ -587,7 +602,7 @@ class DiPlayActivity : AppCompatActivity() {
             return
         }
         TeslaHttpCompatibility.save(this, TeslaHttpCompatibility.config(this).copy(enabled = enabled))
-        if (!WebSession.running) startForegroundService(Intent(this, DiPlaySessionService::class.java))
+        if (!WebSession.running) startWebServiceIfReady()
         handler.post { render(); refreshService() }
     }
 
