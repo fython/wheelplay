@@ -992,7 +992,7 @@ class DiPlayActivity : AppCompatActivity() {
         val ssid = storedSsid()
         val password = storedPassword()
         parent.addView(ui.preference("热点名称", ssid) {
-            textInput("热点名称", ssid, secret = false) { value ->
+            textInput("热点名称", ssid, secret = false, preserveWhitespace = true) { value ->
                 hotspotError(value, password)?.let { toast(it); return@textInput }
                 saveHotspotCredentials(value, password)
                 render()
@@ -1027,7 +1027,7 @@ class DiPlayActivity : AppCompatActivity() {
     }
 
     private fun askHotspotCredentials(done: (String, String) -> Unit) {
-        textInput("热点名称", storedSsid(), secret = false) { ssid ->
+        textInput("热点名称", storedSsid(), secret = false, preserveWhitespace = true) { ssid ->
             textInput("热点密码", storedPassword(), secret = true) { password ->
                 val error = hotspotError(ssid, password)
                 if (error != null) toast(error) else done(ssid, password)
@@ -1124,7 +1124,8 @@ class DiPlayActivity : AppCompatActivity() {
         }, "https-pkcs12-read").start()
     }
 
-    private fun textInput(title: String, current: String, secret: Boolean, onCancel: () -> Unit = {}, save: (String) -> Unit) {
+    private fun textInput(title: String, current: String, secret: Boolean, preserveWhitespace: Boolean = false,
+        onCancel: () -> Unit = {}, save: (String) -> Unit) {
         val field = TextInputLayout(this).apply {
             hint = title
             boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
@@ -1143,7 +1144,9 @@ class DiPlayActivity : AppCompatActivity() {
         field.addView(input, LinearLayout.LayoutParams(-1, -2))
         val container = column().apply { setPadding(dp(24), dp(8), dp(24), 0); addView(field) }
         MaterialAlertDialogBuilder(this).setTitle(title).setView(container)
-            .setPositiveButton("保存") { _, _ -> save(input.text.toString().let { if (secret) it else it.trim() }) }
+            .setPositiveButton("保存") { _, _ ->
+                save(input.text.toString().let { if (secret || preserveWhitespace) it else it.trim() })
+            }
             .setNegativeButton("取消") { _, _ -> onCancel() }.setOnCancelListener { onCancel() }.show()
     }
 
