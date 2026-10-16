@@ -15,7 +15,8 @@ function fixture({ storedCanvas = null, storageDisabled = false, canvasAvailable
   const preferences = new Map(storedCanvas === null ? [] : [['wheelplay.canvasVideo', storedCanvas]]);
   const videoCallbacks = new Map();
   const documentEvents = {}, fullscreenCalls = [];
-  let nextTimer = 0, nextFrame = 0;
+  let nextTimer = 0, nextFrame = 0, clockNow = 1_000_000;
+  class Clock extends Date { static now() { return clockNow; } }
   const element = id => {
     const classes = new Set();
     if (!elements.has(id)) elements.set(id, { hidden: false, value: '123456', handlers: {}, naturalWidth: 1280, naturalHeight: 720,
@@ -64,7 +65,7 @@ function fixture({ storedCanvas = null, storageDisabled = false, canvasAvailable
       removeItem(key) { preferences.delete(key); },
     },
   },
-    location: { host: 'server:8080' }, URL: { createObjectURL: () => 'blob:frame', revokeObjectURL() {} }, Date, WebSocket: Socket,
+    location: { host: 'server:8080' }, URL: { createObjectURL: () => 'blob:frame', revokeObjectURL() {} }, Date: Clock, WebSocket: Socket,
     RTCPeerConnection: Peer, performance: { now: () => 0 },
     setTimeout(fn, delay) { const id = ++nextTimer; timers.set(id, { fn, delay }); return id; },
     clearTimeout(id) { timers.delete(id); }, setInterval() { return 0; }, clearInterval() {},
@@ -80,6 +81,7 @@ function fixture({ storedCanvas = null, storageDisabled = false, canvasAvailable
   context.wheelplayMessages = messages;
   vm.runInNewContext(source, context);
   return { element, sockets, timers, peers, draws, preferences, raf, videoCallbacks, document, fullscreenCalls,
+    advance: ms => { clockNow += ms; },
     async connect() {
       element('connect-form').handlers.submit({ preventDefault() {} });
       await new Promise(resolve => setImmediate(resolve));
@@ -337,4 +339,94 @@ test('revocation during an active display stops retries and requires fresh pairi
   assert.equal(f.sockets.length, 1);
   assert.equal(f.element('code-entry').hidden, false);
   assert.equal(f.preferences.has('wheelplay.browserDevice'), false);
+});
+
+test('a transient media source gap does not cover or dim an already-presented frame', async () => {
+  const f = fixture(), ws = await f.connect(); f.frame(ws);
+  assert.equal(f.element('waiting').hidden, true);
+  assert.equal(f.element('screen').classList.contains('stale'), false);
+  ws.onmessage({ data: JSON.stringify({ type: 'status', width: 1280, height: 720, streaming: false }) });
+  assert.equal(f.element('waiting').hidden, true);
+  assert.equal(f.element('screen').classList.contains('stale'), false);
+});
+
+test('a status arriving while the next JPEG still decodes keeps the presented frame live', async () => {
+  const f = fixture(), ws = await f.connect(); f.frame(ws);
+  f.element('screen').naturalWidth = 0; // src was swapped; decode has not completed yet
+  ws.onmessage({ data: JSON.stringify({ type: 'status', width: 1280, height: 720, streaming: true }) });
+  assert.equal(f.element('waiting').hidden, true);
+  assert.equal(f.element('screen').classList.contains('stale'), false);
+});
+
+test('a sustained media stop is still surfaced after a bounded hold and clears on recovery', async () => {
+  const f = fixture(), ws = await f.connect(); f.frame(ws);
+  const status = streaming => ws.onmessage({ data: JSON.stringify({ type: 'status', width: 1280, height: 720, streaming }) });
+  status(false); status(false);
+  assert.equal(f.element('waiting').hidden, true, 'repeated gap reports stay within one bounded hold');
+  f.advance(60_000); status(false);
+  assert.equal(f.element('waiting').hidden, false, 'sustained stop must show the waiting overlay');
+  status(true);
+  assert.equal(f.element('waiting').hidden, true, 'recovery hides the overlay again');
+});
+
+test('a real socket close during a media gap shows the waiting overlay immediately', async () => {
+  const f = fixture(), ws = await f.connect(); f.frame(ws);
+  ws.onmessage({ data: JSON.stringify({ type: 'status', width: 1280, height: 720, streaming: false }) });
+  assert.equal(f.element('waiting').hidden, true);
+  ws.close();
+  assert.equal(f.element('waiting').hidden, false, 'a real disconnect must not be held');
+});
+
+test('each recovered streaming window bounds its own following gap independently', async () => {
+  const f = fixture(), ws = await f.connect(); f.frame(ws);
+  const status = streaming => ws.onmessage({ data: JSON.stringify({ type: 'status', width: 1280, height: 720, streaming }) });
+  status(false);
+  assert.equal(f.element('waiting').hidden, true);
+  status(true); f.advance(1); status(false);
+  assert.equal(f.element('waiting').hidden, true, 'recovery re-arms one bounded hold');
+  f.advance(60_000); status(false);
+  assert.equal(f.element('waiting').hidden, false);
+});
+
+test('a reconnected session without a fresh frame keeps waiting instead of inheriting stale evidence', async () => {
+  const f = fixture(), old = await f.connect(); f.frame(old);
+  assert.equal(f.element('waiting').hidden, true);
+  old.close();
+  const current = await f.connect();
+  current.onmessage({ data: JSON.stringify({ type: 'status', width: 1280, height: 720, streaming: true }) });
+  assert.equal(f.element('waiting').hidden, false, 'no presented frame in the new session yet');
+});
+
+test('a transient gap during an active WebRTC session keeps the presented video live', async () => {
+  const f = fixture(), ws = await f.connect(); await f.offer(ws);
+  assert.equal(f.element('waiting').hidden, true);
+  ws.onmessage({ data: JSON.stringify({ type: 'status', width: 1280, height: 720, streaming: false }) });
+  assert.equal(f.element('waiting').hidden, true);
+  assert.equal(f.element('video').hidden, false);
+});
+
+test('a status before the first ever frame keeps the waiting overlay up', async () => {
+  const f = fixture(), ws = await f.connect();
+  ws.onmessage({ data: JSON.stringify({ type: 'status', width: 1280, height: 720, streaming: true }) });
+  assert.equal(f.element('waiting').hidden, false);
+});
+
+test('the media gap hold ends at its two-second bound', async () => {
+  const f = fixture(), ws = await f.connect(); f.frame(ws);
+  const gap = () => ws.onmessage({ data: JSON.stringify({ type: 'status', width: 1280, height: 720, streaming: false }) });
+  f.advance(1_999); gap();
+  assert.equal(f.element('waiting').hidden, true, 'a 1999ms gap after the last evidence is still held');
+  f.advance(1); gap();
+  assert.equal(f.element('waiting').hidden, false, 'the hold ends at 2000ms');
+});
+
+test('an advertised size change drops the held frame and releases active pointers', async () => {
+  const f = fixture(), ws = await f.connect(); f.frame(ws);
+  f.pointer('pointerdown');
+  // A same-socket rebuild advertises the new viewport and clears the server frame.
+  ws.onmessage({ data: JSON.stringify({ type: 'status', width: 720, height: 1280, streaming: false }) });
+  assert.equal(f.element('waiting').hidden, false, 'the old picture must not be held under the new geometry');
+  assert.deepEqual(ws.sent.filter(m => m.type === 'touch').at(-1).contacts, []);
+  f.frame(ws);
+  assert.equal(f.element('waiting').hidden, true, 'the first frame of the new size re-arms the display');
 });

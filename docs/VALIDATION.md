@@ -342,6 +342,21 @@ App 启动时后台检查一次 Root，检查成功自动更新设置控件并�
 模拟器复验（API 36）：刷新后「已自动恢复配对」，真实点击「断开 / 启动显示」多轮全部干净恢复；观测窗口内 `NanoHTTPD|NullPointerException`=0、`FATAL EXCEPTION`=0、ANR=0；断开后设备侧事后核实出现新 ESTAB 连接，证明重连真实建立。窗口与计数只针对实际留存的日志，不宣称所有 buffer 绝对无丢失。
 
 未测边界：无真实 iPhone、无实车、未在手机端验证；CarPlay 会话建立、画面 / 音频投送、触控回传、USB / Wi‑Fi Direct 硬件通路均未验证。运行时权限状态与修复前一致（`NEARBY_WIFI_DEVICES` / `BLUETOOTH_CONNECT` 由系统权限界面授予，其余未触发）。
+## 「车机已连接」遮罩闪断（媒体源间隙误报断连）修复（2026-10-16）
+
+实车反馈（ground truth）：免 Root VPN 包能正常连接，但会不时闪出「车机已连接」遮罩。本轮只改状态渲染层，不重做已成功的接入 / 认证。
+
+定位（源码链 + 真实日志佐证）：遮罩 = `index.html` `#waiting`，由 `app.js` `setLive(false)` 显示；旧 `ws.onmessage` 对每条服务端 `status` 重算 `live = streaming && (rtc.active || lastFrame && screen.naturalWidth)`。两个已证实触发点：① iPhone 源周期性 `streaming:false/true` 停流-恢复脉冲（真实日志中每 2 秒交替），旧代码在脉冲窗口收到 status 即落遮罩、恢复即消失，表现为「闪断」；② 纯 JPEG 模式下 `screen.naturalWidth` 在「旧 blob revoke 后、新 blob 未解码」窗口（约 17ms，240ms DOM 采样实测 `1280→0→1280`）为 0，status 落在该窗口时即使画面完好也被判成无帧。两者均为状态渲染层误报：WebSocket 连接全程未断、无重连。
+
+修复（`app.js` 状态判定集中一处 + 测试）：① 「是否呈现过画面」改用呈现证据 `presented = rtc.active || lastFrame > 0`（`lastFrame` 仅在 JPEG 帧 `onload` 完成显示后置位，会话清理时清零），status 处理不再查询 `naturalWidth`，解码窗口竞态从判据中消除；② `streaming:false` 改为有界保持：仅当「当前 live + 有呈现证据 + 距最近一次正向证据（`streaming:true` 的 status、新帧 `onload`、RTC ready）< `MEDIA_GAP_HOLD_MS`（2 秒）」时不落遮罩，期间状态栏显示「· 等待恢复」；锚点 `lastStreamingProof` 只在正向证据时推进，重复 gap 报告无法延长保持；超过 2 秒未恢复、或真实断连（`onclose` / `onerror` / 心跳看门狗 / send 失败）仍立即出遮罩。
+
+语义限定：本轮**新增**一个固定 2 秒的媒体源间隙容忍，并把「等待恢复」提示扩展到该情形；它与「设置 → 画面与串流 → WebRTC 卡顿容忍时间」的 4 / 10 / 30 秒策略相互独立（后者仍按 `rtc-offer.recoveryGraceMs` 生效）。保持范围限定为「仍在 WebSocket 会话内且已有呈现证据」的短暂间隙，不覆盖 RTC teardown 或视频配置切换后的重建，也不改变断线判定与重连规则。评审补充：同会话重建若改变广告尺寸（旋转 / 自适应视口），保持立即失效并释放进行中的触点 —— `mapPoint` 的取景框由 `width`/`height` 推导，用新几何映射旧画面会把触点丢到错误位置；新尺寸首帧到达后重新建立证据。
+
+测试：`test/stream-client.test.js` 引入受控时钟并新增用例（瞬时 gap 保持、解码窗口竞态、持续停流仍出遮罩、重复 gap 不延长保持、新会话不继承旧呈现证据、RTC 会话内短间隙、未呈现前 status 不触发保持、2 秒边界 1999ms 保持 / 2000ms 结束、广告尺寸变化立即失效并释放触点）；`npm test` 84 项通过，`node --check` 通过。
+
+真实浏览器回归（仓库外临时探针：真实 Chrome + 真实 WebSocket + 合成 JPEG 服务，非模拟器当车机、非 JS 源码断言）：旧代码 2500ms 脉冲（遮罩 2505ms）与 600ms 脉冲（遮罩 599ms）均出遮罩，同一 WS 未断（RED）；新代码 600ms 脉冲遮罩 0ms、同一 WS 未断、间隙中状态栏「JPEG · 等待恢复 · 触控已连接」、恢复即回正常（GREEN）。对照：无帧时仍显示等待遮罩；持续 6 秒停流约 2 秒后出遮罩、恢复即清除；真实 TCP drop 仍立即「连接中断 · 正在重试」（close 1006）并自动重连。三轮证据均以 HTTP 响应字节取值校验被服务的 `app.js` 摘要，避免加载旧资源造成的假通过。
+
+未验证边界：无 iPhone / 实车 / 手机端验证，不能声称复现了现场无线信号抖动；2 秒阈值的「短间隙」语义参考上游 iPhone 行为与媒体 stalling 惯例选取，未按实车网络调优 [INFERENCE]，勿无依据加大阈值。RTC 路径本轮未实测（该环境走 JPEG fallback）[INFERENCE]。
 
 ## 产物
 
