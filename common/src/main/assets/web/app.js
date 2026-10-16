@@ -331,6 +331,13 @@ if (typeof document !== 'undefined') {
   let rtc = null, rtcRequested = false, rtcFps = null;
   let socket = null, stopped = true, paired = false, retry = null, attempts = 0;
   let width = 1280, height = 720, live = false, objectUrl = null, lastFrame = 0, lastStatus = 0;
+  // Last positive evidence of a presented picture in this session: a displayed JPEG/WebRTC/canvas
+  // frame, or a status confirming streaming while presented. Cleared when the session tears down.
+  let lastStreamingProof = 0;
+  // The app reports streaming=false for sub-second source gaps (an engine restart, for example),
+  // so a shorter gap keeps the last presented frame instead of covering it. This is a rendering
+  // tolerance only; it is independent of the WebRTC recovery grace time selected in the app.
+  const MEDIA_GAP_HOLD_MS = 2000;
   let heartbeat = null, movePending = false, moveGeneration = 0, outbox = null;
   let authGeneration = 0, deviceCredential = null, storageAvailable = false;
   let launchPresentation = null;
@@ -345,7 +352,7 @@ if (typeof document !== 'undefined') {
   });
   const canvasRenderer = createVideoCanvasRenderer(video, canvas, {
     onFrame: (frameWidth, frameHeight) => {
-      width = frameWidth; height = frameHeight; screen.hidden = true; setLive(true);
+      width = frameWidth; height = frameHeight; screen.hidden = true; lastStreamingProof = Date.now(); setLive(true);
     },
     onError: () => { if (rtc) rtc.fallback(); },
   });
@@ -563,7 +570,7 @@ if (typeof document !== 'undefined') {
     screen.onload = null; screen.onerror = null; screen.removeAttribute('src');
     screen.hidden = true;
     if (objectUrl) URL.revokeObjectURL(objectUrl);
-    objectUrl = null;
+    objectUrl = null; lastFrame = 0; lastStreamingProof = 0;
   }
   function cleanupRtc() {
     if (rtc) rtc.close(); rtc = null; rtcRequested = false; rtcFps = null;
@@ -633,6 +640,7 @@ if (typeof document !== 'undefined') {
         onReset: () => canvasRenderer.stop(),
         onReady: () => {
           if (socket !== ws) return;
+          lastStreamingProof = Date.now();
           if (useCanvas) { canvasRenderer.start(); return; }
           screen.hidden = true; video.hidden = false;
           width = video.videoWidth; height = video.videoHeight; setLive(true);
@@ -680,7 +688,12 @@ if (typeof document !== 'undefined') {
         if (data.type === 'status') {
           performanceStats.source = data.performance?.source ?? null;
           performanceStats.transport = data.performance?.transport ?? null;
+          // A rebuild that advertises a new size invalidates the presented picture: touch mapping
+          // derives its letterbox rectangle from these dimensions, so holding the old bitmap would
+          // address it with the new geometry. The new size's first frame re-arms the evidence.
+          const sizeChanged = data.width !== width || data.height !== height;
           lastStatus = Date.now(); width = data.width; height = data.height;
+          if (sizeChanged) { lastFrame = 0; lastStreamingProof = 0; }
           $('stage').textContent = data.stage || t("web_waiting_for_iphone_video");
           rtc.progress(data.rtcFrames || 0);
           if (data.rtcAvailable && !rtcRequested && typeof RTCPeerConnection !== 'undefined') {
@@ -688,9 +701,17 @@ if (typeof document !== 'undefined') {
           }
           // The server resets availability when the iPhone starts a new video configuration.
           if (!data.rtcAvailable) rtcRequested = false;
-          setLive(Boolean(data.streaming && (rtc.active || lastFrame && screen.naturalWidth)));
+          // Presentation evidence: a JPEG frame completed display in this session, or RTC is live
+          // now. naturalWidth reads 0 while the next JPEG decodes, so it cannot speak for this.
+          const presented = rtc.active || lastFrame > 0;
+          if (data.streaming && presented) lastStreamingProof = lastStatus;
+          // Hold an already-presented frame through a brief source gap (an engine restart reports
+          // streaming=false for a sub-second window). The anchor only advances on positive
+          // evidence, so repeated gap reports cannot extend it; a real socket close drops at once.
+          const holding = !data.streaming && live && presented && lastStatus - lastStreamingProof < MEDIA_GAP_HOLD_MS;
+          setLive(Boolean(presented && (data.streaming || holding)));
           const transport = rtc.active ? `${rtc.codec === 'H265' ? 'HEVC' : 'H.264'} / WebRTC${useCanvas ? ' / Canvas' : ''}${rtcFps === null ? '' : ` · ${rtcFps} fps`}` : `JPEG${data.fallback ? t("web_fallback") : ''}`;
-          $('status').textContent = live ? t("web_transport_touch_connected", transport, rtc.recovering ? t("web_waiting_for_recovery") : '') : t("web_connected_waiting_for_iphone_video");
+          $('status').textContent = live ? t("web_transport_touch_connected", transport, (rtc.recovering || holding) ? t("web_waiting_for_recovery") : '') : t("web_connected_waiting_for_iphone_video");
         }
         if (data.type === 'input-unavailable') $('status').textContent = t("web_waiting_for_iphone_touch_input");
         return;
@@ -703,7 +724,7 @@ if (typeof document !== 'undefined') {
         if (socket !== ws || ws.readyState !== WebSocket.OPEN) return;
         if (rtc && rtc.active) { send({ type: 'ack' }); return; }
         screen.hidden = false;
-        lastFrame = Date.now(); width = screen.naturalWidth; height = screen.naturalHeight;
+        lastFrame = Date.now(); lastStreamingProof = lastFrame; width = screen.naturalWidth; height = screen.naturalHeight;
         if (!rtc || !rtc.active) { setLive(true); $('status').textContent = t("web_jpeg_touch_connected"); }
         send({ type: 'ack' });
       };
