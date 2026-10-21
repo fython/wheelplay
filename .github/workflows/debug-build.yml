@@ -34,6 +34,18 @@ jobs:
       - name: Build and verify Debug
         run: ./gradlew --no-daemon :shared:testDebugUnitTest :common:testDebugUnitTest :common:assembleDebugAndroidTest :mobile:lintDebug :mobile:assembleDebug
 
+      - name: Upload failed unit test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheelplay-unit-test-results
+          path: |
+            shared/build/reports/tests/
+            shared/build/test-results/
+            common/build/reports/tests/
+            common/build/test-results/
+          if-no-files-found: warn
+
       - name: Upload browser runtime test APK
         uses: actions/upload-artifact@v4
         with:
