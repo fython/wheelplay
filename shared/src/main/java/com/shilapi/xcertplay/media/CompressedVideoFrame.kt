@@ -1,6 +1,5 @@
 package com.shilapi.xcertplay.media
 
-import com.shilapi.xcertplay.airplay.VideoCodec
 import java.io.Closeable
 
 /** Borrowed during callbacks. Async consumers retain once and close on send/drop/shutdown. */

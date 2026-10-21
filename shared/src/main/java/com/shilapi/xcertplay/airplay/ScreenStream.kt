@@ -13,7 +13,7 @@ import java.net.Socket
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
-enum class VideoCodec { H264, H265 }
+typealias VideoCodec = com.shilapi.xcertplay.media.VideoCodec
 
 /**
  * Receives one CarPlay screen stream on a TCP data port.

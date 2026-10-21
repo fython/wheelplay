@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="projection_sources">Projection sources</string>
+    <string name="projection_demo_hint">Diagnostic sources work without CarPlay authentication. Surface and framebuffer demos show touch feedback; the H.264 clip is read-only.</string>
+    <string name="projection_choose_demo">Choose a diagnostic source</string>
+    <string name="projection_stop">Stop projection</string>
+    <string name="projection_failed">Could not change source: %1$s</string>
+    <string name="projection_waiting">Waiting for a projection source</string>
+    <string name="projection_active">Source: %1$s</string>
+    <string name="projection_busy">A projection source is already active. Switch sources in WheelPlay.</string>
+</resources>

@@ -1,6 +1,5 @@
 package com.shilapi.xcertplay.media
 
-import com.shilapi.xcertplay.airplay.VideoCodec
 import java.io.ByteArrayOutputStream
 
 /**

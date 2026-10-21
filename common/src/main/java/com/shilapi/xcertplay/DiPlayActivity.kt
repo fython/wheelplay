@@ -2,6 +2,9 @@
 // UI copy and visual language adapted from DiAuto. See docs/THIRD_PARTY_NOTICES.md.
 package com.shilapi.xcertplay
 
+import com.shilapi.xcertplay.projection.projectionSessions
+import com.shilapi.xcertplay.projection.registerProjectionSources
+
 import com.shilapi.xcertplay.shared.R as UiR
 import com.shilapi.xcertplay.i18n.*
 
@@ -272,7 +275,7 @@ class DiPlayActivity : AppCompatActivity() {
             initialLaunch = false
             if (setupError == null && !DiPlayBootstrap.importing && selectedPrivateKey == null &&
                 intent.action != Intent.ACTION_SEND && intent.action != Intent.ACTION_VIEW &&
-                !CarPlayBackgroundSession.hasSession() &&
+                !projectionSessions.hasSession() &&
                 DiPlayPreferences.autoConnect(this) && intent.getStringExtra("page") == null) {
                 handler.post { connect(AirPlayPersistence.loadWirelessEnabled(this)) }
             }
@@ -477,8 +480,7 @@ class DiPlayActivity : AppCompatActivity() {
     private fun refreshService() {
         val addresses = if (WebSession.running && WebSession.error == null) WebSession.addresses(this) else emptyList()
         val primary = addresses.firstOrNull()
-        val addressText = if (!WebSession.running && setupError != null) getString(UiR.string.ui_import_authentication_resources_to_activate_the_web_service)
-            else WebSession.error ?: if (WebSession.running) primary?.url
+        val addressText = WebSession.error ?: if (WebSession.running) primary?.url
                 ?: getString(UiR.string.ui_no_local_network_address_found_connect_to_wi_fi) else getString(UiR.string.ui_starting_service)
         if (webAddress?.text?.toString() != addressText) webAddress?.text = addressText
         webInterface?.text = primary?.let { it.description(this) + if (it.hostname.isNotEmpty()) getString(UiR.string.address_direct_ip, it.ipUrl) else "" }.orEmpty()
@@ -498,9 +500,8 @@ class DiPlayActivity : AppCompatActivity() {
         quickBrowserButton?.isEnabled = WebSession.running && BrowserExperienceLink.local(WebSession.code, WebSession.httpPort) != null
         val viewerConnected = WebSession.hasViewer
         webPairingControls?.visibility = if (viewerConnected) View.GONE else View.VISIBLE
-        webViewer?.text = if (!WebSession.running && setupError != null) getString(UiR.string.ui_import_authentication_resources_to_pair_a_browser)
-            else if (viewerConnected) getString(UiR.string.ui_head_unit_browser_connected) else getString(UiR.string.ui_waiting_for_head_unit_browser)
-        webStage?.text = setupError ?: if (WebSession.videoActive) getString(UiR.string.ui_streaming_carplay_video) else WebSession.stage(this)
+        webViewer?.text = if (viewerConnected) getString(UiR.string.ui_head_unit_browser_connected) else getString(UiR.string.ui_waiting_for_head_unit_browser)
+        webStage?.text = WebSession.stage(this)
     }
 
     private fun openLocalBrowserExperience() {
@@ -521,7 +522,17 @@ class DiPlayActivity : AppCompatActivity() {
     }
 
     private fun home(content: LinearLayout) {
-        content.addView(label(getString(UiR.string.ui_connect_iphone), 30, TEXT, true))
+        content.addView(label(getString(UiR.string.projection_sources), 30, TEXT, true))
+        ui.card(content, getString(UiR.string.projection_sources), R.drawable.ic_server_phone) { body ->
+            body.addView(label(getString(UiR.string.projection_demo_hint), 15, MUTED))
+            body.addView(button(getString(UiR.string.projection_choose_demo), false) { chooseProjectionSource() }, matchButton(12))
+            body.addView(button(getString(UiR.string.projection_stop), false) {
+                projectionSessions.stop().whenComplete { _, failure -> runOnUiThread {
+                    if (failure != null) toast(getString(UiR.string.projection_failed, failure.cause?.message ?: failure.message.orEmpty()))
+                    refreshStatus(); refreshService()
+                } }
+            }, ui.secondaryButtonLayout(12))
+        }
         content.addView(label(getString(UiR.string.ui_this_device_receives_carplay_the_head_unit_browser_provides), 16, MUTED).apply { setPadding(0, dp(8), 0, dp(24)) })
         status = label(getString(UiR.string.ui_waiting_for_connection), 20, ACCENT, true)
         ui.card(content, getString(UiR.string.ui_connection_status), R.drawable.ic_server_phone) { it.addView(status) }
@@ -551,6 +562,19 @@ class DiPlayActivity : AppCompatActivity() {
         setupError?.let { content.addView(label(it, 16, WARNING)) }
     }
 
+    private fun chooseProjectionSource() {
+        registerProjectionSources(this)
+        val sources = projectionSessions.sources()
+        android.app.AlertDialog.Builder(this).setTitle(getString(UiR.string.projection_choose_demo))
+            .setItems(sources.map { it.descriptor.displayName }.toTypedArray()) { _, index ->
+                startWebServiceIfReady()
+                projectionSessions.switchTo(sources[index].descriptor.id).whenComplete { _, failure -> runOnUiThread {
+                    if (failure != null) toast(getString(UiR.string.projection_failed, failure.cause?.message ?: failure.message.orEmpty()))
+                    refreshStatus(); refreshService()
+                } }
+            }.setNegativeButton(android.R.string.cancel, null).show()
+    }
+
     private fun refreshAuthentication() {
         setupError = if (DiPlayBootstrap.importing) getString(UiR.string.ui_importing_authentication_resources_please_wait)
         else runCatching { DiPlayBootstrap.ensure(this) }.exceptionOrNull()?.let {
@@ -559,9 +583,7 @@ class DiPlayActivity : AppCompatActivity() {
     }
 
     private fun startWebServiceIfReady() {
-        if (setupError == null && !DiPlayBootstrap.importing) {
-            startForegroundService(Intent(this, DiPlaySessionService::class.java))
-        }
+        startForegroundService(Intent(this, DiPlaySessionService::class.java))
     }
 
     private fun canImportAuthentication(): Boolean {
@@ -719,8 +741,10 @@ class DiPlayActivity : AppCompatActivity() {
             AirPlayPersistence.saveWirelessEnabled(this, wireless)
             openProjection()
         }
-        if (CarPlayBackgroundSession.hasSession()) CarPlayBackgroundSession.stop { runOnUiThread { open() } }
-        else open()
+        if (projectionSessions.hasSession()) projectionSessions.stop().whenComplete { _, failure -> runOnUiThread {
+            if (failure == null) open()
+            else toast(getString(UiR.string.projection_failed, failure.cause?.message ?: failure.message.orEmpty()))
+        } } else open()
     }
     private fun openProjection() {
         navigate("service")
@@ -818,6 +842,8 @@ class DiPlayActivity : AppCompatActivity() {
     private fun refreshStatus() {
         val running = CarPlayBackgroundSession.hasSession()
         status?.text = when {
+            projectionSessions.snapshot()?.descriptor?.id?.let { it != "carplay" } == true ->
+                projectionSessions.snapshot()?.descriptor?.displayName
             setupError != null -> getString(UiR.string.ui_authentication_setup_needs_attention)
             CarPlayBackgroundSession.active -> getString(UiR.string.ui_carplay_connected)
             running -> getString(UiR.string.ui_connecting_to_iphone)

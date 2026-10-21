@@ -7,9 +7,10 @@ import android.os.SystemClock
 import com.shilapi.xcertplay.AirPlayPersistence
 import com.shilapi.xcertplay.BrowserOfflinePolicy
 import com.shilapi.xcertplay.CarPlayAppearance
-import com.shilapi.xcertplay.CarPlayBackgroundSession
+import com.shilapi.xcertplay.projection.projectionSessions
+import com.shilapi.xcertplay.projection.ProjectionContact
+import com.shilapi.xcertplay.projection.ProjectionSession
 import com.shilapi.xcertplay.CarPlayMicrophoneSource
-import com.shilapi.xcertplay.DiPlayBootstrap
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.i18n.*
 import com.shilapi.xcertplay.isDarkMode
@@ -29,6 +30,7 @@ internal object WebSession {
     data class MediaSnapshot(
         val sessionId: Long, val videoEpoch: Long, val width: Int, val height: Int,
         val sourceState: String, val inputReady: Boolean, val frame: Frame?, val source: WebVideoSource?,
+        val sourceId: String? = null, val sourceName: String? = null, val maxTouchContacts: Int = 0,
     )
 
     private var mediaSessionId = SecureRandom().nextLong().ushr(11)
@@ -43,8 +45,10 @@ internal object WebSession {
             frame == null -> "starting"
             else -> "recovering"
         },
-        !mediaEnded && videoActive && CarPlayBackgroundSession.snapshot()?.controller?.touchReady == true,
+        !mediaEnded && videoActive && projectionSessions.inputReady(inputSession),
         frame, videoSource,
+        inputSession?.descriptor?.id, inputSession?.descriptor?.displayName,
+        inputSession?.capabilities?.maxTouchContacts ?: 0,
     )
 
     @Synchronized fun mediaMatches(sessionId: Long, epoch: Long): Boolean =
@@ -52,12 +56,9 @@ internal object WebSession {
 
     /** Keep version validation and delivery in the same configuration critical section. */
     @Synchronized fun mediaTouch(client: Any, sessionId: Long, epoch: Long,
-        contacts: List<com.shilapi.xcertplay.airplay.AirPlayContact>, at: Long): Boolean {
-        if (contacts.isNotEmpty() && (!mediaMatches(sessionId, epoch) ||
-                CarPlayBackgroundSession.snapshot()?.controller?.touchReady != true)) {
-            touch.touch(client, emptyList(), at)
-            return false
-        }
+        contacts: List<ProjectionContact>, at: Long): Boolean {
+        if (!mediaMatches(sessionId, epoch) ||
+            !projectionSessions.inputReady(inputSession)) return false
         return touch.touch(client, contacts, at)
     }
 
@@ -74,9 +75,18 @@ internal object WebSession {
         private set
 
     @Volatile var videoActive = false
-    @Volatile private var stageText = UiText(UiR.string.ui_waiting_to_connect_to_iphone)
+    @Volatile private var stageText = UiText(UiR.string.projection_waiting)
 
-    fun stage(context: Context): String = stageText.resolve(context)
+    fun stageDetail(context: Context): String = stageText.resolve(context)
+
+    fun stage(context: Context): String {
+        val session = projectionSessions.snapshot()
+        return when {
+            session == null -> stageText.resolve(context)
+            session.statusText != null -> session.statusText!!
+            else -> context.getString(UiR.string.projection_active, session.descriptor.displayName)
+        }
+    }
 
     fun setStage(value: UiText) {
         stageText = value
@@ -125,8 +135,11 @@ internal object WebSession {
         get() = browserViewport
 
     @Volatile private var browserViewportListener: ((Int?, Int?) -> Unit)? = null
-    val touch = TouchLease { contacts ->
-        CarPlayBackgroundSession.snapshot()?.controller?.sendTouch(contacts) ?: false
+    @Volatile private var inputSession: ProjectionSession? = null
+    val maxTouchContacts get() = projectionSessions.snapshot()?.capabilities?.maxTouchContacts ?: 0
+    val touch = TouchLease(maxContacts = { maxTouchContacts }) { contacts ->
+        val target = inputSession
+        target != null && projectionSessions.touch(target, contacts)
     }
     val running
         get() = server?.ready == true
@@ -153,21 +166,20 @@ internal object WebSession {
     private var offlineSubscription: AutoCloseable? = null
     private val preferenceExecutor =
         java.util.concurrent.Executors.newSingleThreadExecutor { task ->
-            Thread(task, "carplay-preferences").apply { isDaemon = true }
+            Thread(task, "projection-preferences").apply { isDaemon = true }
         }
     private val offlineMonitor =
         BrowserOfflineMonitor(
             mainHandler,
-            { CarPlayBackgroundSession.snapshot()?.controller },
+            { projectionSessions.snapshot() },
             { hasViewer },
         ) { expected ->
             if (
                 experienceContext != null &&
-                    CarPlayBackgroundSession.snapshot()?.controller === expected
+                    projectionSessions.snapshot() === expected
             ) {
-                CarPlayBackgroundSession.stop {
-                    setStage(UiText(UiR.string.ui_browser_offline_timeout_iphone_disconnected))
-                }
+                projectionSessions.stop(expected as ProjectionSession)
+
             }
         }
 
@@ -195,24 +207,25 @@ internal object WebSession {
     }
 
     fun refreshAppearance(context: Context) {
-        val controller = CarPlayBackgroundSession.snapshot()?.controller ?: return
+        val controller = projectionSessions.snapshot() ?: return
         preferenceExecutor.execute {
-            if (CarPlayBackgroundSession.snapshot()?.controller === controller) {
+            if (projectionSessions.snapshot() === controller) {
                 val night =
                     AirPlayPersistence.loadAppearance(context)
                         .night(isDarkMode(context.resources.configuration.uiMode))
-                controller.setNightMode(night)
+                projectionSessions.setNightMode(controller, night)
             }
         }
     }
 
     private fun configureAudio(context: Context) {
         val source = AirPlayPersistence.loadMicrophoneSource(context)
+        val capabilities = projectionSessions.snapshot()?.capabilities
         audio.configure(
-            AirPlayPersistence.loadBrowserAudioPlayback(context),
-            source == CarPlayMicrophoneSource.BROWSER,
+            capabilities?.audioPlayback == true && AirPlayPersistence.loadBrowserAudioPlayback(context),
+            capabilities?.microphone == true && source == CarPlayMicrophoneSource.BROWSER,
             AirPlayPersistence.loadMediaBufferMillis(context),
-            source != CarPlayMicrophoneSource.DISABLED,
+            capabilities?.microphone == true && source != CarPlayMicrophoneSource.DISABLED,
         )
     }
 
@@ -262,9 +275,9 @@ internal object WebSession {
             val now = SystemClock.elapsedRealtime()
             val message =
                 when {
-                    CarPlayBackgroundSession.hasSession() ->
+                    projectionSessions.hasSession() ->
                         context.getString(
-                            UiR.string.ui_an_iphone_session_has_started_wait_for_the_connection
+                            UiR.string.projection_busy
                         )
                     phoneConnectHandler == null ->
                         context.getString(
@@ -291,13 +304,6 @@ internal object WebSession {
     fun start(context: Context) {
         if (server?.ready == true) return
         if (server != null) stop()
-        if (runCatching { DiPlayBootstrap.ensure(context) }.isFailure) {
-            error =
-                context.getString(
-                    UiR.string.ui_authentication_resources_are_not_ready_import_them_in_settings
-                )
-            return
-        }
         adaptiveBrowserSize = AirPlayPersistence.loadAdaptiveBrowserSize(context)
         configureAudio(context)
         code = (100000 + SecureRandom().nextInt(900000)).toString()
@@ -310,7 +316,31 @@ internal object WebSession {
             error = null
             mdns = WebMdns(context.applicationContext)
             experienceContext = context.applicationContext
-            offlineSubscription = CarPlayBackgroundSession.subscribe { viewerStateChanged() }
+            var previousSource = inputSession
+            offlineSubscription = projectionSessions.subscribe {
+                val changed = synchronized(this) {
+                    // Read under the configuration lock: a delayed notification cannot restore an old route.
+                    val current = projectionSessions.snapshot()
+                    if (previousSource === current) false else {
+                        touch.reset()
+                        inputSession = current
+                        if (current == null) {
+                            stageText = UiText(UiR.string.projection_waiting)
+                            endVideo(generation)
+                        }
+                        previousSource = current
+                        true
+                    }
+                }
+                if (changed) {
+                    // Versionless clients cannot distinguish old touches after a source switch.
+                    server?.disconnectViewer()
+                    secureServer?.disconnectViewer()
+                    configureAudio(context)
+                    refreshAppearance(context)
+                }
+                viewerStateChanged()
+            }
             httpsPort = WebListenSettings.httpsPort(context)
             tlsError = null
             TeslaHttpCompatibility.start(context)
@@ -686,6 +716,7 @@ internal object WebSession {
 
     @Synchronized
     fun beginVideo(w: Int, h: Int): Long {
+        touch.cancel()
         if (mediaEnded) mediaSessionId = SecureRandom().nextLong().ushr(11)
         mediaEnded = false
         videoSource?.detach()
@@ -695,6 +726,11 @@ internal object WebSession {
         frame = null
         videoActive = false
         return ++generation
+    }
+
+    @Synchronized
+    fun setVideoActive(owner: Long, active: Boolean) {
+        if (owner == generation && !mediaEnded) videoActive = active
     }
 
     @Synchronized
@@ -718,7 +754,8 @@ internal object WebSession {
 
     @Synchronized
     fun endVideo(owner: Long) {
-        if (owner == generation) {
+        if (owner == generation && !mediaEnded) {
+            touch.cancel()
             mediaEnded = true
             videoSource?.detach()
             videoSource = null
@@ -736,6 +773,7 @@ internal object WebSession {
         experienceContext = null
         offlineSubscription?.close()
         offlineSubscription = null
+        inputSession = null
         if (Looper.myLooper() == Looper.getMainLooper()) offlineMonitor.close()
         else mainHandler.post { if (experienceContext == null) offlineMonitor.close() }
         serverGeneration++

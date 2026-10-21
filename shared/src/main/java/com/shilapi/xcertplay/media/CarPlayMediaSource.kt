@@ -2,7 +2,7 @@ package com.shilapi.xcertplay.media
 
 import java.util.concurrent.CompletableFuture
 
-interface CarPlayMediaSource {
+interface MediaControlSource {
     fun mediaSnapshot(): NowPlayingState
     fun subscribeMediaState(listener: (NowPlayingState) -> Unit): AutoCloseable
     fun sendMediaCommand(command: MediaCommand, connectionGeneration: Long? = null): CompletableFuture<MediaCommandResult>
@@ -19,3 +19,6 @@ interface MediaOutputControl {
 fun com.shilapi.xcertplay.airplay.AudioFormat.isMediaPlayback(): Boolean =
     audioType.equals("media", ignoreCase = true) ||
         (audioType.lowercase() !in listOf("default", "alert", "compatibility", "telephony", "speechrecognition") && payloadType == 102)
+
+/** Compatibility alias for existing protocol clients. */
+typealias CarPlayMediaSource = MediaControlSource
