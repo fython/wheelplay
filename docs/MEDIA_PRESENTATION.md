@@ -27,10 +27,11 @@
 
 ## 帧的提交与保留
 
-JPEG 使用两个 img 元素：前缓冲继续显示，后缓冲加载并解码下一张 JPEG。只有成功解码、
+图片使用三个 img 元素：前缓冲继续显示，最多两个后缓冲加载并解码 JPEG / WebP。只有成功解码、
 版本仍匹配时，才在同一个事件回调中切换可见图片和触控尺寸，随后释放旧 Blob URL。
-内存中最多保留一个显示帧和一个待解码帧。失败 / 取消的帧也必须 ACK，以免阻塞服务端的
-单帧在途窗口；断连后的回调不能向新 socket ACK 或提交画面。
+内存中最多保留一个显示帧和两个待解码帧；较新图片先完成时取消旧任务。失败 / 取消的帧
+也必须 ACK，以免阻塞服务端的在途窗口；断连后的回调不能向新 socket ACK 或提交画面。
+格式协商、v3 精确 ACK 和有界流水线见 [静态图片串流](IMAGE_STREAM.md)。
 
 原生 WebRTC 与 Canvas 显示都向同一个控制器提交呈现信息。RTC 重建 / 回退前尝试把最后
 画面复制到独立 Canvas，避免清空 srcObject 时突然变黑。截图失败时退回等待状态；该冻结
@@ -41,7 +42,8 @@ JPEG 使用两个 img 元素：前缓冲继续显示，后缓冲加载并解码�
 
 ## 媒体协议 v2
 
-客户端通过 `/stream?...&media=2` 协商。未指定该参数的旧客户端继续收到原始 JPEG；新增
+客户端通过 `/stream?...&media=2` 协商，新增的 `images=3` 可进一步启用图片协议 v3。
+未指定 media 参数的旧客户端继续收到原始 JPEG；新增
 status / offer 字段可被旧客户端忽略。新客户端连接旧服务端时，继续支持原始 JPEG 和
 streaming 状态，但无法识别旧服务端没有提供的同尺寸重建或明确结束原因。
 
@@ -85,7 +87,7 @@ v2 touch 同样携带 sessionId / videoEpoch。服务端在配置锁内检查代
 - `npm run test:browser:media`：本机 Chromium + 真实 WebSocket + 合成 JPEG，验证解码期间
   无遮罩误闪、恢复时释放并禁止触控、无后续 status 的超时、取消定时器、同尺寸重建、旧帧拒绝、
   旋转和真实 socket 重连。需要 Chromium（可通过 BROWSER_BIN 指定）；不验证真实 RTC 或手机硬件。
-- Android `VideoPacketTest`、`WebStreamSenderTest`、`LanWebServerTest` 验证编码布局、单帧 ACK
+- Android `VideoPacketTest`、`WebStreamSenderTest`、`LanWebServerTest` 验证编码布局、有界 ACK
   背压、真实 WebSocket 协商、状态快照、同尺寸重建和旧生产者 / 触控代号拒绝。
 
 iPhone、实车和 Android 车机上的实际网络抖动仍需硬件回归。2 秒是当前界面策略，尚未根据

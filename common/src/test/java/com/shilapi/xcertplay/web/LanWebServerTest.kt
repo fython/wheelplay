@@ -108,6 +108,68 @@ class LanWebServerTest {
         } finally { WebSession.stop() }
     }
 
+    @Test fun v3NegotiatesWebpPipelinesFramesAndRequiresExactAcksBeforeFallingBackToJpeg() {
+        WebSession.start(org.robolectric.RuntimeEnvironment.getApplication())
+        try {
+            handshake(WebSession.code, media = 2, images = 3).use { client ->
+                assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                fun nextImage(): ByteArray {
+                    var data = frame(client)
+                    while (data.firstOrNull() == '{'.code.toByte()) data = frame(client)
+                    return data
+                }
+                val owner = WebSession.beginVideo(320, 180)
+                WebSession.publish(owner, byteArrayOf(1))
+                val first = WebSession.frame!!
+                assertArrayEquals(VideoPacket.encode(first, 3), nextImage())
+                assertEquals(ImageFormat.JPEG, WebSession.imageFormat)
+                text(client, """{"type":"image-format","format":"webp"}""")
+                text(client, """{"type":"ping"}""")
+                var status = org.json.JSONObject(frame(client).toString(Charsets.UTF_8))
+                while (status.optString("type") != "status") status = org.json.JSONObject(frame(client).toString(Charsets.UTF_8))
+                assertEquals(3, status.getInt("mediaProtocol")); assertEquals(ImageFormat.WEBP, WebSession.imageFormat)
+                WebSession.publish(owner, byteArrayOf(2), ImageFormat.WEBP)
+                val second = WebSession.frame!!
+                assertArrayEquals(VideoPacket.encode(second, 3), nextImage()) // Before first ACK.
+                WebSession.publish(owner, byteArrayOf(3), ImageFormat.WEBP)
+                client.soTimeout = 100
+                try { frame(client); fail("Two frames already occupy the window") }
+                catch (_: java.net.SocketTimeoutException) { }
+                text(client, """{"type":"ack","sessionId":${first.sessionId},"videoEpoch":${first.videoEpoch + 1},"sequence":${first.sequence}}""")
+                try { frame(client); fail("A stale ACK cannot free a slot") }
+                catch (_: java.net.SocketTimeoutException) { }
+                client.soTimeout = 3000
+                text(client, """{"type":"ack","sessionId":${first.sessionId},"videoEpoch":${first.videoEpoch},"sequence":${first.sequence}}""")
+                assertArrayEquals(VideoPacket.encode(WebSession.frame!!, 3), nextImage())
+                text(client, """{"type":"image-format","format":"jpeg"}""")
+                text(client, """{"type":"image-format","format":"webp"}""")
+                text(client, """{"type":"ping"}""")
+                do { status = org.json.JSONObject(frame(client).toString(Charsets.UTF_8)) }
+                while (status.optString("type") != "status")
+                assertEquals("A failed browser stays on JPEG for this connection", ImageFormat.JPEG, WebSession.imageFormat)
+            }
+        } finally { WebSession.stop() }
+    }
+
+    @Test fun aLegacyViewerCannotReceiveCachedWebpFromThePreviousViewer() {
+        WebSession.start(org.robolectric.RuntimeEnvironment.getApplication())
+        try {
+            val owner = WebSession.beginVideo(320, 180)
+            WebSession.publish(owner, byteArrayOf(1), ImageFormat.WEBP)
+            handshake(WebSession.code, media = 2).use { client ->
+                assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                assertEquals("audio-route", org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).getString("type"))
+                assertEquals(ImageFormat.JPEG, WebSession.imageFormat)
+                client.soTimeout = 100
+                try { frame(client); fail("A cached WebP must wait for JPEG re-encoding") }
+                catch (_: java.net.SocketTimeoutException) { }
+                client.soTimeout = 3000
+                WebSession.publish(owner, byteArrayOf(2))
+                assertArrayEquals(VideoPacket.encode(WebSession.frame!!), frame(client))
+            }
+        } finally { WebSession.stop() }
+    }
+
     @Test fun retryAvailabilityAndExplicitStartsHonorTheSameCooldownAndConfigurationReset() {
         WebSession.start(org.robolectric.RuntimeEnvironment.getApplication())
         try {
@@ -633,9 +695,9 @@ class LanWebServerTest {
             headers.split(" ")[1].toInt() to socket.getInputStream().readBytes().toString(Charsets.UTF_8)
         }
 
-    private fun handshake(code: String, origin: String = "http://127.0.0.1:8080", token: String = "", host: String = "127.0.0.1:8080", port: Int = 8080, media: Int = 1): Socket = Socket("127.0.0.1", port).apply {
+    private fun handshake(code: String, origin: String = "http://127.0.0.1:8080", token: String = "", host: String = "127.0.0.1:8080", port: Int = 8080, media: Int = 1, images: Int = 0): Socket = Socket("127.0.0.1", port).apply {
         soTimeout = 3000
-        getOutputStream().write(("GET /stream?code=$code&token=$token&media=$media HTTP/1.1\r\nHost: $host\r\n" +
+        getOutputStream().write(("GET /stream?code=$code&token=$token&media=$media&images=$images HTTP/1.1\r\nHost: $host\r\n" +
             "Origin: $origin\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
             "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n").toByteArray())
         getOutputStream().flush()

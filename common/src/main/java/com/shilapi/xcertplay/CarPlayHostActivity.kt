@@ -2787,7 +2787,8 @@ class CarPlayHostActivity : ComponentActivity() {
         WebSession.attachVideoSource(videoGeneration, source)
         val output = OffscreenVideoOutput(videoWidth, videoHeight,
             wanted = { WebSession.hasViewer && source.jpegNeeded },
-            publish = { WebSession.publish(videoGeneration, it) })
+            format = { WebSession.imageFormat },
+            publish = { bytes, format -> WebSession.publish(videoGeneration, bytes, format) })
         return AndroidMediaSink(
             surface = output.surface,
             encodedVideo = source,

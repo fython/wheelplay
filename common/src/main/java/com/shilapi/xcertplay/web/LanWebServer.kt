@@ -38,6 +38,8 @@ internal class LanWebServer(
     private val enrolled = mutableMapOf<String, RememberedBrowsers.Credential>()
     val hasViewer
         get() = viewer != null
+    val imageFormat
+        get() = viewer?.imageFormat ?: ImageFormat.JPEG
 
     fun frameAvailable() {
         viewer?.frameAvailable()
@@ -366,7 +368,12 @@ internal class LanWebServer(
 
     private inner class Client(handshake: IHTTPSession) : WebSocket(handshake) {
         private val token = handshake.parameters["token"]?.firstOrNull()?.takeIf { it.isNotEmpty() }
-        private val versionedMedia = handshake.parameters["media"]?.firstOrNull() == "2"
+        private val mediaVersion = handshake.parameters["media"]?.firstOrNull()?.toIntOrNull()?.takeIf { it in 2..3 } ?: 1
+        private val imageProtocol = if (mediaVersion == 2 && handshake.parameters["images"]?.firstOrNull() == "3") 3 else mediaVersion
+        private val versionedMedia = imageProtocol >= 2
+        @Volatile var imageFormat = ImageFormat.JPEG
+            private set
+        private var imageFallback = false
 
         fun authorized() = token == null || pairing.authorized(token)
 
@@ -386,7 +393,8 @@ internal class LanWebServer(
                             !closing.get() &&
                             WebSession.videoSource?.jpegNeeded != false
                     )
-                        WebSession.frame
+                        WebSession.frame?.takeIf { it.format == ImageFormat.JPEG ||
+                            imageProtocol == 3 && imageFormat == ImageFormat.WEBP }
                     else null
                 },
                 write = { super.sendFrame(it) },
@@ -394,6 +402,7 @@ internal class LanWebServer(
                     disconnect(context.getString(UiR.string.ui_streaming_connection_interrupted))
                 },
                 versionedVideo = versionedMedia,
+                imageProtocol = imageProtocol,
             )
         private val rtcLock = Any()
         private var rtcSource: WebVideoSource? = null
@@ -622,7 +631,17 @@ internal class LanWebServer(
                                 )
                             }
                         }
-                    "ack" -> sender.acknowledge()
+                    "ack" -> if (imageProtocol == 3) sender.acknowledge(
+                        data.getLong("sessionId"), data.getLong("videoEpoch"), data.getLong("sequence"))
+                        else sender.acknowledge()
+                    "image-format" -> if (imageProtocol == 3) {
+                        when (data.getString("format")) {
+                            "webp" -> if (!imageFallback) imageFormat = ImageFormat.WEBP
+                            "jpeg" -> { imageFallback = true; imageFormat = ImageFormat.JPEG }
+                            else -> error("Unsupported image format")
+                        }
+                        sender.frameAvailable()
+                    }
                     "viewport" -> {
                         val width = data.getInt("width")
                         val height = data.getInt("height")
@@ -641,7 +660,7 @@ internal class LanWebServer(
                                     .put("type", "status")
                                     .put("width", media.width)
                                     .put("height", media.height)
-                                    .put("mediaProtocol", 2)
+                                    .put("mediaProtocol", imageProtocol.coerceAtLeast(2))
                                     .put("sessionId", media.sessionId)
                                     .put("videoEpoch", media.videoEpoch)
                                     .put("sourceState", media.sourceState)
@@ -669,7 +688,9 @@ internal class LanWebServer(
                                                 "source",
                                                 rtcSource?.performanceSnapshot()?.let(::JSONObject),
                                             )
-                                            .put("transport", rtc?.snapshot()?.let(::JSONObject)),
+                                            .put("transport", rtc?.snapshot()?.let(::JSONObject))
+                                            .put("image", JSONObject(sender.imageSnapshot())
+                                                .put("format", media.frame?.format?.mime)),
                                     )
                                     .put(
                                         "transport",

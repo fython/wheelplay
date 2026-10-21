@@ -11,7 +11,6 @@ import android.os.HandlerThread
 import android.os.SystemClock
 import android.util.Log
 import android.view.Surface
-import java.io.ByteArrayOutputStream
 import java.io.Closeable
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -24,7 +23,8 @@ class OffscreenVideoOutput(
     private val width: Int,
     private val height: Int,
     private val wanted: () -> Boolean,
-    private val publish: (ByteArray) -> Unit,
+    private val format: () -> ImageFormat = { ImageFormat.JPEG },
+    private val publish: (ByteArray, ImageFormat) -> Unit,
 ) : Closeable {
     private val thread = HandlerThread("wheelplay-video").apply { start() }
     private val handler = Handler(thread.looper)
@@ -40,6 +40,8 @@ class OffscreenVideoOutput(
         private set
     private var hasImage = false
     private var hadViewer = false
+    private var requestedFormat = ImageFormat.JPEG
+    private val encoder = ImageFrameEncoder()
     private val publisher = FramePublishScheduler(
         now = SystemClock::elapsedRealtime,
         wanted = { !closed.get() && wanted() },
@@ -52,7 +54,9 @@ class OffscreenVideoOutput(
             if (closed.get()) return
             val viewing = wanted()
             // A newly connected browser also gets a static screen with no new decoder output.
-            if (viewing && !hadViewer && hasImage) publisher.request()
+            val nextFormat = format()
+            if (viewing && hasImage && (!hadViewer || nextFormat != requestedFormat)) publisher.request()
+            requestedFormat = nextFormat
             // A disconnect/reconnect can happen between viewer checks. Pending output must
             // resume even if this poll never observed the short interval without a viewer.
             if (viewing) publisher.resume()
@@ -167,9 +171,10 @@ class OffscreenVideoOutput(
             pixels.rewind()
             val frame = bitmap ?: return
             frame.copyPixelsFromBuffer(pixels)
-            val bytes = ByteArrayOutputStream(width * height / 6)
-            frame.compress(Bitmap.CompressFormat.JPEG, 75, bytes)
-            publish(bytes.toByteArray())
+            val (bytes, actualFormat) = encoder.encode(format()) { encoding, output ->
+                frame.compress(encoding.compression, 75, output)
+            }
+            publish(bytes, actualFormat)
         } catch (error: Exception) {
             Log.e("WheelPlay", "Offscreen frame failed", error)
         }

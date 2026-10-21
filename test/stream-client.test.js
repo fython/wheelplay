@@ -9,7 +9,7 @@ const source = readFileSync(new URL('../common/src/main/assets/web/text.js', imp
   .replace(/^import .*text\.js';$/m, '').replaceAll('export function', 'function') + '\n' +
   readFileSync(new URL('../common/src/main/assets/web/app.js', import.meta.url), 'utf8')
     .replace(/^import .*browser-audio\.js';$/m, '').replace(/^import .*text\.js';$/m, '').replaceAll('export function', 'function');
-function fixture({ storedCanvas = null, storedIgnoreZoom = null, storageDisabled = false, canvasAvailable = true,
+function fixture({ storedCanvas = null, storedIgnoreZoom = null, storageDisabled = false, canvasAvailable = true, supportsWebp = false,
   geometry = null, visual = null,
   fullscreen = 'supported', codeDenied = false, resume = () => ({ token: 'session-token', name: 'Chrome' }) } = {}) {
   const elements = new Map(), timers = new Map(), raf = new Map(), sockets = [], peers = [], draws = [];
@@ -91,6 +91,11 @@ function fixture({ storedCanvas = null, storedIgnoreZoom = null, storageDisabled
       return new Promise(() => {});
     },
   };
+  if (supportsWebp) context.Image = class {
+    naturalWidth = 2; naturalHeight = 2;
+    set src(value) { setImmediate(() => this.onload?.()); }
+    removeAttribute() {}
+  };
   context.wheelplayMessages = messages;
   vm.runInNewContext(source, context);
   return { element, sockets, timers, peers, draws, preferences, raf, videoCallbacks, document, fullscreenCalls, visualViewport, visualEvents,
@@ -111,7 +116,7 @@ function fixture({ storedCanvas = null, storedIgnoreZoom = null, storageDisabled
       await new Promise(resolve => setImmediate(resolve));
       const ws = sockets.at(-1); ws.readyState = 1; ws.onopen(); return ws;
     },
-    frame(ws) { ws.onmessage({ data: {} }); [element('screen'), element('screen-next')].find(image => image.onload).onload(); },
+    frame(ws) { ws.onmessage({ data: {} }); [element('screen'), element('screen-next'), element('screen-third')].find(image => image.onload).onload(); },
     async offer(ws, id = 1, meta = {}) {
       ws.onmessage({ data: JSON.stringify({ type: 'rtc-offer', id, sdp: 'offer', ...meta }) });
       await new Promise(resolve => setImmediate(resolve));
@@ -354,7 +359,7 @@ test('interrupted display resumes with fresh authentication after a server resta
   const retry = [...f.timers.values()].find(t => t.delay === 1000);
   assert.ok(retry); await retry.fn();
   assert.equal(f.sockets.length, 2);
-  assert.equal(f.sockets[1].url, 'ws://server:8080/stream?token=fresh-session&media=2');
+  assert.equal(f.sockets[1].url, 'ws://server:8080/stream?token=fresh-session&media=2&images=3');
 });
 
 test('revocation during an active display stops retries and requires fresh pairing', async () => {
@@ -418,21 +423,67 @@ test('unsupported viewport shapes never reach Android as invalid control message
   assert.equal(ws.readyState, 1);
 });
 
-function videoPacket(videoEpoch, { sessionId = 7, width = 1280, height = 720 } = {}) {
-  const packet = new ArrayBuffer(39), header = new DataView(packet);
-  header.setUint32(0, 0x32565057, true); header.setFloat64(4, sessionId, true);
-  header.setFloat64(12, videoEpoch, true); header.setFloat64(20, videoEpoch, true);
+function videoPacket(videoEpoch, { sessionId = 7, width = 1280, height = 720, protocol = 2, sequence = videoEpoch, format = 1 } = {}) {
+  const offset = protocol === 3 ? 40 : 36;
+  const packet = new ArrayBuffer(offset + 3), header = new DataView(packet);
+  header.setUint32(0, protocol === 3 ? 0x33565057 : 0x32565057, true); header.setFloat64(4, sessionId, true);
+  header.setFloat64(12, videoEpoch, true); header.setFloat64(20, sequence, true);
   header.setUint32(28, width, true); header.setUint32(32, height, true);
-  new Uint8Array(packet, 36).set([0xff, 0xd8, 0xff]); return packet;
+  if (protocol === 3) header.setUint32(36, format, true);
+  new Uint8Array(packet, offset).set([0xff, 0xd8, 0xff]); return packet;
 }
 function mediaStatus(ws, extra = {}) {
   ws.onmessage({ data: JSON.stringify({ type: 'status', mediaProtocol: 2, sessionId: 7, videoEpoch: 1,
     width: 1280, height: 720, streaming: true, sourceState: 'ready', inputReady: true, ...extra }) });
 }
 function finishJpeg(f, width = 1280, height = 720) {
-  const image = [f.element('screen'), f.element('screen-next')].find(image => image.onload);
+  const image = [f.element('screen'), f.element('screen-next'), f.element('screen-third')].find(image => image.onload);
   image.naturalWidth = width; image.naturalHeight = height; image.onload(); return image;
 }
+
+test('v3 keeps two decodes alive, ACKs their identities, and never flashes or commits a late older decode', async () => {
+  const f = fixture(), ws = await f.connect(); mediaStatus(ws, { mediaProtocol: 3 });
+  const packet = sequence => videoPacket(1, { protocol: 3, sequence });
+  ws.onmessage({ data: packet(1) }); const front = finishJpeg(f);
+  ws.onmessage({ data: packet(2) }); const second = f.element('screen-next'), late = second.onload;
+  ws.onmessage({ data: packet(3) }); const third = f.element('screen-third');
+  assert.equal(front.hidden, false); assert.ok(second.onload); assert.ok(third.onload);
+  third.onload(); late(); assert.equal(third.hidden, false);
+  assert.equal(f.element('waiting').hidden, true);
+  assert.deepEqual(ws.sent.filter(m => m.type === 'ack').map(m => m.sequence).sort(), [1, 2, 3]);
+  assert.ok(ws.sent.filter(m => m.type === 'ack').every(m => m.sessionId === 7 && m.videoEpoch === 1));
+  ws.onmessage({ data: videoPacket(0, { protocol: 3, sequence: 4 }) });
+  assert.equal(ws.sent.at(-1).sequence, 4); assert.equal(third.hidden, false);
+});
+
+test('WebP is advertised only after a real probe; decode failure requests JPEG while preserving the presented image', async () => {
+  const f = fixture({ supportsWebp: true }), ws = await f.connect();
+  await new Promise(resolve => setImmediate(resolve)); mediaStatus(ws, { mediaProtocol: 3 });
+  assert.deepEqual(ws.sent.find(m => m.type === 'image-format'), { type: 'image-format', format: 'webp' });
+  ws.onmessage({ data: videoPacket(1, { protocol: 3, sequence: 1 }) }); const front = finishJpeg(f);
+  ws.onmessage({ data: videoPacket(1, { protocol: 3, sequence: 2, format: 2 }) });
+  f.element('screen-next').onerror();
+  assert.equal(front.hidden, false); assert.equal(f.element('waiting').hidden, true);
+  assert.deepEqual(ws.sent.at(-1), { type: 'image-format', format: 'jpeg' });
+  ws.onmessage({ data: videoPacket(1, { protocol: 3, sequence: 3 }) }); finishJpeg(f);
+  assert.equal(f.element('waiting').hidden, true);
+});
+
+test('RTC takeover retires both v3 decodes and late callbacks cannot send duplicate ACKs', async () => {
+  for (const storedCanvas of [null, 'true']) {
+    const f = fixture({ storedCanvas }), ws = await f.connect(); mediaStatus(ws, { mediaProtocol: 3 });
+    ws.onmessage({ data: videoPacket(1, { protocol: 3, sequence: 1 }) }); finishJpeg(f);
+    ws.onmessage({ data: videoPacket(1, { protocol: 3, sequence: 2 }) });
+    ws.onmessage({ data: videoPacket(1, { protocol: 3, sequence: 3 }) });
+    const late = [f.element('screen-next').onload, f.element('screen-third').onload];
+    await f.offer(ws, 1, { sessionId: 7, videoEpoch: 1 });
+    assert.deepEqual(ws.sent.filter(m => m.type === 'ack').map(m => m.sequence).sort(), [1, 2, 3]);
+    late.forEach(fn => fn());
+    assert.equal(ws.sent.filter(m => m.type === 'ack').length, 3);
+    assert.equal(['screen', 'screen-next', 'screen-third'].every(id => f.element(id).hidden), true);
+    assert.equal(f.element(storedCanvas ? 'video-canvas' : 'video').hidden, false);
+  }
+});
 
 test('automatic RTC retry preserves JPEG and touch until the new video frame is ready', async () => {
   for (const storedCanvas of [null, 'true']) {

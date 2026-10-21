@@ -215,7 +215,7 @@
     <string name="ui_10_seconds_default">10 秒 · 預設</string>
     <string name="ui_30_seconds_keep_webrtc_longer">30 秒 · 優先保持 WebRTC</string>
     <string name="ui_webrtc_video_passthrough_automatic_fallback">WebRTC 影片直通（自動回退）</string>
-    <string name="ui_jpeg_compatibility_mode">JPEG（相容模式）</string>
+    <string name="ui_jpeg_compatibility_mode">圖片（相容模式）</string>
     <string name="ui_start_the_web_listener_first">請先啟動 Web 監聽</string>
     <string name="ui_the_shared_ip_matches_the_hotspot_gateway_choose_another">共享 IP 與熱點閘道器相同，請選擇其他地址</string>
     <string name="ui_request_root_access_first">請先請求 Root 權限</string>
@@ -301,7 +301,7 @@
     <string name="host_longest_height">最長高度</string>
     <string name="host_physical_length">物理長度</string>
     <string name="host_streaming_technology">串流技術</string>
-    <string name="host_webrtc_supports_h_264_hevc_passthrough_and_falls_back">WebRTC 支援 H.264 / HEVC 直通，瀏覽器不支援時回退 JPEG。追求 60 fps 請將影格率設為 60。關閉設定後生效。</string>
+    <string name="host_webrtc_supports_h_264_hevc_passthrough_and_falls_back">WebRTC 支援 H.264 / HEVC 直通，瀏覽器不支援時回退圖片串流（JPEG / WebP）。追求 60 fps 請將影格率設為 60。關閉設定後生效。</string>
     <string name="host_hevc_h_265">HEVC (H.265)</string>
     <string name="host_hevc_h_265_video_transport">HEVC H.265 影片傳輸</string>
     <string name="host_hevc_software_decoder">HEVC 軟體解碼器</string>

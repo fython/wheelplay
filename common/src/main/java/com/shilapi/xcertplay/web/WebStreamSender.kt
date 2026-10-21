@@ -7,7 +7,7 @@ import java.io.Closeable
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
-/** One writer, one in-flight JPEG, and coalesced control replies. Never writes under [lock]. */
+/** One writer, bounded still-image pipeline, and coalesced control replies. Never writes under [lock]. */
 internal class WebStreamSender(
     private val latestFrame: () -> WebSession.Frame?,
     private val write: (WebSocketFrame) -> Unit,
@@ -15,6 +15,7 @@ internal class WebStreamSender(
     private val executor: ExecutorService = Executors.newSingleThreadExecutor(),
     private val now: () -> Long = SystemClock::elapsedRealtime,
     private val versionedVideo: Boolean = false,
+    private val imageProtocol: Int = if (versionedVideo) 2 else 1,
 ) : Closeable {
     enum class Control { STATUS, PHONE_CONNECT, INPUT_UNAVAILABLE, BUSY, PONG, CLOSE, RTC, MIC_CONFIG, MIC_STOP, AUDIO_STOP, AUDIO_RESET, AUDIO_ROUTE }
     private data class Outgoing(val frame: WebSocketFrame, val afterSend: () -> Unit = {})
@@ -22,8 +23,11 @@ internal class WebStreamSender(
     private val controls = linkedMapOf<Any, Outgoing>()
     private var closed = false
     private var scheduled = false
-    private var inFlight = false
-    private var sentAt = 0L
+    private data class ImageId(val session: Long, val epoch: Long, val sequence: Long)
+    private data class ImageFlight(val at: Long, val bytes: Int)
+    private val imagesInFlight = linkedMapOf<ImageId, ImageFlight>()
+    private var singleFrameUntil = 0L
+    private var lastImageAckMs = 0L
     private var sequence = -1L
     private data class Audio(val frame: WebSocketFrame, val sequence: Long, val at: Long,
         val stream: Int, val media: Boolean, val durationMillis: Double)
@@ -82,8 +86,35 @@ internal class WebStreamSender(
     fun frameAvailable() = synchronized(lock) { scheduleLocked() }
 
     fun acknowledge() = synchronized(lock) {
-        inFlight = false
+        if (imageProtocol == 3) return@synchronized // Unversioned/stale ACKs cannot free v3 slots.
+        imagesInFlight.clear()
         scheduleLocked()
+    }
+
+    fun acknowledge(session: Long, epoch: Long, sequence: Long) = synchronized(lock) {
+        if (imageProtocol != 3) return@synchronized
+        val flight = imagesInFlight.remove(ImageId(session, epoch, sequence)) ?: return@synchronized
+        lastImageAckMs = (now() - flight.at).coerceAtLeast(0)
+        if (lastImageAckMs >= 250) singleFrameUntil = now() + 1000
+        scheduleLocked()
+    }
+
+    fun imageSnapshot(): Map<String, Any> = synchronized(lock) {
+        mapOf("protocol" to imageProtocol, "inFlight" to imagesInFlight.size,
+            "inFlightBytes" to imagesInFlight.values.sumOf { it.bytes },
+            "window" to imageWindow(), "lastAckMs" to lastImageAckMs)
+    }
+
+    private fun imageWindow(): Int = if (imageProtocol != 3 || now() < singleFrameUntil ||
+        imagesInFlight.values.firstOrNull()?.let { now() - it.at >= 250 } == true) 1 else 2
+
+    private fun nextImage(): WebSession.Frame? {
+        if (imagesInFlight.size >= imageWindow()) return null
+        val frame = latestFrame()?.takeIf { it.sequence != sequence } ?: return null
+        // Permit one oversized image so high-resolution/static screens can still make progress.
+        if (imagesInFlight.isNotEmpty() && imagesInFlight.values.sumOf { it.bytes.toLong() } +
+                frame.jpeg.size > 2 * 1024 * 1024) return null
+        return frame
     }
 
     fun control(kind: Control, frame: WebSocketFrame, key: Any = kind, afterSend: () -> Unit = {}) = synchronized(lock) {
@@ -94,15 +125,14 @@ internal class WebStreamSender(
     }
 
     fun frameStalled(at: Long): Boolean = synchronized(lock) {
-        inFlight && at - sentAt > 6000 || audioInFlight.values.firstOrNull()?.let { at - it > 2000 } == true
+        imagesInFlight.values.firstOrNull()?.let { at - it.at > 6000 } == true ||
+            audioInFlight.values.firstOrNull()?.let { at - it > 2000 } == true
     }
 
     private fun scheduleLocked() {
         if (closed || scheduled) return
         if (controls.isEmpty() && (audio.isEmpty() || audioInFlight.size >= 4)) {
-            if (inFlight) return
-            val latest = latestFrame() ?: return
-            if (latest.sequence == sequence) return
+            if (nextImage() == null) return
         }
         scheduled = true
         executor.execute(::drain)
@@ -124,17 +154,17 @@ internal class WebStreamSender(
                         audioInFlight[next.sequence] = now()
                         Outgoing(next.frame)
                     } else {
-                        val frame = if (inFlight) null else latestFrame()?.takeIf { it.sequence != sequence }
+                        val frame = nextImage()
                         if (frame == null) {
                             // Events use the same lock: none can be lost while the writer goes idle.
                             scheduled = false
                             return
                         }
-                        inFlight = true
-                        sentAt = now()
+                        imagesInFlight[ImageId(frame.sessionId, frame.videoEpoch, frame.sequence)] =
+                            ImageFlight(now(), frame.jpeg.size)
                         sequence = frame.sequence
                         Outgoing(WebSocketFrame(WebSocketFrame.OpCode.Binary, true,
-                            if (versionedVideo) VideoPacket.encode(frame) else frame.jpeg))
+                            if (imageProtocol >= 2) VideoPacket.encode(frame, imageProtocol) else frame.jpeg))
                     }
                 }
                 write(outgoing.frame)
@@ -151,6 +181,7 @@ internal class WebStreamSender(
             if (closed) return
             closed = true
             controls.clear()
+            imagesInFlight.clear()
             audio.clear(); audioInFlight.clear()
             // Shutdown under the lock prevents a racing event from scheduling after shutdown.
             executor.shutdownNow()

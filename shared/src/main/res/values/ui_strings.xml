@@ -215,7 +215,7 @@
     <string name="ui_10_seconds_default">10 seconds · Default</string>
     <string name="ui_30_seconds_keep_webrtc_longer">30 seconds · Keep WebRTC longer</string>
     <string name="ui_webrtc_video_passthrough_automatic_fallback">WebRTC video passthrough (automatic fallback)</string>
-    <string name="ui_jpeg_compatibility_mode">JPEG (compatibility mode)</string>
+    <string name="ui_jpeg_compatibility_mode">Images (compatibility mode)</string>
     <string name="ui_start_the_web_listener_first">Start the Web listener first</string>
     <string name="ui_the_shared_ip_matches_the_hotspot_gateway_choose_another">The shared IP matches the hotspot gateway. Choose another address</string>
     <string name="ui_request_root_access_first">Request root access first</string>
@@ -301,7 +301,7 @@
     <string name="host_longest_height">Longest height</string>
     <string name="host_physical_length">Physical length</string>
     <string name="host_streaming_technology">Streaming technology</string>
-    <string name="host_webrtc_supports_h_264_hevc_passthrough_and_falls_back">WebRTC supports H.264 / HEVC passthrough and falls back to JPEG when unsupported by the browser. Set Frame rate to 60 for 60 fps. Changes take effect after closing settings.</string>
+    <string name="host_webrtc_supports_h_264_hevc_passthrough_and_falls_back">WebRTC supports H.264 / HEVC passthrough and falls back to image streaming (JPEG / WebP) when unsupported by the browser. Set Frame rate to 60 for 60 fps. Changes take effect after closing settings.</string>
     <string name="host_hevc_h_265">HEVC (H.265)</string>
     <string name="host_hevc_h_265_video_transport">HEVC H.265 video transport</string>
     <string name="host_hevc_software_decoder">HEVC software decoder</string>

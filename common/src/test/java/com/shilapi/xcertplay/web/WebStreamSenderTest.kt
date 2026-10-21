@@ -25,6 +25,59 @@ class WebStreamSenderTest {
     }
     private fun frame(id: Long) = WebSession.Frame(byteArrayOf(id.toByte()), 0, id)
 
+    @Test fun v3PipelinesTwoFramesAndExactAcksCannotFreeUnrelatedSlots() {
+        val executor = ManualExecutor(); val sent = mutableListOf<ByteArray>()
+        var latest = frame(1)
+        val sender = WebStreamSender({ latest }, { sent.add(it.binaryPayload) }, { fail() },
+            executor, { 0 }, imageProtocol = 3)
+        try {
+            sender.frameAvailable(); executor.runNext()
+            latest = frame(2); sender.frameAvailable(); executor.runNext()
+            latest = frame(3); sender.frameAvailable()
+            assertEquals(2, sent.size); assertTrue(executor.tasks.isEmpty())
+            sender.acknowledge(); sender.acknowledge(99, 0, 1); sender.acknowledge(0, 99, 1)
+            assertTrue(executor.tasks.isEmpty())
+            sender.acknowledge(0, 0, 2); executor.runNext()
+            assertArrayEquals(VideoPacket.encode(latest, 3), sent.last())
+            sender.acknowledge(0, 0, 2) // Duplicate ACK cannot release frame 1 or 3.
+            latest = frame(4); sender.frameAvailable(); assertTrue(executor.tasks.isEmpty())
+            sender.acknowledge(0, 0, 1); executor.runNext(); assertEquals(4, sent.size)
+            assertEquals(2, sender.imageSnapshot()["inFlight"])
+        } finally { sender.close() }
+    }
+
+    @Test fun slowAcksReduceTheWindowThenAllowRecoveryWithoutQueuingSupersededFrames() {
+        val executor = ManualExecutor(); var time = 0L; var latest = frame(1)
+        val sent = mutableListOf<ByteArray>()
+        val sender = WebStreamSender({ latest }, { sent.add(it.binaryPayload) }, { fail() },
+            executor, { time }, imageProtocol = 3)
+        try {
+            sender.frameAvailable(); executor.runNext(); time = 250
+            latest = frame(2); sender.frameAvailable(); assertTrue(executor.tasks.isEmpty())
+            sender.acknowledge(0, 0, 1); executor.runNext()
+            for (id in 3L..100L) { latest = frame(id); sender.frameAvailable() }
+            assertTrue(executor.tasks.isEmpty()); assertEquals(1, sender.imageSnapshot()["window"])
+            time = 300; sender.acknowledge(0, 0, 2); executor.runNext()
+            assertArrayEquals(VideoPacket.encode(frame(100), 3), sent.last())
+            time = 350; sender.acknowledge(0, 0, 100)
+            time = 1250; latest = frame(101); sender.frameAvailable(); executor.runNext()
+            latest = frame(102); sender.frameAvailable(); executor.runNext()
+            assertEquals(2, sender.imageSnapshot()["inFlight"])
+            assertFalse(sender.frameStalled(7250)); assertTrue(sender.frameStalled(7251))
+        } finally { sender.close() }
+    }
+
+    @Test fun imageByteBudgetAllowsOneLargeFrameButNeverTwoOverBudget() {
+        val executor = ManualExecutor(); var latest = frame(1).copy(jpeg = ByteArray(2 * 1024 * 1024 + 1))
+        var sent = 0
+        val sender = WebStreamSender({ latest }, { sent++ }, { fail() }, executor, { 0 }, imageProtocol = 3)
+        try {
+            sender.frameAvailable(); executor.runNext()
+            latest = frame(2); sender.frameAvailable(); assertTrue(executor.tasks.isEmpty())
+            sender.acknowledge(0, 0, 1); executor.runNext(); assertEquals(2, sent)
+        } finally { sender.close() }
+    }
+
     @Test fun negotiatedVideoPacketsCarryTheirOwnVersionAndStillRequireAck() {
         val executor = ManualExecutor()
         val sent = mutableListOf<ByteArray>()

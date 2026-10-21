@@ -1,4 +1,4 @@
-// Real Chromium + WebSocket + synthetic JPEGs. No phone or CarPlay hardware is simulated.
+// Real Chromium + WebSocket + JPEG/WebP images. No phone or CarPlay hardware is simulated.
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { readFile, mkdtemp, rm } from 'node:fs/promises';
@@ -13,15 +13,16 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 const messages = resourceStrings('values-zh-rCN');
 const root = new URL('../common/src/main/assets/web/', import.meta.url);
 const profile = await mkdtemp(join(tmpdir(), 'wheelplay-media-'));
-function jpeg(width, height) {
+function image(width, height, codec = 'mjpeg') {
   const result = spawnSync(ffmpeg, ['-v', 'error', '-f', 'lavfi', '-i', `testsrc=size=${width}x${height}:rate=1`,
-    '-frames:v', '1', '-f', 'image2pipe', '-vcodec', 'mjpeg', 'pipe:1']);
+    '-frames:v', '1', '-f', 'image2pipe', '-vcodec', codec, 'pipe:1']);
   assert.equal(result.status, 0, result.stderr.toString()); return result.stdout;
 }
-const landscape = jpeg(320, 180), portrait = jpeg(180, 320);
-let viewer, connections = 0, acks = 0, paused = false;
+const images = { jpeg: [image(320, 180), image(180, 320)], webp: [image(320, 180, 'libwebp'), image(180, 320, 'libwebp')] };
+let viewer, connections = 0, acks = 0, paused = false, sequence = 0, format = 'jpeg', jpegFallbacks = 0, webpProbes = 0;
+const pendingImages = new Map();
 const touches = [], errors = [];
-let media = { type: 'status', mediaProtocol: 2, sessionId: 7, videoEpoch: 1, width: 320, height: 180,
+let media = { type: 'status', mediaProtocol: 3, sessionId: 7, videoEpoch: 1, width: 320, height: 180,
   sourceState: 'ready', inputReady: true, streaming: true, stage: 'Synthetic browser test' };
 const server = http.createServer(async (req, res) => {
   if (req.url.startsWith('/pair/')) {
@@ -43,22 +44,33 @@ const server = http.createServer(async (req, res) => {
 });
 const wss = new WebSocketServer({ noServer: true });
 server.on('upgrade', (req, socket, head) => {
-  assert.equal(new URL(req.url, 'http://localhost').searchParams.get('media'), '2');
+  const query = new URL(req.url, 'http://localhost').searchParams;
+  assert.equal(query.get('media'), '2'); assert.equal(query.get('images'), '3');
   wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws));
 });
 function status(extra = {}) { media = { ...media, ...extra }; viewer.send(JSON.stringify(media)); }
-function frame(epoch = media.videoEpoch, width = media.width, height = media.height) {
-  const image = width === 320 ? landscape : portrait, packet = Buffer.alloc(36 + image.length);
-  packet.writeUInt32LE(0x32565057); packet.writeDoubleLE(7, 4); packet.writeDoubleLE(epoch, 12);
-  packet.writeDoubleLE(acks + 1, 20); packet.writeUInt32LE(width, 28); packet.writeUInt32LE(height, 32);
-  image.copy(packet, 36); viewer.send(packet);
+function frame(epoch = media.videoEpoch, width = media.width, height = media.height, corrupt = false) {
+  const image = corrupt ? Buffer.from([0, 1, 2]) : images[format][width === 320 ? 0 : 1], packet = Buffer.alloc(40 + image.length);
+  packet.writeUInt32LE(0x33565057); packet.writeDoubleLE(7, 4); packet.writeDoubleLE(epoch, 12);
+  packet.writeDoubleLE(++sequence, 20); packet.writeUInt32LE(width, 28); packet.writeUInt32LE(height, 32);
+  packet.writeUInt32LE(format === 'webp' ? 2 : 1, 36);
+  pendingImages.set(sequence, { sessionId: 7, videoEpoch: epoch });
+  image.copy(packet, 40); viewer.send(packet);
 }
 wss.on('connection', ws => {
-  viewer = ws; connections++;
+  viewer = ws; connections++; format = 'jpeg'; pendingImages.clear();
   let initial = true;
   ws.on('message', data => {
     const message = JSON.parse(data);
-    if (message.type === 'ack') acks++;
+    if (message.type === 'ack') {
+      assert.deepEqual(pendingImages.get(message.sequence), { sessionId: message.sessionId, videoEpoch: message.videoEpoch });
+      pendingImages.delete(message.sequence); acks++;
+    }
+    if (message.type === 'image-format') {
+      format = message.format;
+      if (format === 'jpeg') jpegFallbacks++; else webpProbes++;
+      if (connections === 1) frame();
+    }
     if (message.type === 'touch') touches.push(message);
     if (message.type === 'ping' && !paused) {
       ws.send(JSON.stringify(media));
@@ -120,6 +132,18 @@ try {
   await wait(`!!window.wheelplayStats && !!document.getElementById('connect') && !document.getElementById('connect').disabled`);
   await evaluate(`document.getElementById('code').value='123456';document.getElementById('connect-form').requestSubmit()`);
   await wait(showing);
+  await wait(`document.getElementById('status').textContent.includes('WebP')`);
+  assert.equal(webpProbes, 1, 'WebP is advertised only after real decoding succeeds');
+  await evaluate(`const option=document.getElementById('ignore-browser-zoom');option.checked=true;option.dispatchEvent(new Event('change'))`);
+  await command('Emulation.setPageScaleFactor', { pageScaleFactor: 1.5 });
+  await wait(`document.getElementById('display').classList.contains('ignore-browser-zoom') &&
+    Math.abs(parseFloat(document.getElementById('display').style.transform.slice(6))-1/visualViewport.scale)<0.01`);
+  const beforeZoomTouch = touches.length; await touch('pointerdown'); await touch('pointerup');
+  for (let attempt = 0; touches.length < beforeZoomTouch + 2 && attempt < 100; attempt++) await pause(10);
+  assert.equal(touches.length, beforeZoomTouch + 2, 'Zoom-compensated WebP must retain touch');
+  assert.equal(await evaluate(showing), true);
+  await command('Emulation.setPageScaleFactor', { pageScaleFactor: 1 });
+  await evaluate(`document.getElementById('ignore-browser-zoom').checked=false;document.getElementById('ignore-browser-zoom').dispatchEvent(new Event('change'))`);
   await evaluate(`window.overlayFlashes=0;new MutationObserver(()=>{if(!document.getElementById('waiting').hidden)overlayFlashes++}).observe(document.getElementById('waiting'),{attributes:true,attributeFilter:['hidden']})`);
   for (let index = 0; index < 10; index++) {
     const previous = acks; frame(); status();
@@ -127,6 +151,14 @@ try {
     assert.ok(acks > previous, 'JPEG must commit and ACK');
   }
   assert.equal(await evaluate('overlayFlashes'), 0, 'Decoding must not flash the overlay');
+  const beforePipeline = acks; frame(); frame();
+  for (let attempt = 0; acks < beforePipeline + 2 && attempt < 100; attempt++) await pause(10);
+  assert.equal(acks, beforePipeline + 2, 'Both images must ACK their own identities');
+  assert.equal(await evaluate(showing), true);
+  frame(media.videoEpoch, media.width, media.height, true);
+  await wait(`document.getElementById('status').textContent.includes('JPEG')`);
+  assert.equal(jpegFallbacks, 1, 'A WebP decode failure must request JPEG and recover');
+  assert.equal(await evaluate('overlayFlashes'), 0, 'A failed WebP must preserve the last displayed picture');
   await touch('pointerdown'); paused = true;
   status({ sourceState: 'recovering', streaming: false, inputReady: false });
   await wait(`!document.getElementById('media-message').hidden`);
@@ -148,16 +180,17 @@ try {
   assert.equal(await evaluate(showing), false, 'Old epoch cannot restore touch');
   frame(2); await wait(showing);
   status({ videoEpoch: 3, width: 180, height: 320 }); frame(3);
-  await wait(showing);
-  assert.equal(await evaluate(`[...document.querySelectorAll('#screen,#screen-next')].find(image=>!image.hidden).naturalWidth`), 180);
+  await wait(`(${showing}) && [...document.querySelectorAll('#screen,#screen-next,#screen-third')].find(image=>!image.hidden)?.naturalWidth === 180`);
+  assert.equal(await evaluate(`[...document.querySelectorAll('#screen,#screen-next,#screen-third')].find(image=>!image.hidden).naturalWidth`), 180);
   viewer.close();
   for (let attempt = 0; connections < 2 && attempt < 100; attempt++) await pause(50);
   assert.equal(connections, 2);
   assert.equal(await evaluate(`document.getElementById('waiting').hidden`), false, 'Reconnect must wait for its own frame');
   frame(); await wait(showing);
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ passed: true, connections, jpegAcks: acks,
-    checks: ['decode without overlay flashes', 'gap releases touch', 'deadline without status', 'cancelled deadline',
+  console.log(JSON.stringify({ passed: true, connections, imageAcks: acks, webpProbes, jpegFallbacks,
+    checks: ['WebP capability probe', 'WebP touch with zoom compensation', 'JPEG fallback after corrupt WebP', 'two-image pipeline with exact ACKs',
+      'decode without overlay flashes', 'gap releases touch', 'deadline without status', 'cancelled deadline',
       'same-size rebuild', 'old frame rejection', 'rotation', 'real socket reconnect'] }, null, 2));
 } finally {
   devtools?.close(); browser.kill('SIGTERM');

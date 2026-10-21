@@ -105,7 +105,7 @@ export function createPresentationController({
     },
     present(meta, width, height, transport, expectedRevision = null) {
       if (!accept(meta) || source === 'stopped' || expectedRevision !== null && expectedRevision !== revision) return false;
-      frame = { width, height, transport, revision }; invalid = false;
+      frame = { width, height, transport, revision, mime: meta.mime }; invalid = false;
       if (videoEpoch === null) { source = 'ready'; inputReady = true; }
       publish(); return true;
     },
@@ -122,54 +122,84 @@ export function createPresentationController({
   };
 }
 
-// V2 JPEGs have a 36-byte little-endian header. PCM has a different magic.
+// V3 appends the negotiated image format to the v2 header. PCM has a different magic.
 export function decodeVideoPacket(buffer) {
   if (!(buffer instanceof ArrayBuffer) || buffer.byteLength < 4) return null;
   const view = new DataView(buffer);
-  if (view.getUint32(0, true) !== 0x32565057) return null;
-  if (buffer.byteLength <= 36) throw new Error('Truncated video packet');
+  const magic = view.getUint32(0, true), protocol = magic === 0x33565057 ? 3 : magic === 0x32565057 ? 2 : null;
+  if (!protocol) return null;
+  const headerBytes = protocol === 3 ? 40 : 36;
+  if (buffer.byteLength <= headerBytes) throw new Error('Truncated video packet');
   const packet = { sessionId: view.getFloat64(4, true), videoEpoch: view.getFloat64(12, true),
     sequence: view.getFloat64(20, true), width: view.getUint32(28, true), height: view.getUint32(32, true) };
   if (![packet.sessionId, packet.videoEpoch, packet.sequence].every(value => Number.isSafeInteger(value) && value >= 0) ||
       packet.width < 1 || packet.height < 1) throw new Error('Invalid video packet');
-  return { ...packet, jpeg: buffer.slice(36) };
+  const format = protocol === 3 ? view.getUint32(36, true) : 1;
+  if (![1, 2].includes(format)) throw new Error('Invalid image format');
+  return { ...packet, protocol, mime: format === 2 ? 'image/webp' : 'image/jpeg', jpeg: buffer.slice(headerBytes) };
 }
 
-// Decode into the hidden image and commit the image and geometry together.
+export function probeWebp({ createImage = () => new Image(), schedule = setTimeout, cancel = clearTimeout } = {}) {
+  return new Promise(resolve => {
+    let image, timer = null, finished = false;
+    const finish = supported => {
+      if (finished) return; finished = true; cancel(timer);
+      if (image) { image.onload = image.onerror = null; image.removeAttribute('src'); }
+      resolve(supported);
+    };
+    try {
+      image = createImage(); timer = schedule(() => finish(false), 1500);
+      image.onload = () => finish(image.naturalWidth === 2 && image.naturalHeight === 2);
+      image.onerror = () => finish(false);
+      image.src = 'data:image/webp;base64,UklGRjwAAABXRUJQVlA4IDAAAADQAQCdASoCAAIAAgA0JaACdLoB+AADsAD+8MQL/yC5YXXI1/8gP+QH/ID/+PIAAAA=';
+    } catch (_) { finish(false); }
+  });
+}
+
+// At most two decodes plus the displayed frame. Newer commits retire older work.
 export function createJpegPresenter(images, { onFrame, onError = () => {},
   createUrl = data => URL.createObjectURL(data), revokeUrl = url => URL.revokeObjectURL(url),
 } = {}) {
-  let front = null, pending = null, pendingDone = null, generation = 0;
-  const urls = new Map();
+  let front = null, generation = 0, nextOrder = 0, committedOrder = 0;
+  const urls = new Map(), pending = new Map();
   function discard(image) {
     image.onload = image.onerror = null; image.removeAttribute('src'); image.hidden = true;
     if (urls.has(image)) revokeUrl(urls.get(image)); urls.delete(image);
   }
+  function retire(image) {
+    const work = pending.get(image); if (!work) return;
+    pending.delete(image); discard(image); work.done();
+  }
   function cancelPending() {
-    generation++; if (pending) discard(pending); pending = null;
-    const done = pendingDone; pendingDone = null; if (done) done();
+    generation++;
+    for (const image of [...pending.keys()]) retire(image);
   }
   return {
     load(data, meta, valid, done) {
-      cancelPending();
-      const image = images.find(item => item !== front), token = generation;
-      pending = image; pendingDone = done; image.hidden = true;
+      let image = images.find(item => item !== front && !pending.has(item));
+      if (!image || pending.size >= Math.min(2, images.length - 1)) {
+        image = pending.keys().next().value; retire(image);
+      }
+      const work = { done, order: ++nextOrder }, token = generation;
+      pending.set(image, work); image.hidden = true;
       const url = createUrl(data); urls.set(image, url);
       image.onload = () => {
-        if (token !== generation || pending !== image) return;
-        pending = null; pendingDone = null; image.onload = image.onerror = null;
-        if (!valid() || !image.naturalWidth || !image.naturalHeight) { discard(image); done(); return; }
+        if (token !== generation || pending.get(image) !== work) return;
+        pending.delete(image); image.onload = image.onerror = null;
+        if (work.order <= committedOrder || !valid() || !image.naturalWidth || !image.naturalHeight) { discard(image); done(); return; }
         const previous = front;
         const accepted = onFrame(meta, image.naturalWidth, image.naturalHeight);
         if (token !== generation) { done(); return; }
         if (accepted === false) { discard(image); done(); return; }
+        committedOrder = work.order;
         front = image; image.hidden = false;
         if (previous) discard(previous);
+        for (const [other, older] of [...pending]) if (older.order < work.order) retire(other);
         done();
       };
       image.onerror = () => {
-        if (token !== generation) return;
-        pending = null; pendingDone = null; discard(image); done(); onError();
+        if (token !== generation || pending.get(image) !== work) return;
+        pending.delete(image); discard(image); done(); onError(meta);
       };
       image.src = url;
     },
@@ -185,20 +215,23 @@ export function createJpegPresenter(images, { onFrame, onError = () => {},
 export function createControlOutbox(socket, {
   schedule = setTimeout, cancel = clearTimeout, now = () => Date.now(), onFailure = () => socket.close(),
 } = {}) {
-  const touches = [];
+  const touches = [], imageAcks = new Map();
   const signals = [];
   let ack = null, audioAck = null, audioReady = null, ping = null, feedback = null, viewport = null, timer = null, blockedSince = null, closed = false;
   const close = () => {
     closed = true; cancel(timer); timer = null;
     ack = null; audioAck = null; audioReady = null; ping = null; feedback = null; viewport = null; touches.length = 0; signals.length = 0;
+    imageAcks.clear();
   };
   const fail = () => { close(); onFailure(); };
   const flush = () => {
     if (closed) return;
     if (socket.readyState !== 1) { close(); return; }
     try {
-      while ((ack || audioAck || audioReady || touches.length || signals.length || viewport || feedback || ping) && socket.bufferedAmount < 8192) {
-        if (ack) { socket.send(ack); ack = null; }
+      while ((ack || imageAcks.size || audioAck || audioReady || touches.length || signals.length || viewport || feedback || ping) && socket.bufferedAmount < 8192) {
+        if (imageAcks.size) {
+          const [key, json] = imageAcks.entries().next().value; socket.send(json); imageAcks.delete(key);
+        } else if (ack) { socket.send(ack); ack = null; }
         else if (audioAck) { socket.send(audioAck); audioAck = null; }
         else if (audioReady) { socket.send(audioReady); audioReady = null; }
         else if (touches.length) { socket.send(touches[0].json); touches.shift(); }
@@ -209,7 +242,7 @@ export function createControlOutbox(socket, {
         blockedSince = null;
       }
     } catch (_) { fail(); return; }
-    if (ack || audioAck || audioReady || touches.length || signals.length || viewport || feedback || ping) {
+    if (ack || imageAcks.size || audioAck || audioReady || touches.length || signals.length || viewport || feedback || ping) {
       if (blockedSince === null) blockedSince = now();
       if (now() - blockedSince >= 1500) { fail(); return; }
       if (timer === null) timer = schedule(() => { timer = null; flush(); }, 10);
@@ -221,7 +254,11 @@ export function createControlOutbox(socket, {
     send(data, kind = 'edge') {
       if (closed || socket.readyState !== 1) return false;
       const json = JSON.stringify(data);
-      if (data.type === 'ack') ack = json;
+      if (data.type === 'ack' && Number.isSafeInteger(data.sequence)) {
+        const key = `${data.sessionId}/${data.videoEpoch}/${data.sequence}`;
+        if (!imageAcks.has(key) && imageAcks.size >= 8) { fail(); return false; }
+        imageAcks.set(key, json);
+      } else if (data.type === 'ack') ack = json;
       else if (data.type === 'audio-ack') audioAck = json;
       else if (data.type === 'audio-ready') audioReady = json;
       else if (data.type === 'ping') ping = json;
@@ -233,7 +270,7 @@ export function createControlOutbox(socket, {
         if (kind === 'move' && tail && tail.kind === 'move') tail.json = json;
         else if (touches.length < 64) touches.push({ kind, json });
         else { fail(); return false; }
-      } else if (['rtc-start', 'rtc-answer', 'rtc-ready', 'rtc-fallback', 'phone-connect'].includes(data.type)) {
+      } else if (['rtc-start', 'rtc-answer', 'rtc-ready', 'rtc-fallback', 'phone-connect', 'image-format'].includes(data.type)) {
         if (signals.length >= 8 || json.length > 32768) { fail(); return false; }
         signals.push(json);
       } else return false;
@@ -493,14 +530,15 @@ import { createBrowserAudio } from './browser-audio.js';
 if (typeof document !== 'undefined') {
   const $ = id => document.getElementById(id);
   const screen = $('screen');
-  const screens = [screen, $('screen-next')];
+  const screens = [screen, $('screen-next'), $('screen-third')];
   const heldFrame = $('held-frame');
   const video = $('video');
   const canvas = $('video-canvas');
   const display = $('display');
   const touchSurface = $('touch-surface');
   // Read-only diagnostic snapshots; counters never include pairing credentials or video payloads.
-  const performanceStats = { source: null, transport: null, receiver: null };
+  const performanceStats = { source: null, transport: null, receiver: null, image: null };
+  const webpSupport = probeWebp();
   Object.defineProperty(window, 'wheelplayStats', { configurable: true, get: () => JSON.parse(JSON.stringify(performanceStats)) });
   let rtc = null, rtcRequested = false, rtcFps = null;
   let socket = null, stopped = true, paired = false, retry = null, attempts = 0;
@@ -541,7 +579,10 @@ if (typeof document !== 'undefined') {
       width = frameWidth; height = frameHeight;
       clearHeldFrame(); return true;
     },
-    onError: () => presentation.invalidate('jpeg'),
+    onError: meta => {
+      if (meta.mime === 'image/webp') send({ type: 'image-format', format: 'jpeg' });
+      if (!jpeg.current) presentation.invalidate('jpeg');
+    },
   });
   const canvasOption = $('canvas-video');
   const canvasPreference = 'wheelplay.canvasVideo';
@@ -552,7 +593,7 @@ if (typeof document !== 'undefined') {
   const canvasRenderer = createVideoCanvasRenderer(video, canvas, {
     onFrame: (frameWidth, frameHeight) => {
       if (!presentation.present(rtcMedia, frameWidth, frameHeight, 'rtc', rtcMedia.revision)) return;
-      width = frameWidth; height = frameHeight; jpeg.hide(); clearHeldFrame();
+      width = frameWidth; height = frameHeight; jpeg.cancelPending(); jpeg.hide(); clearHeldFrame();
     },
     onError: error => { if (rtc) rtc.fallback(isRtcErrorRetryable(error)); },
   });
@@ -776,7 +817,7 @@ if (typeof document !== 'undefined') {
     touchSurface.classList.toggle('stale', !live);
     $('waiting').hidden = value.visible;
     if (!live && pointers.size) release();
-    const transport = rtc && (rtc.active || value.frame?.transport === 'rtc') ? `${rtc.codec === 'H265' ? 'HEVC' : 'H.264'} / WebRTC${canvasOption.checked ? ' / Canvas' : ''}${rtcFps === null ? '' : ` · ${rtcFps} fps`}` : 'JPEG';
+    const transport = rtc && (rtc.active || value.frame?.transport === 'rtc') ? `${rtc.codec === 'H265' ? 'HEVC' : 'H.264'} / WebRTC${canvasOption.checked ? ' / Canvas' : ''}${rtcFps === null ? '' : ` · ${rtcFps} fps`}` : value.frame?.mime === 'image/webp' ? 'WebP' : 'JPEG';
     $('status').textContent = value.state === 'recovering' ? t('web_video_recovering', transport) :
       value.visible ? value.interactive ? t('web_transport_touch_connected', transport, rtc?.recovering ? t('web_waiting_for_recovery') : '') :
         t('web_video_input_unavailable', transport) : t('web_connected_waiting_for_iphone_video');
@@ -802,7 +843,7 @@ if (typeof document !== 'undefined') {
   function cleanupRtc() {
     if (rtc) rtc.close(); rtc = null; rtcRequested = false; rtcFps = null;
     canvasRenderer.stop();
-    performanceStats.source = performanceStats.transport = performanceStats.receiver = null;
+    performanceStats.source = performanceStats.transport = performanceStats.receiver = performanceStats.image = null;
     video.hidden = true;
   }
   function exitLaunchFullscreen() {
@@ -847,7 +888,7 @@ if (typeof document !== 'undefined') {
     $('connect').disabled = true;
     $('status').textContent = paired ? t("web_reconnecting") : t("web_connecting");
     const auth = pairingToken ? `token=${encodeURIComponent(pairingToken)}` : `code=${encodeURIComponent($('code').value)}`;
-    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/stream?${auth}&media=2`);
+    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/stream?${auth}&media=2&images=3`);
     ws.binaryType = 'arraybuffer';
     const useCanvas = canvasOption.checked;
     socket = ws;
@@ -864,6 +905,9 @@ if (typeof document !== 'undefined') {
       browserAudio.attach();
       cleanupRtc();
       presentation.open();
+      webpSupport.then(supported => {
+        if (supported && socket === ws && ws.readyState === WebSocket.OPEN) send({ type: 'image-format', format: 'webp' });
+      });
       rtc = createRtcReceiver(video, { send,
         onTrack: () => { if (useCanvas) canvasRenderer.prepare(); },
         onReset: () => { holdRtcFrame(); canvasRenderer.stop(); presentation.invalidate('rtc'); },
@@ -871,7 +915,7 @@ if (typeof document !== 'undefined') {
           if (socket !== ws) return;
           if (useCanvas) { canvasRenderer.start(); return; }
           if (!presentation.present(rtcMedia, video.videoWidth, video.videoHeight, 'rtc', rtcMedia.revision)) return;
-          jpeg.hide(); clearHeldFrame(); video.hidden = false;
+          jpeg.cancelPending(); jpeg.hide(); clearHeldFrame(); video.hidden = false;
           width = video.videoWidth; height = video.videoHeight;
         },
         onStop: () => {
@@ -923,6 +967,7 @@ if (typeof document !== 'undefined') {
         if (data.type === 'status') {
           performanceStats.source = data.performance?.source ?? null;
           performanceStats.transport = data.performance?.transport ?? null;
+          performanceStats.image = data.performance?.image ?? null;
           lastStatus = Date.now();
           const previousRevision = presentation.current.revision;
           if (!presentation.status(data)) return;
@@ -946,15 +991,20 @@ if (typeof document !== 'undefined') {
       let packet;
       try { packet = decodeVideoPacket(event.data); } catch (_) { ws.close(); return; }
       const meta = packet || {};
+      const acknowledge = () => {
+        if (socket !== ws || ws.readyState !== WebSocket.OPEN) return;
+        send(packet?.protocol === 3 ? { type: 'ack', sessionId: packet.sessionId,
+          videoEpoch: packet.videoEpoch, sequence: packet.sequence } : { type: 'ack' });
+      };
       const previousRevision = presentation.current.revision;
-      if (!presentation.accepts(meta)) { send({ type: 'ack' }); return; }
+      if (!presentation.accepts(meta)) { acknowledge(); return; }
       if (previousRevision !== presentation.current.revision) { rtc.close(); rtcRequested = false; }
-      if (rtc?.active) { send({ type: 'ack' }); return; }
+      if (rtc?.active) { acknowledge(); return; }
       meta.revision = presentation.current.revision;
       const payload = packet ? packet.jpeg : event.data;
-      jpeg.load(payload instanceof ArrayBuffer ? new Blob([payload], { type: 'image/jpeg' }) : payload, meta,
+      jpeg.load(payload instanceof ArrayBuffer ? new Blob([payload], { type: packet?.mime || 'image/jpeg' }) : payload, meta,
         () => socket === ws && ws.readyState === WebSocket.OPEN && !rtc?.active && presentation.current.revision === meta.revision,
-        () => { if (socket === ws && ws.readyState === WebSocket.OPEN) send({ type: 'ack' }); });
+        acknowledge);
     };
     ws.onclose = () => {
       clearTimeout(connectTimer);

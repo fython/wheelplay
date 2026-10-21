@@ -13,6 +13,6 @@
 #code-entry{margin-bottom:16px}#code-entry input{width:100%;max-width:360px}#remembered-device{margin-top:28px;padding:20px 24px;background:#1c2428;border:1px solid #46514e;border-radius:16px}#remembered-device strong{font-size:18px;color:#b4d9b1}#remembered-device p{margin:8px 0 0;font-size:15px}
 
 #display.ignore-browser-zoom{position:fixed;transform-origin:0 0;z-index:3}
-#screen-next,#held-frame{width:100%;height:100%;object-fit:contain;touch-action:none;user-select:none;-webkit-user-select:none}#screen-next.stale,#held-frame.stale{opacity:.2;pointer-events:none}
+#screen-next,#screen-third,#held-frame{width:100%;height:100%;object-fit:contain;touch-action:none;user-select:none;-webkit-user-select:none}#screen-next.stale,#screen-third.stale,#held-frame.stale{opacity:.2;pointer-events:none}
 
 #media-message{position:absolute;left:16px;top:16px;z-index:2;max-width:85%;padding:10px 14px;background:#1c2428e8;border-radius:12px;font-size:13px;color:#efbe90;pointer-events:none}

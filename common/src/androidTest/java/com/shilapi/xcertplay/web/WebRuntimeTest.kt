@@ -16,9 +16,32 @@ import java.util.concurrent.LinkedBlockingQueue
 
 @RunWith(AndroidJUnit4::class)
 class WebRuntimeTest {
+    @Test fun staticFrameIsReencodedWhenTheBrowserChangesImageFormat() {
+        val frames = LinkedBlockingQueue<Pair<ByteArray, ImageFormat>>()
+        val preferred = java.util.concurrent.atomic.AtomicReference(ImageFormat.JPEG)
+        val output = OffscreenVideoOutput(320, 180, { true }, { preferred.get() }) { bytes, format ->
+            frames.offer(bytes to format)
+        }
+        try {
+            val canvas = output.surface.lockCanvas(null); canvas.drawColor(Color.RED)
+            output.surface.unlockCanvasAndPost(canvas)
+            assertEquals(ImageFormat.JPEG, frames.poll(5, TimeUnit.SECONDS)?.second)
+            preferred.set(ImageFormat.WEBP)
+            val webp = requireNotNull(frames.poll(5, TimeUnit.SECONDS))
+            assertEquals(ImageFormat.WEBP, webp.second)
+            assertEquals("RIFF", webp.first.copyOfRange(0, 4).toString(Charsets.US_ASCII))
+            assertEquals("WEBP", webp.first.copyOfRange(8, 12).toString(Charsets.US_ASCII))
+            val bitmap = BitmapFactory.decodeByteArray(webp.first, 0, webp.first.size)
+            assertEquals(320, bitmap.width); assertTrue(Color.red(bitmap.getPixel(160, 90)) > 200); bitmap.recycle()
+            preferred.set(ImageFormat.JPEG)
+            assertEquals(ImageFormat.JPEG, frames.poll(5, TimeUnit.SECONDS)?.second)
+            assertNull("Static format changes must not start continuous encoding", frames.poll(400, TimeUnit.MILLISECONDS))
+        } finally { output.close() }
+    }
+
     @Test fun offscreenThrottlePublishesFinalFrameWithoutAnotherArrival() {
         val frames = LinkedBlockingQueue<ByteArray>()
-        val output = OffscreenVideoOutput(320, 180, { true }) { frames.offer(it) }
+        val output = OffscreenVideoOutput(320, 180, { true }) { bytes, _ -> frames.offer(bytes) }
         try {
             fun paint(color: Int) {
                 val canvas = output.surface.lockCanvas(null)
@@ -42,7 +65,7 @@ class WebRuntimeTest {
     @Test fun offscreenSurfaceProducesUprightJpegWithoutActivity() {
         val ready = CountDownLatch(1)
         var jpeg: ByteArray? = null
-        val output = OffscreenVideoOutput(320, 180, { true }) { jpeg = it; ready.countDown() }
+        val output = OffscreenVideoOutput(320, 180, { true }) { bytes, _ -> jpeg = bytes; ready.countDown() }
         try {
             val canvas = output.surface.lockCanvas(null)
             val paint = Paint()
