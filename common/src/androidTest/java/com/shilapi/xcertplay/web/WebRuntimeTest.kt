@@ -16,11 +16,12 @@ import java.util.concurrent.LinkedBlockingQueue
 
 @RunWith(AndroidJUnit4::class)
 class WebRuntimeTest {
-    @Test fun staticFrameIsReencodedWhenTheBrowserChangesImageFormat() {
-        val frames = LinkedBlockingQueue<Pair<ByteArray, ImageFormat>>()
+    @Test fun staticFrameIsReencodedWhenImageFormatOrQualityChanges() {
+        val frames = LinkedBlockingQueue<Triple<ByteArray, ImageFormat, Int>>()
         val preferred = java.util.concurrent.atomic.AtomicReference(ImageFormat.JPEG)
-        val output = OffscreenVideoOutput(320, 180, { true }, { preferred.get() }) { bytes, format ->
-            frames.offer(bytes to format)
+        val quality = java.util.concurrent.atomic.AtomicInteger(75)
+        val output = OffscreenVideoOutput(320, 180, { true }, { ImageEncodingOptions(preferred.get(), quality.get()) }) { bytes, format, value ->
+            frames.offer(Triple(bytes, format, value))
         }
         try {
             val canvas = output.surface.lockCanvas(null); canvas.drawColor(Color.RED)
@@ -33,15 +34,19 @@ class WebRuntimeTest {
             assertEquals("WEBP", webp.first.copyOfRange(8, 12).toString(Charsets.US_ASCII))
             val bitmap = BitmapFactory.decodeByteArray(webp.first, 0, webp.first.size)
             assertEquals(320, bitmap.width); assertTrue(Color.red(bitmap.getPixel(160, 90)) > 200); bitmap.recycle()
+            quality.set(40)
+            val refreshed = requireNotNull(frames.poll(5, TimeUnit.SECONDS))
+            assertEquals(ImageFormat.WEBP, refreshed.second); assertEquals(40, refreshed.third)
             preferred.set(ImageFormat.JPEG)
-            assertEquals(ImageFormat.JPEG, frames.poll(5, TimeUnit.SECONDS)?.second)
+            val jpeg = requireNotNull(frames.poll(5, TimeUnit.SECONDS))
+            assertEquals(ImageFormat.JPEG, jpeg.second); assertEquals(40, jpeg.third)
             assertNull("Static format changes must not start continuous encoding", frames.poll(400, TimeUnit.MILLISECONDS))
         } finally { output.close() }
     }
 
     @Test fun offscreenThrottlePublishesFinalFrameWithoutAnotherArrival() {
         val frames = LinkedBlockingQueue<ByteArray>()
-        val output = OffscreenVideoOutput(320, 180, { true }) { bytes, _ -> frames.offer(bytes) }
+        val output = OffscreenVideoOutput(320, 180, { true }) { bytes, _, _ -> frames.offer(bytes) }
         try {
             fun paint(color: Int) {
                 val canvas = output.surface.lockCanvas(null)
@@ -65,7 +70,7 @@ class WebRuntimeTest {
     @Test fun offscreenSurfaceProducesUprightJpegWithoutActivity() {
         val ready = CountDownLatch(1)
         var jpeg: ByteArray? = null
-        val output = OffscreenVideoOutput(320, 180, { true }) { bytes, _ -> jpeg = bytes; ready.countDown() }
+        val output = OffscreenVideoOutput(320, 180, { true }) { bytes, _, _ -> jpeg = bytes; ready.countDown() }
         try {
             val canvas = output.surface.lockCanvas(null)
             val paint = Paint()

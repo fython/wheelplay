@@ -7,16 +7,16 @@ internal class ImageFrameEncoder {
     private val output = ByteArrayOutputStream()
     private var webpFailed = false
 
-    fun encode(preferred: ImageFormat, compress: (ImageFormat, ByteArrayOutputStream) -> Boolean): Pair<ByteArray, ImageFormat> {
-        var format = if (webpFailed) ImageFormat.JPEG else preferred
+    fun encode(options: ImageEncodingOptions, compress: (ImageFormat, Int, ByteArrayOutputStream) -> Boolean): Pair<ByteArray, ImageFormat> {
+        var format = if (webpFailed) ImageFormat.JPEG else options.format
         output.reset()
-        val encoded = try { compress(format, output) } catch (error: Exception) {
+        val encoded = try { compress(format, options.quality, output) } catch (error: Exception) {
             if (format == ImageFormat.JPEG) throw error
             false
         }
         if (!encoded && format == ImageFormat.WEBP) {
             webpFailed = true; format = ImageFormat.JPEG; output.reset()
-            check(compress(format, output)) { "JPEG encoding failed" }
+            check(compress(format, options.quality, output)) { "JPEG encoding failed" }
         } else check(encoded) { "JPEG encoding failed" }
         return output.toByteArray() to format
     }

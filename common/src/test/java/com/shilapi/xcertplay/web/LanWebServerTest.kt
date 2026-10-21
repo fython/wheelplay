@@ -170,6 +170,35 @@ class LanWebServerTest {
         } finally { WebSession.stop() }
     }
 
+    @Test fun userJpegSettingOverridesWebpCapabilityAndReportsTheEncodedQuality() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        com.shilapi.xcertplay.AirPlayPersistence.saveImageFormat(context, ImageFormat.JPEG)
+        WebSession.start(context)
+        try {
+            val owner = WebSession.beginVideo(320, 180)
+            WebSession.publish(owner, byteArrayOf(1), ImageFormat.WEBP)
+            handshake(WebSession.code, media = 2, images = 3).use { client ->
+                assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                assertEquals("audio-route", org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).getString("type"))
+                text(client, """{"type":"image-format","format":"webp"}""")
+                text(client, """{"type":"ping"}""")
+                var status = org.json.JSONObject(frame(client).toString(Charsets.UTF_8))
+                while (status.optString("type") != "status") status = org.json.JSONObject(frame(client).toString(Charsets.UTF_8))
+                client.soTimeout = 100
+                try { frame(client); fail("A browser cannot override the user's JPEG setting") }
+                catch (_: java.net.SocketTimeoutException) { }
+                client.soTimeout = 3000
+                WebSession.publish(owner, byteArrayOf(2), ImageFormat.JPEG, 37)
+                assertArrayEquals(VideoPacket.encode(WebSession.frame!!, 3), frame(client))
+                text(client, """{"type":"ping"}""")
+                do { status = org.json.JSONObject(frame(client).toString(Charsets.UTF_8)) }
+                while (status.optString("type") != "status")
+                val image = status.getJSONObject("performance").getJSONObject("image")
+                assertEquals("image/jpeg", image.getString("format")); assertEquals(37, image.getInt("quality"))
+            }
+        } finally { WebSession.stop() }
+    }
+
     @Test fun retryAvailabilityAndExplicitStartsHonorTheSameCooldownAndConfigurationReset() {
         WebSession.start(org.robolectric.RuntimeEnvironment.getApplication())
         try {

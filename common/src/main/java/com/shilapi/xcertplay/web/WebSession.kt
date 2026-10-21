@@ -23,6 +23,7 @@ internal object WebSession {
         val sessionId: Long = 0, val videoEpoch: Long = 0,
         val width: Int = 1280, val height: Int = 720,
         val format: ImageFormat = ImageFormat.JPEG,
+        val quality: Int = ImageEncodingOptions.DEFAULT_QUALITY,
     )
 
     data class MediaSnapshot(
@@ -701,12 +702,13 @@ internal object WebSession {
         if (owner == generation) videoSource = source
     }
 
-    fun publish(owner: Long, jpeg: ByteArray, format: ImageFormat = ImageFormat.JPEG) {
+    fun publish(owner: Long, jpeg: ByteArray, format: ImageFormat = ImageFormat.JPEG,
+        quality: Int = ImageEncodingOptions.DEFAULT_QUALITY) {
         val endpoint =
             synchronized(this) {
                 if (owner != generation || server == null) return
                 frame = Frame(jpeg, SystemClock.elapsedRealtime(), ++sequence,
-                    mediaSessionId, generation, width, height, format)
+                    mediaSessionId, generation, width, height, format, quality)
                 server
             }
         // Notify outside the session monitor; encoding never waits for a socket write.

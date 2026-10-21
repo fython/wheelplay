@@ -12,8 +12,18 @@
 均保持 JPEG。探测不依赖 User-Agent、Canvas、WebCodecs 或 HTTPS；成功后发送
 `{"type":"image-format","format":"webp"}`。配对和连接无需等待探测完成。
 
-Android 使用 Bitmap 的有损 WebP 编码（Android 30 前使用 WEBP 枚举），质量参数为 75。
-JPEG 的质量参数仍为 75；不同编码器的相同数值不表示相同视觉质量。压缩暂存区复用，
+「设置 → 画面与串流」可选择 JPEG / WebP，并输入 1–100 的图片质量，默认 WebP、75。
+选择 JPEG 时始终编码 JPEG；选择 WebP 时仍必须通过浏览器能力协商，旧客户端、不支持或
+已回退的浏览器继续使用 JPEG。设置保存到 App，重启后保留，取消输入不改变设置；非法
+质量输入被拒绝，未知格式或超出范围的已存质量使用默认值。
+
+Android 使用 Bitmap 的有损 WebP 编码（Android 30 前使用 WEBP 枚举）。用户质量值同时
+用于 JPEG 和 WebP，包括 WebP 失败后的 JPEG 回退；不同编码器的相同数值不表示相同视觉质量。
+格式 / 质量保存后应用到后续图片，无需重连手机或浏览器；现有 200 ms 源检查在静态画面上
+也触发重新编码。每次编码只读取一份不可变设置，避免质量在编码与报告之间变化。已经
+在传输或解码的旧图片可能先完成。设置不影响 H.264 / HEVC 直通的视频质量。
+
+压缩暂存区复用，
 发布的字节数组保持不可变。WebP 返回失败或抛出异常时丢弃部分输出，改用 JPEG，当前
 视频输出生命周期内不再调用失败的 WebP 编码器。
 
@@ -58,7 +68,7 @@ ACK 不是累计确认。客户端拥塞队列保存每个不同 ACK，不能把
 并行解码，需要与车机内存、解码性能一起评估。它不会绕过 Android 的 15 fps 发布限制。
 
 `window.wheelplayStats.image` 提供协议、实际最近图片格式、窗口、在途帧数、payload
-字节数及最近 ACK 耗时。ACK 耗时包含传输、浏览器解码 / 淘汰和确认回程，不等于纯 RTT
+字节数、实际编码质量及最近 ACK 耗时。ACK 耗时包含传输、浏览器解码 / 淘汰和确认回程，不等于纯 RTT
 或显示器已经扫描输出的时间。
 
 ## 验证
@@ -66,11 +76,12 @@ ACK 不是累计确认。客户端拥塞队列保存每个不同 ACK，不能把
 - 网页单测覆盖能力探测、v2 / v3 包头、双解码、乱序完成、资源释放、逐帧 ACK、WebP
   回退、重连与 RTC 接管隔离。
 - Android 单测覆盖编码失败回退、发布字节不可变、双帧与字节预算、慢 ACK 降窗、精确
-  确认以及真实 WebSocket 格式协商。旧协议的单帧背压测试继续保留。
+  确认以及真实 WebSocket 格式协商。设置测试覆盖实际 Compose 操作、持久化、输入校验、
+  用户格式优先级及回退时的质量参数。旧协议的单帧背压测试继续保留。
 - `npm run test:browser:media` 使用真实 Chromium / WebSocket 解码 JPEG、WebP，注入
   损坏 WebP 检查 JPEG 回退，并验证缩放补偿下的触控、重建、旋转与重连。
-- `WebRuntimeTest.staticFrameIsReencodedWhenTheBrowserChangesImageFormat` 是设备测试：
-  验证真实 EGL 纹理在没有后续源帧时切换格式并能解码；仅编译该测试不等于完成真机验证。
+- `WebRuntimeTest.staticFrameIsReencodedWhenImageFormatOrQualityChanges` 是设备测试：
+  验证真实 EGL 纹理在没有后续源帧时切换格式 / 质量并能解码；仅编译该测试不等于完成真机验证。
 
 设备回归应比较相近文字清晰度下的流量、CPU、帧龄及触控到画面的延迟，并覆盖动态地图、
 菜单和静态屏幕。自动化测试验证协议与行为，不提供真实设备上的性能提升百分比。

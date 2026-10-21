@@ -394,7 +394,8 @@ internal class LanWebServer(
                             WebSession.videoSource?.jpegNeeded != false
                     )
                         WebSession.frame?.takeIf { it.format == ImageFormat.JPEG ||
-                            imageProtocol == 3 && imageFormat == ImageFormat.WEBP }
+                            imageProtocol == 3 && imageFormat == ImageFormat.WEBP &&
+                                com.shilapi.xcertplay.AirPlayPersistence.loadImageFormat(context) == ImageFormat.WEBP }
                     else null
                 },
                 write = { super.sendFrame(it) },
@@ -690,7 +691,8 @@ internal class LanWebServer(
                                             )
                                             .put("transport", rtc?.snapshot()?.let(::JSONObject))
                                             .put("image", JSONObject(sender.imageSnapshot())
-                                                .put("format", media.frame?.format?.mime)),
+                                                .put("format", media.frame?.format?.mime)
+                                                .put("quality", media.frame?.quality)),
                                     )
                                     .put(
                                         "transport",

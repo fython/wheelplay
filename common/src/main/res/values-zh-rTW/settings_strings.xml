@@ -22,7 +22,7 @@
     <string name="settings_authentication_summary">從 DiPlay APK 匯入或選擇自定義資源</string>
     <string name="settings_help">幫助與關於</string>
     <string name="settings_help_summary">應用程式權限、連線幫助、診斷報告、原始碼</string>
-    <string name="settings_display_effect">晝夜模式立即生效；修改畫面或串流引數會重新連線。</string>
+    <string name="settings_display_effect">晝夜模式、圖片格式與品質立即生效；其他畫面或串流引數修改後會重新連線。</string>
     <string name="settings_audio_effect">音訊輸出立即生效；修改麥克風來源會重新連線。</string>
     <string name="settings_next_connection">修改後在下次連線 iPhone 生效。</string>
     <string name="settings_diplay_title">本專案基於 DiPlay 修改</string>
@@ -75,7 +75,7 @@
     <string name="settings_fps_30">30 fps · 較低負載</string>
     <string name="settings_fps_60">60 fps · 更流暢</string>
     <string name="settings_stream">串流技術</string>
-    <string name="settings_stream_description">WebRTC 支援 H.264 / HEVC 直通，瀏覽器不支援時自動回退 JPEG（約 15 fps）。追求 60 fps 請將協商影格率設為 60；實際影格率以網頁顯示為準。</string>
+    <string name="settings_stream_description">WebRTC 支援 H.264 / HEVC 直通，瀏覽器不支援時自動回退圖片串流（約 15 fps）。追求 60 fps 請將協商影格率設為 60；實際影格率以網頁顯示為準。</string>
     <string name="settings_recovery">WebRTC 卡頓容忍時間</string>
     <string name="settings_recovery_description">短暫斷流時保留最後一個影格並等待恢復，持續異常超過所選時間才回退 JPEG。不增加影片緩衝；不支援的編碼或徹底失敗的連線仍立即回退。下次瀏覽器連線生效。</string>
     <string name="settings_hevc">允許 iPhone 使用 HEVC</string>
@@ -195,4 +195,9 @@
     <string name="settings_listener_port_saved">監聽埠已儲存，瀏覽器請使用新地址重新連線</string>
     <string name="settings_hostname_saved">Web 網域名稱已儲存</string>
     <string name="settings_mapping_port_invalid">對映埠必須為 1–1023</string>
+    <string name="settings_image_format">圖片格式</string>
+    <string name="settings_image_format_description">JPEG 優先相容性；WebP 可節省頻寬，但可能增加編碼開銷。不支援的瀏覽器使用 JPEG。適用於圖片相容模式及 WebRTC 回退，無需重新連線。</string>
+    <string name="settings_image_quality">圖片品質（1–100）</string>
+    <string name="settings_image_quality_description">預設 75。數值越高，細節越多，通常也更占頻寬；JPEG 與 WebP 的相同數值不代表相同畫質。儲存後靜態畫面也會重新整理，不影響 WebRTC 視訊品質。</string>
+    <string name="settings_image_quality_invalid">請輸入 1 到 100 之間的整數。</string>
 </resources>

@@ -82,6 +82,7 @@ internal class SettingsViewModel(
                             .coerceAtLeast(0),
                     ChoiceSetting.FPS to if (AirPlayPersistence.loadFps(app) == 60) 1 else 0,
                     ChoiceSetting.STREAM to AirPlayPersistence.loadStreamTechnology(app).ordinal,
+                    ChoiceSetting.IMAGE_FORMAT to AirPlayPersistence.loadImageFormat(app).ordinal,
                     ChoiceSetting.RECOVERY to AirPlayPersistence.loadRtcRecoveryPolicy(app).ordinal,
                     ChoiceSetting.AUDIO_BUFFER to
                         MediaAudioBuffer.presets
@@ -116,6 +117,7 @@ internal class SettingsViewModel(
                     ToggleSetting.HTTPS to WebListenSettings.httpsEnabled(app),
                     ToggleSetting.TESLA to TeslaHttpCompatibility.config(app).enabled,
                 ),
+            imageQuality = AirPlayPersistence.loadImageQuality(app),
             phoneName =
                 if (DiPlayPreferences.phoneAddress(app) == null)
                     app.getString(R.string.settings_unselected)
@@ -167,6 +169,10 @@ internal class SettingsViewModel(
                 ChoiceSetting.STREAM -> {
                     AirPlayPersistence.saveStreamTechnology(app, StreamTechnology.entries[index])
                     SettingsEffect.Reconnect()
+                }
+                ChoiceSetting.IMAGE_FORMAT -> {
+                    AirPlayPersistence.saveImageFormat(app, ImageFormat.entries[index])
+                    SettingsEffect.None
                 }
                 ChoiceSetting.RECOVERY -> {
                     AirPlayPersistence.saveRtcRecoveryPolicy(app, RtcRecoveryPolicy.entries[index])
@@ -278,6 +284,14 @@ internal class SettingsViewModel(
     fun edit(setting: TextSetting, value: String): SettingsEffect {
         val effect =
             when (setting) {
+                TextSetting.IMAGE_QUALITY -> {
+                    val quality = value.trim().toIntOrNull()
+                    require(quality != null && quality in ImageEncodingOptions.QUALITY_RANGE) {
+                        app.getString(R.string.settings_image_quality_invalid)
+                    }
+                    AirPlayPersistence.saveImageQuality(app, quality)
+                    SettingsEffect.None
+                }
                 TextSetting.OEM_NAME -> {
                     AirPlayPersistence.saveSimulatedManufacturerName(app, value.trim())
                     SettingsEffect.None

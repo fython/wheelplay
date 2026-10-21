@@ -23,8 +23,8 @@ class OffscreenVideoOutput(
     private val width: Int,
     private val height: Int,
     private val wanted: () -> Boolean,
-    private val format: () -> ImageFormat = { ImageFormat.JPEG },
-    private val publish: (ByteArray, ImageFormat) -> Unit,
+    private val encoding: () -> ImageEncodingOptions = { ImageEncodingOptions() },
+    private val publish: (ByteArray, ImageFormat, Int) -> Unit,
 ) : Closeable {
     private val thread = HandlerThread("wheelplay-video").apply { start() }
     private val handler = Handler(thread.looper)
@@ -40,7 +40,7 @@ class OffscreenVideoOutput(
         private set
     private var hasImage = false
     private var hadViewer = false
-    private var requestedFormat = ImageFormat.JPEG
+    private var encodedOptions: ImageEncodingOptions? = null
     private val encoder = ImageFrameEncoder()
     private val publisher = FramePublishScheduler(
         now = SystemClock::elapsedRealtime,
@@ -54,9 +54,8 @@ class OffscreenVideoOutput(
             if (closed.get()) return
             val viewing = wanted()
             // A newly connected browser also gets a static screen with no new decoder output.
-            val nextFormat = format()
-            if (viewing && hasImage && (!hadViewer || nextFormat != requestedFormat)) publisher.request()
-            requestedFormat = nextFormat
+            val nextEncoding = encoding()
+            if (viewing && hasImage && (!hadViewer || nextEncoding != encodedOptions)) publisher.request()
             // A disconnect/reconnect can happen between viewer checks. Pending output must
             // resume even if this poll never observed the short interval without a viewer.
             if (viewing) publisher.resume()
@@ -171,10 +170,14 @@ class OffscreenVideoOutput(
             pixels.rewind()
             val frame = bitmap ?: return
             frame.copyPixelsFromBuffer(pixels)
-            val (bytes, actualFormat) = encoder.encode(format()) { encoding, output ->
-                frame.compress(encoding.compression, 75, output)
+            val options = encoding()
+            val (bytes, actualFormat) = encoder.encode(options) { format, quality, output ->
+                frame.compress(format.compression, quality, output)
             }
-            publish(bytes, actualFormat)
+            // Compare future polls with what this frame sampled, even if preferences changed
+            // between the previous poll and this draw. Failed WebP still counts as sampled.
+            encodedOptions = options
+            publish(bytes, actualFormat, options.quality)
         } catch (error: Exception) {
             Log.e("WheelPlay", "Offscreen frame failed", error)
         }

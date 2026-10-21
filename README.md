@@ -9,7 +9,7 @@ Install the app on an Android device and open the displayed address in your car'
 ## Features
 
 - **Browser display and touch control**: CarPlay streaming, touch input, and fullscreen display.
-- **Selectable streaming modes**: Choose WebRTC video passthrough (H.264 / HEVC) or image compatibility mode in settings. Image streaming negotiates WebP after a browser decode probe, retains JPEG as a fallback, and overlaps up to two frames while audio and touch keep their existing routes.
+- **Selectable streaming modes**: Choose WebRTC video passthrough (H.264 / HEVC) or image compatibility mode in settings, with JPEG / WebP format and image quality from 1 to 100. Image streaming retains JPEG compatibility fallback and overlaps up to two frames while audio and touch keep their existing routes.
 - **Optional browser audio**: After pairing, the browser can play CarPlay audio. The browser microphone can provide CarPlay voice input through a trusted HTTPS page; Android handles audio and microphone input by default.
 - **Easy pairing**: Scan the QR code or enter a code once. Remembered browsers restore pairing automatically and retain a launch button for selecting options before streaming.
 - **iPhone connection management**: USB and wireless connections, connection status, and session management.

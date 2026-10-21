@@ -22,7 +22,7 @@
     <string name="settings_authentication_summary">Import from a DiPlay APK or select your own files</string>
     <string name="settings_help">Help &amp; about</string>
     <string name="settings_help_summary">Permissions, connection help, diagnostics, source code</string>
-    <string name="settings_display_effect">Day/night changes apply immediately. Display and streaming changes reconnect the iPhone.</string>
+    <string name="settings_display_effect">Day/night mode and image format/quality apply immediately. Other display and streaming changes reconnect the iPhone.</string>
     <string name="settings_audio_effect">Audio output changes apply immediately. Changing the microphone source reconnects the iPhone.</string>
     <string name="settings_next_connection">Changes apply the next time the iPhone connects.</string>
     <string name="settings_diplay_title">Based on DiPlay</string>
@@ -75,7 +75,7 @@
     <string name="settings_fps_30">30 fps · Lower load</string>
     <string name="settings_fps_60">60 fps · Smoother</string>
     <string name="settings_stream">Streaming technology</string>
-    <string name="settings_stream_description">WebRTC passes H.264 / HEVC through and falls back to JPEG (about 15 fps) if unsupported. Set the negotiated frame rate to 60 for 60 fps. Check the web page for the actual frame rate.</string>
+    <string name="settings_stream_description">WebRTC passes H.264 / HEVC through and falls back to image streaming (about 15 fps) if unsupported. Set the negotiated frame rate to 60 for 60 fps. Check the web page for the actual frame rate.</string>
     <string name="settings_recovery">WebRTC interruption tolerance</string>
     <string name="settings_recovery_description">Keep the last frame and wait for recovery during brief interruptions. Fall back to JPEG only after the selected interval. This adds no video buffering; unsupported codecs and failed connections still fall back immediately. Applies on the next browser connection.</string>
     <string name="settings_hevc">Allow iPhone HEVC</string>
@@ -195,4 +195,9 @@
     <string name="settings_listener_port_saved">Listener port saved. Reconnect browsers using the new address</string>
     <string name="settings_hostname_saved">Web hostname saved</string>
     <string name="settings_mapping_port_invalid">Forwarded port must be between 1 and 1023</string>
+    <string name="settings_image_format">Image format</string>
+    <string name="settings_image_format_description">JPEG prioritizes compatibility. WebP can save bandwidth but may require more encoding CPU. Unsupported browsers use JPEG. Applies to image compatibility mode and WebRTC fallback, without reconnecting.</string>
+    <string name="settings_image_quality">Image quality (1–100)</string>
+    <string name="settings_image_quality_description">Default: 75. Higher values preserve more detail and usually use more bandwidth. JPEG and WebP quality values are not equivalent. Saving also refreshes a static image; WebRTC video quality is unaffected.</string>
+    <string name="settings_image_quality_invalid">Enter a whole number from 1 to 100.</string>
 </resources>
