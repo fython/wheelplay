@@ -93,6 +93,16 @@ internal fun DisplaySettingsScreen(state: SettingsState, actions: SettingsAction
     )
     SettingsDescription(R.string.settings_stream_description)
     SettingsChoice(
+        state, actions, ChoiceSetting.IMAGE_FORMAT, R.string.settings_image_format,
+        listOf("JPEG", "WebP"),
+    )
+    SettingsDescription(R.string.settings_image_format_description)
+    SettingsTextPreference(
+        actions, TextSetting.IMAGE_QUALITY, R.string.settings_image_quality,
+        state.imageQuality.toString(), numeric = true,
+    )
+    SettingsDescription(R.string.settings_image_quality_description)
+    SettingsChoice(
         state,
         actions,
         ChoiceSetting.RECOVERY,

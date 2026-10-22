@@ -18,7 +18,12 @@
 <p id="pair-instructions">{{web_for_the_first_connection_tap_scan_qr_code_to}}<br class="wide">{{web_then_scan_the_qr_code_below_and_allow_the}}</p>
 <label class="launch-option" for="hide-toolbar"><input id="hide-toolbar" type="checkbox"><span><strong>{{web_hide_top_bar_after_connecting}}</strong><small>{{web_let_carplay_fill_the_page_refresh_to_return_to}}</small></span></label>
 <label class="launch-option" for="fullscreen-on-start"><input id="fullscreen-on-start" type="checkbox"><span><strong>{{web_hide_top_bar_enter_full_screen_on_start}}</strong><small>{{web_enter_full_screen_when_starting_and_hide_the_top}}</small></span></label>
-<label class="launch-option" for="canvas-video"><input id="canvas-video" type="checkbox"><span><strong>{{web_display_video_with_canvas_experimental}}</strong><small>{{web_decode_video_offscreen_then_draw_it_on_a_canvas}}</small></span></label>
+<fieldset class="renderer-options"><legend>{{web_video_renderer_title}}</legend><div class="renderer-cards">
+<label id="renderer-native-card" class="renderer-card" for="renderer-native"><input id="renderer-native" type="radio" name="video-renderer" value="native" checked><span><strong>{{web_video_renderer_native}}</strong><small>{{web_video_renderer_native_description}}</small></span></label>
+<label id="renderer-video-canvas-card" class="renderer-card" for="renderer-video-canvas"><input id="renderer-video-canvas" type="radio" name="video-renderer" value="video-canvas"><span><strong>{{web_video_renderer_compat}}</strong><em>{{web_video_renderer_experimental}}</em><small>{{web_video_renderer_compat_description}}</small></span></label>
+<label id="renderer-track-canvas-card" class="renderer-card" for="renderer-track-canvas"><input id="renderer-track-canvas" type="radio" name="video-renderer" value="track-canvas"><span><strong>{{web_video_renderer_direct}}</strong><em>{{web_video_renderer_experimental}}</em><small>{{web_video_renderer_direct_description}}</small></span></label>
+</div><p id="renderer-hint" class="renderer-hint" role="status" hidden>{{web_video_renderer_hint}}</p></fieldset>
+<label class="launch-option" for="ignore-browser-zoom"><input id="ignore-browser-zoom" type="checkbox"><span><strong>{{web_ignore_browser_zoom}}</strong><small>{{web_ignore_browser_zoom_help}}</small></span></label>
 <details class="secure-setup" id="secure-setup"><summary>{{web_browser_microphone_requires_https}}</summary><p>{{web_local_http_pages_cannot_request_microphone_permission_in_the}}</p><code id="tls-fingerprint">{{web_loading}}</code><div class="secure-links"><a href="/certificate.crt" download="wheelplay-certificate.crt">{{web_download_local_certificate}}</a><a id="https-entry" href="#">{{web_open_https_page}}</a></div><p id="tls-error" role="status"></p></details>
 <div id="remembered-device" role="status" hidden><strong id="device-name"></strong><p id="device-status">{{web_pairing_restored_choose_the_options_above_then_tap_start}}</p></div>
 <div class="qr-pairing" id="qr-pairing"><img id="pair-qr" width="240" height="240" alt="{{web_head_unit_pairing_qr_code}}" hidden><div><h2>{{web_scan_to_connect_the_head_unit}}</h2><p id="qr-status" role="status" aria-live="polite">{{web_generating_qr_code}}</p><button id="refresh-qr" type="button">{{web_refresh_qr_code}}</button></div></div>
@@ -28,7 +33,10 @@
 </section>
 <section id="display" hidden aria-label="{{web_carplay_display}}">
 <img id="screen" alt="{{web_live_carplay_display}}" draggable="false" hidden>
-<video id="video" aria-label="{{web_live_carplay_video}}" autoplay muted playsinline disablepictureinpicture hidden></video>
+<img id="screen-next" alt="{{web_live_carplay_display}}" draggable="false" hidden>
+<img id="screen-third" alt="{{web_live_carplay_display}}" draggable="false" hidden>
+<canvas id="held-frame" width="0" height="0" aria-label="{{web_live_carplay_display}}" hidden></canvas>
+<div id="media-message" role="status" aria-live="polite" hidden></div>
 <canvas id="video-canvas" width="0" height="0" aria-label="{{web_live_carplay_video_canvas}}" hidden></canvas>
 <div id="touch-surface" aria-hidden="true"></div>
 <div id="audio-message" hidden role="status" aria-live="polite"></div>

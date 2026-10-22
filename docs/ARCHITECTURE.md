@@ -34,6 +34,21 @@ Web 服务由 DiPlaySessionService 创建/销毁；离屏 Surface 生命周期�
 7. App 中的两个转发选项默认关闭并独立保存。服务端向已配对网页发送 `audio-route`，网页只用 `audio-ready` 回报浏览器音频与麦克风是否就绪；服务端按 App 选项和就绪状态决定是否转发。解码 PCM 打包为 `WPA1` 二进制帧（流号、采样率、声道、序号、PCM16LE）；浏览器通过 `audio-ack` 确认，最多四帧在途，过期帧丢弃。麦克风先等待 `mic-config`（采样率、声道、输入 ID），随后发送 `WPM1` PCM 帧；仅当前已配对浏览器且 ID/序号匹配时接收。断开、浏览器未就绪或关掉选项时恢复 Android 路由。
 8. `rtc-offer` 携带 `recoveryGraceMs`（4000 / 10000 / 30000，默认 10000），为本次 WebRTC 会话固定策略。发送端与浏览器对短暂断开、发送 / 关键帧恢复失败和持续解码停顿使用同一容忍时间；已显示的视频保留最后一帧。首帧至少等待 10 秒；不可恢复错误立即回退。压缩队列的 50 ms / 6 帧 / 2 MiB 上限不随策略增长。详见 [WebRTC 恢复说明](WEBRTC_RECOVERY.md)。
 
+新网页另外协商 [v2 媒体版本](MEDIA_PRESENTATION.md)及 [v3 图片格式与流水线](IMAGE_STREAM.md)：
+v3 可使用 WebP，最多两帧在途，并以媒体版本和帧序号精确 ACK；上述原始 JPEG 协议仍供旧客户端使用。
+
+## 浏览器三种渲染方式
+
+`native` 为默认原生 Video；`video-canvas` 使用离屏 Video 与可见 Canvas；实验性 `track-canvas` 使用主线程 `MediaStreamTrackProcessor({ track, maxBufferSize: 1 })` → `VideoFrame` → Canvas 2D。不新增网络消息、解码器或依赖。两个旧模式按需创建自己的 Video 元素，停止时移除；直接 Canvas 及其 JPEG / WebP 回退期间不创建 Video。
+
+接收器通过渲染器工厂创建适配器，调用 `start(track, streams)`、`stop()` 和 `snapshot()`，由适配器报告首次就绪、尺寸变化及错误。接收器持有 PeerConnection、远端轨道及恢复计时器；适配器持有 reader、绘制上下文、元素及绘制回调。关闭先使代次失效，再停止适配器、移除监听、停止远端轨道并关闭 PeerConnection；关闭前先复制当前画面至上游 held-frame，按媒体版本与恢复期限管理显示和触控；取消读取不阻塞重连，读取结束后释放锁。每个读出的 VideoFrame 均在 finally 中 close，包含错误和过期帧。
+
+两种 Canvas 仅在首次绘制成功后发送 `rtc-ready`。画面尺寸来自实际显示帧或 JPEG，心跳中的默认宽高不能覆盖它，以避免竖屏触控失准。直接 Canvas 不要求 `VideoDecoder` 或安全上下文检测；按主线程 Processor 的实际可用性判断，Worker-only 实现使用 JPEG。
+
+偏好键 `wheelplay.videoRenderer` 保存三种模式；有效新值优先，否则旧 `wheelplay.canvasVideo=true` 迁移为 `video-canvas`，其余默认 native。只写新键并保留旧键；连接时固定模式，自动重连沿用。缺少 Processor 时跳过 rtc-start 并记录本地原因，运行失败使用现有 rtc-fallback，不改变用户选择。
+
+`wheelplayStats.presentation` 包含 selectedMode、activeMode（含 waiting / jpeg）、renderedFps、renderedFrames、fallbackReason。绘制指标为 Canvas 的成功提交次数，不代表屏幕刷新率；兼容 Canvas 的补偿重绘可能重复同一解码帧。receiver 保留现有统计字段并新增 renderedFps / renderedFrames，rtc-feedback 仍报告 WebRTC framesDecoded。
+
 ## 生命周期与资源约束
 
 - 每个媒体 sink 有独立的离屏输出和代次编号；旧会话结束不会覆盖/清空新会话画面。

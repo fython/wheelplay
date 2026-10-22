@@ -60,6 +60,225 @@ class LanWebServerTest {
         } finally { WebSession.stop() }
     }
 
+    @Test fun versionedJpegStatusAndTouchShareTheSameMediaGeneration() {
+        WebSession.start(org.robolectric.RuntimeEnvironment.getApplication())
+        try {
+            handshake(WebSession.code, media = 2).use { client ->
+                assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                val owner = WebSession.beginVideo(320, 180)
+                WebSession.videoActive = true
+                WebSession.publish(owner, byteArrayOf(1, 2, 3))
+                var first = frame(client)
+                while (first.firstOrNull() == '{'.code.toByte()) first = frame(client)
+                assertArrayEquals(VideoPacket.encode(WebSession.frame!!), first)
+                text(client, """{"type":"ping"}""")
+                var status = org.json.JSONObject(frame(client).toString(Charsets.UTF_8))
+                while (status.optString("type") != "status")
+                    status = org.json.JSONObject(frame(client).toString(Charsets.UTF_8))
+                val before = WebSession.mediaSnapshot()
+                assertEquals(2, status.getInt("mediaProtocol"))
+                assertEquals(before.sessionId, status.getLong("sessionId"))
+                assertEquals(owner, status.getLong("videoEpoch"))
+                assertEquals("ready", status.getString("sourceState"))
+                assertFalse("No phone controller means input is not ready", status.getBoolean("inputReady"))
+                assertTrue(WebSession.mediaMatches(before.sessionId, owner))
+                val next = WebSession.beginVideo(320, 180)
+                assertTrue(next > owner)
+                WebSession.videoActive = true
+                assertEquals("ready", WebSession.mediaSnapshot().sourceState)
+                assertFalse(WebSession.mediaMatches(before.sessionId, owner))
+                assertTrue(WebSession.mediaMatches(before.sessionId, next))
+                val oldTouch = """{"type":"touch","sessionId":${before.sessionId},"videoEpoch":$owner,"contacts":[]}"""
+                text(client, oldTouch)
+                // A real down from an old generation is rejected even if dimensions are unchanged.
+                assertFalse(WebSession.mediaTouch(client, before.sessionId, owner,
+                    listOf(com.shilapi.xcertplay.airplay.AirPlayContact(0, .5, .5, true)), 100))
+                WebSession.endVideo(owner)
+                assertEquals(next, WebSession.mediaSnapshot().videoEpoch)
+                WebSession.endVideo(next)
+                val ended = WebSession.mediaSnapshot()
+                assertEquals("stopped", ended.sourceState)
+                assertFalse(ended.inputReady)
+                val fresh = WebSession.beginVideo(320, 180)
+                assertTrue(fresh > ended.videoEpoch)
+                assertNotEquals(before.sessionId, WebSession.mediaSnapshot().sessionId)
+                WebSession.publish(owner, byteArrayOf(9))
+                assertNull("An old producer cannot republish into the new session", WebSession.frame)
+            }
+        } finally { WebSession.stop() }
+    }
+
+    @Test fun v3NegotiatesWebpPipelinesFramesAndRequiresExactAcksBeforeFallingBackToJpeg() {
+        WebSession.start(org.robolectric.RuntimeEnvironment.getApplication())
+        try {
+            handshake(WebSession.code, media = 2, images = 3).use { client ->
+                assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                fun nextImage(): ByteArray {
+                    var data = frame(client)
+                    while (data.firstOrNull() == '{'.code.toByte()) data = frame(client)
+                    return data
+                }
+                val owner = WebSession.beginVideo(320, 180)
+                WebSession.publish(owner, byteArrayOf(1))
+                val first = WebSession.frame!!
+                assertArrayEquals(VideoPacket.encode(first, 3), nextImage())
+                assertEquals(ImageFormat.JPEG, WebSession.imageFormat)
+                text(client, """{"type":"image-format","format":"webp"}""")
+                text(client, """{"type":"ping"}""")
+                var status = org.json.JSONObject(frame(client).toString(Charsets.UTF_8))
+                while (status.optString("type") != "status") status = org.json.JSONObject(frame(client).toString(Charsets.UTF_8))
+                assertEquals(3, status.getInt("mediaProtocol")); assertEquals(ImageFormat.WEBP, WebSession.imageFormat)
+                WebSession.publish(owner, byteArrayOf(2), ImageFormat.WEBP)
+                val second = WebSession.frame!!
+                assertArrayEquals(VideoPacket.encode(second, 3), nextImage()) // Before first ACK.
+                WebSession.publish(owner, byteArrayOf(3), ImageFormat.WEBP)
+                client.soTimeout = 100
+                try { frame(client); fail("Two frames already occupy the window") }
+                catch (_: java.net.SocketTimeoutException) { }
+                text(client, """{"type":"ack","sessionId":${first.sessionId},"videoEpoch":${first.videoEpoch + 1},"sequence":${first.sequence}}""")
+                try { frame(client); fail("A stale ACK cannot free a slot") }
+                catch (_: java.net.SocketTimeoutException) { }
+                client.soTimeout = 3000
+                text(client, """{"type":"ack","sessionId":${first.sessionId},"videoEpoch":${first.videoEpoch},"sequence":${first.sequence}}""")
+                assertArrayEquals(VideoPacket.encode(WebSession.frame!!, 3), nextImage())
+                text(client, """{"type":"image-format","format":"jpeg"}""")
+                text(client, """{"type":"image-format","format":"webp"}""")
+                text(client, """{"type":"ping"}""")
+                do { status = org.json.JSONObject(frame(client).toString(Charsets.UTF_8)) }
+                while (status.optString("type") != "status")
+                assertEquals("A failed browser stays on JPEG for this connection", ImageFormat.JPEG, WebSession.imageFormat)
+            }
+        } finally { WebSession.stop() }
+    }
+
+    @Test fun aLegacyViewerCannotReceiveCachedWebpFromThePreviousViewer() {
+        WebSession.start(org.robolectric.RuntimeEnvironment.getApplication())
+        try {
+            val owner = WebSession.beginVideo(320, 180)
+            WebSession.publish(owner, byteArrayOf(1), ImageFormat.WEBP)
+            handshake(WebSession.code, media = 2).use { client ->
+                assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                assertEquals("audio-route", org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).getString("type"))
+                assertEquals(ImageFormat.JPEG, WebSession.imageFormat)
+                client.soTimeout = 100
+                try { frame(client); fail("A cached WebP must wait for JPEG re-encoding") }
+                catch (_: java.net.SocketTimeoutException) { }
+                client.soTimeout = 3000
+                WebSession.publish(owner, byteArrayOf(2))
+                assertArrayEquals(VideoPacket.encode(WebSession.frame!!), frame(client))
+            }
+        } finally { WebSession.stop() }
+    }
+
+    @Test fun userJpegSettingOverridesWebpCapabilityAndReportsTheEncodedQuality() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        com.shilapi.xcertplay.AirPlayPersistence.saveImageFormat(context, ImageFormat.JPEG)
+        WebSession.start(context)
+        try {
+            val owner = WebSession.beginVideo(320, 180)
+            WebSession.publish(owner, byteArrayOf(1), ImageFormat.WEBP)
+            handshake(WebSession.code, media = 2, images = 3).use { client ->
+                assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                assertEquals("audio-route", org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).getString("type"))
+                text(client, """{"type":"image-format","format":"webp"}""")
+                text(client, """{"type":"ping"}""")
+                var status = org.json.JSONObject(frame(client).toString(Charsets.UTF_8))
+                while (status.optString("type") != "status") status = org.json.JSONObject(frame(client).toString(Charsets.UTF_8))
+                client.soTimeout = 100
+                try { frame(client); fail("A browser cannot override the user's JPEG setting") }
+                catch (_: java.net.SocketTimeoutException) { }
+                client.soTimeout = 3000
+                WebSession.publish(owner, byteArrayOf(2), ImageFormat.JPEG, 37)
+                assertArrayEquals(VideoPacket.encode(WebSession.frame!!, 3), frame(client))
+                text(client, """{"type":"ping"}""")
+                do { status = org.json.JSONObject(frame(client).toString(Charsets.UTF_8)) }
+                while (status.optString("type") != "status")
+                val image = status.getJSONObject("performance").getJSONObject("image")
+                assertEquals("image/jpeg", image.getString("format")); assertEquals(37, image.getInt("quality"))
+            }
+        } finally { WebSession.stop() }
+    }
+
+    @Test fun retryAvailabilityAndExplicitStartsHonorTheSameCooldownAndConfigurationReset() {
+        WebSession.start(org.robolectric.RuntimeEnvironment.getApplication())
+        try {
+            handshake(WebSession.code, media = 2).use { client ->
+                assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                assertEquals("audio-route", org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).getString("type"))
+                val source = WebVideoSource(StreamTechnology.WEBRTC)
+                val config = byteArrayOf(1, 0x64, 0, 0x20, -1, -31, 0, 4, 0x67, 0x64, 0, 0x20, 1, 0, 2, 0x68, 1)
+                source.configure(110, com.shilapi.xcertplay.airplay.VideoCodec.H264, config)
+                WebSession.attachVideoSource(WebSession.beginVideo(320, 180), source)
+                WebSession.videoActive = true
+                fun status(): org.json.JSONObject {
+                    text(client, """{"type":"ping"}""")
+                    var value = org.json.JSONObject(frame(client).toString(Charsets.UTF_8))
+                    while (value.optString("type") != "status")
+                        value = org.json.JSONObject(frame(client).toString(Charsets.UTF_8))
+                    return value
+                }
+                assertTrue(status().getBoolean("rtcAvailable"))
+                val server = WebSession.javaClass.getDeclaredField("server").apply { isAccessible = true }.get(WebSession)
+                val viewer = server.javaClass.getDeclaredField("viewer").apply { isAccessible = true }.get(server)
+                val lock = requireNotNull(viewer.javaClass.getDeclaredField("rtcLock").apply { isAccessible = true }.get(viewer))
+                val retry = viewer.javaClass.getDeclaredField("rtcRetry").apply { isAccessible = true }.get(viewer) as RtcRetryPolicy
+                synchronized(lock) { assertTrue(retry.start()); retry.finish() }
+                val gap = status()
+                assertFalse(gap.getBoolean("rtcAvailable"))
+                assertTrue(gap.getLong("rtcRetryAfterMs") in 1..5000L)
+                text(client, """{"type":"rtc-start"}""")
+                assertFalse(status().getBoolean("rtcAvailable"))
+                assertEquals(0L, viewer.javaClass.getDeclaredField("rtcId").apply { isAccessible = true }.getLong(viewer))
+                text(client, """{"type":"rtc-fallback","id":0,"retryable":false}""")
+                assertTrue(status().getBoolean("rtcRetryBlocked"))
+                source.configure(110, com.shilapi.xcertplay.airplay.VideoCodec.H264,
+                    config.copyOf().apply { this[11] = 0x21 })
+                val changed = status()
+                assertTrue(changed.getBoolean("rtcAvailable")); assertFalse(changed.getBoolean("rtcRetryBlocked"))
+                assertEquals(0L, changed.getLong("rtcRetryAfterMs"))
+                text(client, """{"type":"rtc-fallback","id":0,"retryable":false}""")
+                assertTrue("A retired peer rejection cannot block a fresh configuration", status().getBoolean("rtcAvailable"))
+            }
+        } finally { WebSession.stop() }
+    }
+
+    @Test fun rtcStartDoesNotHoldTheClientLockWhileWaitingForTheSessionSnapshot() {
+        WebSession.start(org.robolectric.RuntimeEnvironment.getApplication())
+        try {
+            handshake(WebSession.code, media = 2).use { client ->
+                assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                assertEquals("audio-route", org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).getString("type"))
+                val source = WebVideoSource(StreamTechnology.WEBRTC)
+                source.configure(110, com.shilapi.xcertplay.airplay.VideoCodec.H264,
+                    byteArrayOf(1, 0x64, 0, 0x20, -1, -31, 0, 4, 0x67, 0x64, 0, 0x20, 1, 0, 2, 0x68, 1))
+                val owner = WebSession.beginVideo(320, 180)
+                WebSession.attachVideoSource(owner, source)
+                WebSession.videoActive = true
+                val server = WebSession.javaClass.getDeclaredField("server").apply { isAccessible = true }.get(WebSession)
+                val viewer = server.javaClass.getDeclaredField("viewer").apply { isAccessible = true }.get(server)
+                val rtcLock = requireNotNull(viewer.javaClass.getDeclaredField("rtcLock").apply { isAccessible = true }.get(viewer))
+                synchronized(WebSession) {
+                    text(client, """{"type":"rtc-start"}""")
+                    var waiting = false
+                    repeat(100) {
+                        if (Thread.getAllStackTraces().any { (thread, trace) ->
+                            thread.state == Thread.State.BLOCKED && trace.any {
+                                it.className == WebSession.javaClass.name && it.methodName == "mediaSnapshot"
+                            }
+                        }) waiting = true
+                        if (!waiting) Thread.sleep(10)
+                    }
+                    val acquired = CountDownLatch(1)
+                    Thread { synchronized(rtcLock) { acquired.countDown() } }.apply { isDaemon = true; start() }
+                    try {
+                        assertTrue("Reader must be waiting for the coherent snapshot", waiting)
+                        assertTrue("Service cleanup must still be able to acquire rtcLock", acquired.await(1, TimeUnit.SECONDS))
+                    } finally { WebSession.videoActive = false }
+                }
+            }
+        } finally { WebSession.stop() }
+    }
+
     @Test fun occupiedPortKeepsTheOriginalListenerConfigAndPairingUsable() {
         val context = org.robolectric.RuntimeEnvironment.getApplication()
         WebSession.start(context)
@@ -505,9 +724,9 @@ class LanWebServerTest {
             headers.split(" ")[1].toInt() to socket.getInputStream().readBytes().toString(Charsets.UTF_8)
         }
 
-    private fun handshake(code: String, origin: String = "http://127.0.0.1:8080", token: String = "", host: String = "127.0.0.1:8080", port: Int = 8080): Socket = Socket("127.0.0.1", port).apply {
+    private fun handshake(code: String, origin: String = "http://127.0.0.1:8080", token: String = "", host: String = "127.0.0.1:8080", port: Int = 8080, media: Int = 1, images: Int = 0): Socket = Socket("127.0.0.1", port).apply {
         soTimeout = 3000
-        getOutputStream().write(("GET /stream?code=$code&token=$token HTTP/1.1\r\nHost: $host\r\n" +
+        getOutputStream().write(("GET /stream?code=$code&token=$token&media=$media&images=$images HTTP/1.1\r\nHost: $host\r\n" +
             "Origin: $origin\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
             "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n").toByteArray())
         getOutputStream().flush()

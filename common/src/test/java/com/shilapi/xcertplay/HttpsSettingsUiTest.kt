@@ -202,7 +202,13 @@ class HttpsSettingsUiTest : ComposeSettingsTest() {
             SettingsNavigation.open(activity, "Web 服务", compose)
             compose.onNodeWithText("请求 Root 权限").assertDoesNotExist()
             clickTag("toggle:HTTPS")
-            waitForUi { !WebListenSettings.httpsEnabled(activity) }
+            // The worker saves the preference before posting the UI refresh. Wait for the
+            // rendered result too, so a slow worker cannot race the visibility assertions.
+            waitForUi {
+                !WebListenSettings.httpsEnabled(activity) &&
+                    !hasTag("text:HTTPS_PORT") && !hasTag("certificate:DEFAULT")
+            }
+            compose.onNodeWithTag("toggle:HTTPS").assertIsOff()
             compose.onNodeWithTag("text:HTTPS_PORT").assertDoesNotExist()
             compose.onNodeWithTag("certificate:DEFAULT").assertDoesNotExist()
             compose.onNodeWithTag("text:HTTP_PORT").assertExists()

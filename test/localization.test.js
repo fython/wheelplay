@@ -29,3 +29,16 @@ test('localized messages preserve positional arguments without interpreting thei
 test('browser template interpolation escapes markup', () => {
   assert.equal(renderBrowserTemplate('<p>{{text}}</p>', { text: '"<&' }), '<p>&quot;&lt;&amp;</p>');
 });
+
+test('Android exports every browser template and literal message key, not just the desktop fixture', () => {
+  const android = readFileSync(new URL('../common/src/main/java/com/shilapi/xcertplay/web/BrowserStrings.kt', import.meta.url), 'utf8');
+  const keys = new Set([...android.matchAll(/"([a-z0-9_]+)"\s+to\s+UiR\.string\.([a-z0-9_]+)/g)].map(match => {
+    assert.equal(match[1], match[2]); return match[1];
+  }));
+  const required = [...template.matchAll(/\{\{([a-z0-9_]+)\}\}/g)].map(match => match[1]);
+  for (const name of ['app.js', 'browser-audio.js']) {
+    const js = readFileSync(new URL(`../common/src/main/assets/web/${name}`, import.meta.url), 'utf8');
+    required.push(...[...js.matchAll(/\bt\(['"]([a-z0-9_]+)['"]/g)].map(match => match[1]));
+  }
+  for (const key of required) if (key !== 'locale') assert.ok(keys.has(key), `Android BrowserStrings is missing ${key}`);
+});

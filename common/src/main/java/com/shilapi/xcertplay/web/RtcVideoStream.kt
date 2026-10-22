@@ -15,7 +15,7 @@ internal class RtcVideoStream(
     private val config: WebVideoSource.Config,
     private val recovery: RtcRecoveryPolicy,
     private val offer: (String) -> Unit,
-    private val failure: () -> Unit,
+    private val failure: (retryable: Boolean) -> Unit,
 ) : Closeable {
     private val worker = Executors.newSingleThreadScheduledExecutor()
     private val closed = AtomicBoolean(false)
@@ -165,14 +165,14 @@ internal class RtcVideoStream(
         try { worker.execute {
             if (!closed.get()) try { task() }
             catch (error: Exception) { Log.w("WheelPlayRtc", "Direct stream failed; using JPEG", error); fail("transport exception") }
-            catch (error: LinkageError) { Log.w("WheelPlayRtc", "Native transport unavailable; using JPEG", error); fail("native transport unavailable") }
+            catch (error: LinkageError) { Log.w("WheelPlayRtc", "Native transport unavailable; using JPEG", error); fail("native transport unavailable", retryable = false) }
         } } catch (_: RejectedExecutionException) { }
     }
 
-    private fun fail(reason: String) {
+    private fun fail(reason: String, retryable: Boolean = true) {
         if (!closed.get()) {
             Log.w("WheelPlayRtc", "Using JPEG: $reason (grace=${recovery.graceMs}ms)")
-            failure()
+            failure(retryable)
         }
     }
 

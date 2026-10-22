@@ -9,6 +9,10 @@ import org.json.JSONObject
 internal object BrowserStrings {
     private val resources =
         mapOf(
+            "web_video_recovering" to UiR.string.web_video_recovering,
+            "web_video_input_unavailable" to UiR.string.web_video_input_unavailable,
+            "web_ignore_browser_zoom" to UiR.string.web_ignore_browser_zoom,
+            "web_ignore_browser_zoom_help" to UiR.string.web_ignore_browser_zoom_help,
             "web_browser_paired" to UiR.string.web_browser_paired,
             "web_start_display" to UiR.string.web_start_display,
             "web_paired_ready_to_start" to UiR.string.web_paired_ready_to_start,
@@ -116,6 +120,17 @@ internal object BrowserStrings {
                 UiR.string.web_display_video_with_canvas_experimental,
             "web_decode_video_offscreen_then_draw_it_on_a_canvas" to
                 UiR.string.web_decode_video_offscreen_then_draw_it_on_a_canvas,
+            "web_video_renderer_title" to UiR.string.web_video_renderer_title,
+            "web_video_renderer_native" to UiR.string.web_video_renderer_native,
+            "web_video_renderer_native_description" to UiR.string.web_video_renderer_native_description,
+            "web_video_renderer_compat" to UiR.string.web_video_renderer_compat,
+            "web_video_renderer_compat_description" to UiR.string.web_video_renderer_compat_description,
+            "web_video_renderer_direct" to UiR.string.web_video_renderer_direct,
+            "web_video_renderer_direct_description" to UiR.string.web_video_renderer_direct_description,
+            "web_video_renderer_experimental" to UiR.string.web_video_renderer_experimental,
+            "web_video_renderer_hint" to UiR.string.web_video_renderer_hint,
+            "web_video_renderer_unavailable" to UiR.string.web_video_renderer_unavailable,
+            "web_video_renderer_failed" to UiR.string.web_video_renderer_failed,
             "web_browser_microphone_requires_https" to
                 UiR.string.web_browser_microphone_requires_https,
             "web_local_http_pages_cannot_request_microphone_permission_in_the" to

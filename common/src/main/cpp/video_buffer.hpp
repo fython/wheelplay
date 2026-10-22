@@ -34,16 +34,21 @@ struct VideoBuffer {
     bool avcKeyframe = false, hevcKeyframe = false;
     ~VideoBuffer() { pool->recycle(std::move(bytes)); }
 };
-// Validates the entire record before rewriting it, matching the JVM fallback's behavior.
-inline void annexB(VideoBuffer& frame) {
+enum class VideoInputFormat { LengthPrefixed, AnnexB };
+
+// The caller knows the framing. A length of 256..511 starts with 00 00 01 too,
+// so an Annex B prefix probe cannot distinguish these inputs.
+// Validate the entire length-prefixed record before rewriting any bytes.
+inline void annexB(VideoBuffer& frame, VideoInputFormat format) {
     auto& b = frame.bytes;
+    frame.avcKeyframe = frame.hevcKeyframe = false;
     auto prefix = [&](size_t i) -> size_t {
         if (i + 3 > b.size() || b[i] || b[i+1]) return 0;
         if (b[i+2] == 1) return 3;
         return i + 4 <= b.size() && !b[i+2] && b[i+3] == 1 ? 4 : 0;
     };
     auto length = [&](size_t i) { return (uint32_t(b[i]) << 24) | (uint32_t(b[i+1]) << 16) | (uint32_t(b[i+2]) << 8) | b[i+3]; };
-    if (!prefix(0)) {
+    if (format == VideoInputFormat::LengthPrefixed) {
         size_t i = 0;
         while (i + 4 <= b.size()) {
             auto n = length(i); i += 4;

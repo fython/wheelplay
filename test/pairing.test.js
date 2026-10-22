@@ -64,12 +64,12 @@ test('QR approval remembers the browser and waits for the explicit launch button
   assert.equal(f.element('code').required, false);
   assert.equal(f.element('connect-label').textContent, '启动显示');
   assert.deepEqual(JSON.parse(f.preferences.get('wheelplay.browserDevice')), savedDevice);
-  f.element('hide-toolbar').checked = true; f.element('canvas-video').checked = true;
+  f.element('hide-toolbar').checked = true; f.element('renderer-video-canvas').checked = true;
   f.submit(); await flush();
   assert.equal(f.sockets.length, 1);
-  assert.equal(f.sockets[0].url, 'ws://server:8080/stream?token=resumed-token');
+  assert.equal(f.sockets[0].url, 'ws://server:8080/stream?token=resumed-token&media=2&images=3');
   assert.equal(f.element('hide-toolbar').checked, true);
-  assert.equal(f.element('canvas-video').checked, true);
+  assert.equal(f.element('renderer-video-canvas').checked, true);
   assert.equal(f.requests.some(r => r.url.endsWith('/cancel')), false);
 });
 
@@ -80,7 +80,7 @@ test('late QR approval cannot replace a manual code connection', async () => {
   resolve(ok({ state: 'approved', token: 'late-token' }));
   await polling; await flush();
   assert.equal(f.sockets.length, 1);
-  assert.equal(f.sockets[0].url, 'ws://server:8080/stream?token=code-token');
+  assert.equal(f.sockets[0].url, 'ws://server:8080/stream?token=code-token&media=2&images=3');
   assert.equal(f.requests.some(r => r.url.endsWith('/cancel')), true);
   assert.equal(f.requests.find(r => r.url.endsWith('/remember')).options.headers['X-Pair-Token'], 'code-token');
 });
@@ -114,7 +114,7 @@ test('removed device clears saved credentials and offers QR or code pairing', as
   assert.equal(f.element('qr-pairing').hidden, false);
   assert.equal(f.sockets.length, 0);
   assert.match(f.element('message').textContent, /重新配对/);
-  f.submit(); await flush(); assert.equal(f.sockets[0].url, 'ws://server:8080/stream?token=code-token');
+  f.submit(); await flush(); assert.equal(f.sockets[0].url, 'ws://server:8080/stream?token=code-token&media=2&images=3');
 });
 
 test('temporary service failure preserves remembered credentials and launch retries', async () => {
@@ -128,7 +128,7 @@ test('temporary service failure preserves remembered credentials and launch retr
   assert.equal(f.element('connect').disabled, false);
   assert.equal(f.requests.some(r => r.url.endsWith('/request')), false);
   available = true; f.submit(); await flush();
-  assert.equal(f.sockets[0].url, 'ws://server:8080/stream?token=recovered-token');
+  assert.equal(f.sockets[0].url, 'ws://server:8080/stream?token=recovered-token&media=2&images=3');
 });
 
 test('quick browser link pairs but keeps launch options available until a click', async () => {
@@ -162,7 +162,7 @@ test('revocation between restore and launch forces fresh pairing instead of usin
   await flush(); revoked = true; f.submit(); await flush();
   assert.equal(f.sockets.length, 0);
   f.submit(); await flush();
-  assert.equal(f.sockets[0].url, 'ws://server:8080/stream?token=code-token');
+  assert.equal(f.sockets[0].url, 'ws://server:8080/stream?token=code-token&media=2&images=3');
 });
 
 test('HTTPS setup uses the configured port and strips pairing data, including IPv6 hosts', async () => {

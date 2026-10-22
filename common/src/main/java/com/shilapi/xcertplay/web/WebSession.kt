@@ -18,7 +18,48 @@ import java.security.SecureRandom
 
 /** Service-owned web endpoint; media sinks only publish immutable latest frames. */
 internal object WebSession {
-    data class Frame(val jpeg: ByteArray, val at: Long, val sequence: Long)
+    data class Frame(
+        val jpeg: ByteArray, val at: Long, val sequence: Long,
+        val sessionId: Long = 0, val videoEpoch: Long = 0,
+        val width: Int = 1280, val height: Int = 720,
+        val format: ImageFormat = ImageFormat.JPEG,
+        val quality: Int = ImageEncodingOptions.DEFAULT_QUALITY,
+    )
+
+    data class MediaSnapshot(
+        val sessionId: Long, val videoEpoch: Long, val width: Int, val height: Int,
+        val sourceState: String, val inputReady: Boolean, val frame: Frame?, val source: WebVideoSource?,
+    )
+
+    private var mediaSessionId = SecureRandom().nextLong().ushr(11)
+    private var mediaEnded = true
+
+    /** One coherent configuration; a static source need not publish new frames. */
+    @Synchronized fun mediaSnapshot(): MediaSnapshot = MediaSnapshot(
+        mediaSessionId, generation, width, height,
+        when {
+            mediaEnded -> "stopped"
+            videoActive -> "ready"
+            frame == null -> "starting"
+            else -> "recovering"
+        },
+        !mediaEnded && videoActive && CarPlayBackgroundSession.snapshot()?.controller?.touchReady == true,
+        frame, videoSource,
+    )
+
+    @Synchronized fun mediaMatches(sessionId: Long, epoch: Long): Boolean =
+        !mediaEnded && videoActive && sessionId == mediaSessionId && epoch == generation
+
+    /** Keep version validation and delivery in the same configuration critical section. */
+    @Synchronized fun mediaTouch(client: Any, sessionId: Long, epoch: Long,
+        contacts: List<com.shilapi.xcertplay.airplay.AirPlayContact>, at: Long): Boolean {
+        if (contacts.isNotEmpty() && (!mediaMatches(sessionId, epoch) ||
+                CarPlayBackgroundSession.snapshot()?.controller?.touchReady != true)) {
+            touch.touch(client, emptyList(), at)
+            return false
+        }
+        return touch.touch(client, contacts, at)
+    }
 
     @Volatile
     var frame: Frame? = null
@@ -101,6 +142,10 @@ internal object WebSession {
 
     val hasViewer
         get() = server?.hasViewer == true || secureServer?.hasViewer == true
+
+    val imageFormat: ImageFormat
+        get() = if (server?.hasViewer == true) server?.imageFormat ?: ImageFormat.JPEG
+            else secureServer?.imageFormat ?: ImageFormat.JPEG
 
     val audio = BrowserAudioBridge()
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -641,6 +686,8 @@ internal object WebSession {
 
     @Synchronized
     fun beginVideo(w: Int, h: Int): Long {
+        if (mediaEnded) mediaSessionId = SecureRandom().nextLong().ushr(11)
+        mediaEnded = false
         videoSource?.detach()
         videoSource = null
         width = w
@@ -655,11 +702,13 @@ internal object WebSession {
         if (owner == generation) videoSource = source
     }
 
-    fun publish(owner: Long, jpeg: ByteArray) {
+    fun publish(owner: Long, jpeg: ByteArray, format: ImageFormat = ImageFormat.JPEG,
+        quality: Int = ImageEncodingOptions.DEFAULT_QUALITY) {
         val endpoint =
             synchronized(this) {
                 if (owner != generation || server == null) return
-                frame = Frame(jpeg, SystemClock.elapsedRealtime(), ++sequence)
+                frame = Frame(jpeg, SystemClock.elapsedRealtime(), ++sequence,
+                    mediaSessionId, generation, width, height, format, quality)
                 server
             }
         // Notify outside the session monitor; encoding never waits for a socket write.
@@ -670,6 +719,7 @@ internal object WebSession {
     @Synchronized
     fun endVideo(owner: Long) {
         if (owner == generation) {
+            mediaEnded = true
             videoSource?.detach()
             videoSource = null
             generation++
@@ -680,6 +730,7 @@ internal object WebSession {
 
     @Synchronized
     fun stop() {
+        mediaEnded = true
         mdns?.close()
         mdns = null
         experienceContext = null

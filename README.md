@@ -9,7 +9,7 @@ Install the app on an Android device and open the displayed address in your car'
 ## Features
 
 - **Browser display and touch control**: CarPlay streaming, touch input, and fullscreen display.
-- **Selectable streaming modes**: Choose WebRTC video passthrough (H.264 / HEVC) or JPEG compatibility mode in settings. If passthrough fails, video automatically falls back to JPEG while audio and touch keep their existing routes.
+- **Selectable streaming modes**: Choose WebRTC video passthrough (H.264 / HEVC) or image compatibility mode in settings, with JPEG / WebP format and image quality from 1 to 100. Image streaming retains JPEG compatibility fallback and overlaps up to two frames while audio and touch keep their existing routes.
 - **Optional browser audio**: After pairing, the browser can play CarPlay audio. The browser microphone can provide CarPlay voice input through a trusted HTTPS page; Android handles audio and microphone input by default.
 - **Easy pairing**: Scan the QR code or enter a code once. Remembered browsers restore pairing automatically and retain a launch button for selecting options before streaming.
 - **iPhone connection management**: USB and wireless connections, connection status, and session management.
@@ -37,7 +37,13 @@ For 60 fps, select WebRTC video passthrough under Settings → Display & streami
 
 The WebRTC interruption tolerance setting offers 4, 10 (default), or 30 seconds and applies on the next browser connection. Recoverable interruptions keep the last video frame visible while waiting for recovery; persistent problems fall back to JPEG after the grace period. Unsupported codecs and terminal connection failures still fall back immediately. This does not enlarge the video buffer or change control and audio connection rules. Refresh the webpage after updating the App. See the [stability and troubleshooting notes](docs/WEBRTC_RECOVERY.md) (Chinese).
 
-If the video element renders incorrectly in your car's browser, enable “Use Canvas to display video (experimental)” on the webpage's connection screen before connecting. This is disabled by default. The selection is saved in the current browser and persists across automatic reconnects and page reloads; if browser storage is disabled, it applies only to the current page. WebRTC video is still decoded by an offscreen `<video>` element and drawn directly onto a visible Canvas with `drawImage()`. Video frame callbacks are preferred, with animation frames used for older browsers or when offscreen callbacks stall. Touch coordinates are mapped to the video's aspect ratio, and drawing failures trigger a fallback to JPEG. This mode may increase GPU / CPU usage. The video frame rate in the status bar still reflects the browser's video presentation statistics, not the actual Canvas drawing rate.
+The connection page offers three **Video display mode** radio cards. **Native Video** remains the default; both Canvas options are experimental:
+
+- **Native Video** displays the WebRTC stream in a video element.
+- **Compatibility Canvas** decodes with an offscreen `<video>` and copies frames with `drawImage()`. Video frame callbacks are preferred, with animation frames recovering older browsers or stalled offscreen callbacks.
+- **Direct Canvas** reads WebRTC `VideoFrame` objects through the main-thread `MediaStreamTrackProcessor` and draws them directly. It never creates a `<video>` or uses `VideoDecoder`. Worker-only Processor implementations are outside this first version. Missing support or runtime failure falls back directly to JPEG / WebP without switching to a video-element mode.
+
+The browser remembers the choice across reloads and automatic reconnects; unavailable storage retains it only in the current page. Existing Canvas preferences migrate to Compatibility Canvas. Disconnect before choosing another mode; automatic retries retain the launch choice. Both Canvas modes wait for a successfully drawn frame before stopping the image stream, and touch mapping follows actual frame dimensions. Canvas can increase GPU / CPU usage and does not guarantee 60 fps. Direct Canvas reports successful draw submissions in the status bar; the other modes retain video presentation / decoding statistics. Neither measures physical display refresh. `window.wheelplayStats.presentation` exposes selected / active modes, drawing statistics and fallback reasons.
 
 Canvas mode requires testing on car browsers such as NIO's. Changing the rendering path may help if an overlay covers only the native video element; it cannot guarantee success if the system stops decoding or overlays the entire page. Test while the vehicle is parked. Drivers should use only essential navigation interfaces while driving.
 

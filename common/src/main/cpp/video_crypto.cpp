@@ -46,7 +46,7 @@ Java_com_shilapi_xcertplay_web_NativeVideoDecoder_decrypt(JNIEnv* env, jobject, 
             mbedtls_platform_zeroize(frame->bytes.data(),frame->bytes.size());
             error(env,"javax/crypto/AEADBadTagException","Video authentication failed"); return 0;
         }
-        wheelplay::annexB(*frame);
+        wheelplay::annexB(*frame, wheelplay::VideoInputFormat::LengthPrefixed);
         return reinterpret_cast<jlong>(frame.release());
     } catch (const std::exception& e) { error(env,"java/lang/IllegalStateException",e.what()); return 0; }
 }
@@ -76,7 +76,7 @@ Java_com_shilapi_xcertplay_web_NativeVideoDecoder_importFrame(JNIEnv* env,jobjec
         auto frame = std::make_unique<wheelplay::VideoBuffer>();
         frame->pool = decoder->pool; frame->bytes = decoder->pool->acquire(size);
         env->GetByteArrayRegion(bytes,0,size,reinterpret_cast<jbyte*>(frame->bytes.data()));
-        wheelplay::annexB(*frame);
+        wheelplay::annexB(*frame, wheelplay::VideoInputFormat::LengthPrefixed);
         return reinterpret_cast<jlong>(frame.release());
     } catch (const std::exception& e) { error(env,"java/lang/IllegalStateException",e.what()); return 0; }
 }

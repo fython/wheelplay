@@ -22,7 +22,7 @@
     <string name="settings_authentication_summary">从 DiPlay APK 导入或选择自定义资源</string>
     <string name="settings_help">帮助与关于</string>
     <string name="settings_help_summary">应用权限、连接帮助、诊断报告、源码</string>
-    <string name="settings_display_effect">昼夜模式立即生效；修改画面或串流参数会重新连接。</string>
+    <string name="settings_display_effect">昼夜模式、图片格式与质量立即生效；其他画面或串流参数修改后会重新连接。</string>
     <string name="settings_audio_effect">音频输出立即生效；修改麦克风来源会重新连接。</string>
     <string name="settings_next_connection">修改后在下次连接 iPhone 生效。</string>
     <string name="settings_diplay_title">本项目基于 DiPlay 修改</string>
@@ -75,7 +75,7 @@
     <string name="settings_fps_30">30 fps · 较低负载</string>
     <string name="settings_fps_60">60 fps · 更流畅</string>
     <string name="settings_stream">串流技术</string>
-    <string name="settings_stream_description">WebRTC 支持 H.264 / HEVC 直通，浏览器不支持时自动回退 JPEG（约 15 fps）。追求 60 fps 请将协商帧率设为 60；实际帧率以网页显示为准。</string>
+    <string name="settings_stream_description">WebRTC 支持 H.264 / HEVC 直通，浏览器不支持时自动回退图片串流（约 15 fps）。追求 60 fps 请将协商帧率设为 60；实际帧率以网页显示为准。</string>
     <string name="settings_recovery">WebRTC 卡顿容忍时间</string>
     <string name="settings_recovery_description">短暂断流时保留最后一帧并等待恢复，持续异常超过所选时间才回退 JPEG。不增加视频缓冲；不支持的编码或彻底失败的连接仍立即回退。下次浏览器连接生效。</string>
     <string name="settings_hevc">允许 iPhone 使用 HEVC</string>
@@ -195,4 +195,9 @@
     <string name="settings_listener_port_saved">监听端口已保存，浏览器请使用新地址重新连接</string>
     <string name="settings_hostname_saved">Web 域名已保存</string>
     <string name="settings_mapping_port_invalid">映射端口必须为 1–1023</string>
+    <string name="settings_image_format">图片格式</string>
+    <string name="settings_image_format_description">JPEG 优先兼容性；WebP 可节省带宽，但可能增加编码开销。不支持的浏览器使用 JPEG。适用于图片兼容模式及 WebRTC 回退，无需重新连接。</string>
+    <string name="settings_image_quality">图片质量（1–100）</string>
+    <string name="settings_image_quality_description">默认 75。数值越高，细节越多，通常也更占带宽；JPEG 与 WebP 的相同数值不代表相同画质。保存后静态画面也会刷新，不影响 WebRTC 视频质量。</string>
+    <string name="settings_image_quality_invalid">请输入 1 到 100 之间的整数。</string>
 </resources>

@@ -215,7 +215,7 @@
     <string name="ui_10_seconds_default">10 秒 · 默认</string>
     <string name="ui_30_seconds_keep_webrtc_longer">30 秒 · 优先保持 WebRTC</string>
     <string name="ui_webrtc_video_passthrough_automatic_fallback">WebRTC 视频直通（自动回退）</string>
-    <string name="ui_jpeg_compatibility_mode">JPEG（兼容模式）</string>
+    <string name="ui_jpeg_compatibility_mode">图片（兼容模式）</string>
     <string name="ui_start_the_web_listener_first">请先启动 Web 监听</string>
     <string name="ui_the_shared_ip_matches_the_hotspot_gateway_choose_another">共享 IP 与热点网关相同，请选择其他地址</string>
     <string name="ui_request_root_access_first">请先请求 Root 权限</string>
@@ -301,7 +301,7 @@
     <string name="host_longest_height">最长高度</string>
     <string name="host_physical_length">物理长度</string>
     <string name="host_streaming_technology">串流技术</string>
-    <string name="host_webrtc_supports_h_264_hevc_passthrough_and_falls_back">WebRTC 支持 H.264 / HEVC 直通，浏览器不支持时回退 JPEG。追求 60 fps 请将帧率设为 60。关闭设置后生效。</string>
+    <string name="host_webrtc_supports_h_264_hevc_passthrough_and_falls_back">WebRTC 支持 H.264 / HEVC 直通，浏览器不支持时回退图片串流（JPEG / WebP）。追求 60 fps 请将帧率设为 60。关闭设置后生效。</string>
     <string name="host_hevc_h_265">HEVC (H.265)</string>
     <string name="host_hevc_h_265_video_transport">HEVC H.265 视频传输</string>
     <string name="host_hevc_software_decoder">HEVC 软件解码器</string>
@@ -541,4 +541,20 @@
     <string name="ui_nband">\n频段：</string>
     <string name="ui_your_iphone">你的 iPhone</string>
     <string name="ui_stopped">已停止</string>
+    <string name="web_ignore_browser_zoom">忽略浏览器缩放</string>
+    <string name="web_ignore_browser_zoom_help">浏览器缩放变化时，让 CarPlay 画面保持适配可见区域。此浏览器会记住选择。</string>
+    <string name="web_video_recovering">%1$s · 等待恢复 · 触控已暂停</string>
+    <string name="web_video_input_unavailable">%1$s · 等待触控输入</string>
+
+    <string name="web_video_renderer_title">视频显示方式</string>
+    <string name="web_video_renderer_native">原生 Video</string>
+    <string name="web_video_renderer_native_description">默认方式，直接显示视频。</string>
+    <string name="web_video_renderer_compat">兼容 Canvas</string>
+    <string name="web_video_renderer_compat_description">使用离屏视频解码，再绘制到画布。</string>
+    <string name="web_video_renderer_direct">直接 Canvas</string>
+    <string name="web_video_renderer_direct_description">不使用视频元素；不支持时使用 JPEG / WebP。</string>
+    <string name="web_video_renderer_experimental">实验性</string>
+    <string name="web_video_renderer_hint">此浏览器不支持直接 Canvas，连接后将使用 JPEG / WebP。</string>
+    <string name="web_video_renderer_unavailable">（直接 Canvas 不可用，已使用 JPEG / WebP）</string>
+    <string name="web_video_renderer_failed">（视频中断，已回退 JPEG / WebP）</string>
 </resources>

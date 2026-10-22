@@ -56,6 +56,8 @@ object AirPlayPersistence {
     private const val KEY_FPS = "display_fps"
     private const val KEY_STREAM_TECHNOLOGY = "web_stream_technology"
     private const val KEY_RTC_RECOVERY = "web_rtc_recovery"
+    private const val KEY_IMAGE_FORMAT = "web_image_format"
+    private const val KEY_IMAGE_QUALITY = "web_image_quality"
     private const val KEY_MEDIA_BUFFER_MS = "media_buffer_ms"
     private const val KEY_WIDTH_PHYSICAL_MM = "display_width_physical_mm"
     private const val KEY_PHYSICAL_SIZE_BASIS = "display_physical_size_basis"
@@ -417,6 +419,33 @@ object AirPlayPersistence {
         return com.shilapi.xcertplay.web.RtcRecoveryPolicy.entries.firstOrNull { it.name == value }
             ?: com.shilapi.xcertplay.web.RtcRecoveryPolicy.BALANCED
     }
+
+    fun loadImageFormat(context: Context): com.shilapi.xcertplay.web.ImageFormat {
+        val value = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_IMAGE_FORMAT, null)
+        return com.shilapi.xcertplay.web.ImageFormat.entries.firstOrNull { it.name == value }
+            ?: com.shilapi.xcertplay.web.ImageFormat.WEBP
+    }
+
+    fun saveImageFormat(context: Context, value: com.shilapi.xcertplay.web.ImageFormat) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_IMAGE_FORMAT, value.name).apply()
+    }
+
+    fun loadImageQuality(context: Context): Int = com.shilapi.xcertplay.web.ImageEncodingOptions.sanitizeQuality(
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getInt(KEY_IMAGE_QUALITY, com.shilapi.xcertplay.web.ImageEncodingOptions.DEFAULT_QUALITY),
+    )
+
+    fun saveImageQuality(context: Context, value: Int) {
+        require(value in com.shilapi.xcertplay.web.ImageEncodingOptions.QUALITY_RANGE)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putInt(KEY_IMAGE_QUALITY, value).apply()
+    }
+
+    fun imageEncoding(context: Context, browserFormat: com.shilapi.xcertplay.web.ImageFormat) =
+        com.shilapi.xcertplay.web.ImageEncodingOptions(
+            if (loadImageFormat(context) == com.shilapi.xcertplay.web.ImageFormat.JPEG)
+                com.shilapi.xcertplay.web.ImageFormat.JPEG else browserFormat,
+            loadImageQuality(context),
+        )
 
     fun saveRtcRecoveryPolicy(context: Context, value: com.shilapi.xcertplay.web.RtcRecoveryPolicy) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_RTC_RECOVERY, value.name).apply()

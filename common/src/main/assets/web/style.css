@@ -11,3 +11,10 @@
 #phone-connect{pointer-events:auto;position:relative;z-index:2}#phone-connect-message{max-width:560px}
 
 #code-entry{margin-bottom:16px}#code-entry input{width:100%;max-width:360px}#remembered-device{margin-top:28px;padding:20px 24px;background:#1c2428;border:1px solid #46514e;border-radius:16px}#remembered-device strong{font-size:18px;color:#b4d9b1}#remembered-device p{margin:8px 0 0;font-size:15px}
+
+#display.ignore-browser-zoom{position:fixed;transform-origin:0 0;z-index:3}
+#screen-next,#screen-third,#held-frame{width:100%;height:100%;object-fit:contain;touch-action:none;user-select:none;-webkit-user-select:none}#screen-next.stale,#screen-third.stale,#held-frame.stale{opacity:.2;pointer-events:none}
+
+#media-message{position:absolute;left:16px;top:16px;z-index:2;max-width:85%;padding:10px 14px;background:#1c2428e8;border-radius:12px;font-size:13px;color:#efbe90;pointer-events:none}
+
+.renderer-options{border:0;margin:28px 0 0;padding:0;min-width:0}.renderer-options legend{padding:0;margin-bottom:12px;font-size:15px;font-weight:600}.renderer-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.renderer-card{display:flex;align-items:flex-start;gap:12px;margin:0;padding:18px 16px;min-height:130px;border:1px solid #46514e;border-radius:12px;background:#1c2428;cursor:pointer}.renderer-card.selected{border-color:#b4d9b1;background:#24352c;box-shadow:inset 0 0 0 1px #b4d9b1}.renderer-card input{appearance:auto;accent-color:#b4d9b1;flex:0 0 auto;width:20px;height:20px;margin:2px 0 0;padding:0;letter-spacing:0}.renderer-card span{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.renderer-card strong{font-size:15px;line-height:1.5}.renderer-card em{font-style:normal;font-size:11px;color:#b4d9b1;border:1px solid #465e4b;border-radius:4px;padding:1px 5px}.renderer-card small{flex-basis:100%;margin-top:3px;font-size:13px;line-height:1.6;color:#b5beb9}.renderer-hint{font-size:13px;line-height:1.6;color:#efbe90;margin:12px 0 0}@media(max-width:759px){.renderer-cards{grid-template-columns:1fr}.renderer-card{min-height:0;padding:16px}}
