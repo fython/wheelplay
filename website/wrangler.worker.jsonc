@@ -3,6 +3,8 @@
   "name": "wheelplay-website",
   "main": "./worker/index.ts",
   "compatibility_date": "2026-10-23",
+  // Required by `wrangler preview`; static assets remain configured at the top level.
+  "previews": {},
   "observability": {
     "enabled": false,
     "head_sampling_rate": 1,

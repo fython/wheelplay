@@ -103,7 +103,21 @@ npx wrangler@4.152.0 deploy --config website/wrangler.worker.jsonc --dry-run
 npx wrangler@4.152.0 deploy --config website/wrangler.worker.jsonc
 ```
 
-Workers Git 构建设置根目录 `website`、Node.js 24、构建命令 `npm run build`、部署命令 `npx wrangler@4.152.0 deploy --config wrangler.worker.jsonc`。按需修改配置中的 `name`。
+Workers Git 构建设置：
+
+| 设置 | 值 |
+| --- | --- |
+| 根目录 | `website` |
+| Node.js | `24` |
+| 构建命令 | `npm run build` |
+| 生产部署命令 | `npx wrangler@4.152.0 deploy --config wrangler.worker.jsonc` |
+| PR／非生产分支预览命令 | `npx wrangler@4.152.0 preview --config wrangler.worker.jsonc` |
+
+生产部署和预览命令是 Cloudflare Build 设置中的两个独立字段，两个命令都必须指定 Worker 配置，否则会读取用于 Pages 的默认 `wrangler.jsonc`。按需修改配置中的 `name`。
+
+`wrangler.worker.jsonc` 包含 `previews: {}`，用于启用分支预览。此网站没有需要单独配置的数据绑定；`assets`（包括 `ASSETS`）及兼容性设置保留在顶层，预览上传当前分支构建出的静态文件。不要将生产部署命令用于 PR 预览，否则会发布到生产环境。
+
+预览不会自动继承生产 `GITHUB_TOKEN`。如需提高预览下载入口的 GitHub API 限额，在 Worker 设置的 **Previews Base → Variables and Secrets** 中配置同名 Secret，供之后新建的预览使用；已存在的预览需要单独更新 Secret。无需把 token 写入配置文件，也不要只设置 Build 环境变量。详见 [Cloudflare Previews 配置](https://developers.cloudflare.com/workers/previews/configuration/)。
 
 Pages Functions 和独立 Workers 共用同一个下载解析器，是两种独立托管方式，任选其一即可，无需同时部署。若未来增加按需服务端渲染，再引入对应 Astro adapter 并调整输出方式。部署凭据只配置在 Cloudflare 账户或 CI Secrets 中。
 
