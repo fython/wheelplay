@@ -162,3 +162,34 @@ test('malformed seek inputs are ignored and timeout retains only the final pendi
   assert.equal(f.sent.length, 2); assert.equal(f.sent[1].positionMs, 42000);
   f.tick(5000); assert.equal(f.sent.length, 2, 'Never retry a sent seek');
 });
+
+test('successive relative seeks accumulate until the phone confirms the new position', () => {
+  const f = fixture();
+  f.bridge.receive({ ...f.state, canSeek: true, status: 'paused', positionMs: 20000 });
+  f.handlers.get('seekforward')(); f.tick();
+  assert.equal(f.sent[0].positionMs, 30000);
+  f.bridge.receive({ type: 'media-command-result', requestId: 1, result: 'sent' });
+  f.handlers.get('seekforward')(); f.tick();
+  assert.equal(f.sent[1].positionMs, 40000);
+});
+
+
+test('relative seek targets expire, follow phone confirmation and clear on rejection', () => {
+  const f = fixture();
+  const report = { ...f.state, canSeek: true, status: 'paused', positionMs: 20000 };
+  f.bridge.receive(report);
+  f.handlers.get('seekforward')(); f.tick();
+  f.bridge.receive({ type: 'media-command-result', requestId: 1, result: 'sent' });
+  // A metadata/progress snapshot before the phone applies the seek must not lose the target.
+  f.bridge.receive({ ...report, revision: 2, title: 'Lyric' });
+  f.handlers.get('seekforward')(); f.tick(); assert.equal(f.sent.at(-1).positionMs, 40000);
+  f.bridge.receive({ type: 'media-command-result', requestId: 2, result: 'sent' });
+  f.bridge.receive({ ...report, revision: 3, positionMs: 40500 });
+  f.handlers.get('seekbackward')(); f.tick(); assert.equal(f.sent.at(-1).positionMs, 30500);
+  f.bridge.receive({ type: 'media-command-result', requestId: 3, result: 'unsupported' });
+  f.handlers.get('seekforward')(); f.tick(); assert.equal(f.sent.at(-1).positionMs, 50500);
+  f.bridge.receive({ type: 'media-command-result', requestId: 4, result: 'sent' });
+  f.advance(3001); f.handlers.get('seekforward')(); f.tick();
+  assert.equal(f.sent.at(-1).positionMs, 50500, 'An unconfirmed target expires instead of accumulating forever');
+  assert.equal(f.positions.at(-1).position, 40.5, 'Only phone reports affect displayed progress');
+});

@@ -10,12 +10,12 @@ export function createBrowserMediaSession({
   const actions = ['play', 'pause', 'stop', 'previoustrack', 'nexttrack'];
   const seekActions = ['seekto', 'seekbackward', 'seekforward'];
   let opened = false, state = null, revision = -1, epoch = 0, controls = null, metadataKey = null;
-  let request = 0, pending = null, queuedSeek = null, seekTimer = null, stateAt = 0;
+  let request = 0, pending = null, queuedSeek = null, seekTimer = null, stateAt = 0, seekTarget = null;
   const safely = operation => { try { operation(); } catch (_) { /* Optional browser capability. */ } };
 
   function clear() {
     epoch++; controls = null; metadataKey = null; pending = null;
-    cancel(seekTimer); seekTimer = null; queuedSeek = null;
+    cancel(seekTimer); seekTimer = null; queuedSeek = null; seekTarget = null;
     if (!session) return;
     safely(() => { session.metadata = null; });
     safely(() => { session.playbackState = 'none'; });
@@ -26,6 +26,13 @@ export function createBrowserMediaSession({
   const seekable = () => state?.canSeek === true && Number.isFinite(state.durationMs) && state.durationMs > 0 &&
     Number.isFinite(state.positionMs);
 
+  function targetPosition() {
+    if (!seekTarget || now() - seekTarget.at >= 3000) return null;
+    const elapsed = state.status === 'playing' ? Math.max(0, now() - seekTarget.at) *
+      (Number.isFinite(state.speed) && state.speed > 0 ? state.speed : 1) : 0;
+    return Math.min(state.durationMs, seekTarget.positionMs + elapsed);
+  }
+
   function flushSeek() {
     seekTimer = null;
     if (queuedSeek === null || !opened || !state?.available || !seekable()) return;
@@ -35,10 +42,11 @@ export function createBrowserMediaSession({
     const positionMs = queuedSeek; queuedSeek = null;
     const id = ++request;
     pending = { id, at: now(), positionMs };
+    seekTarget = pending;
     const accepted = send({ type: 'media-command', requestId: id, sessionId: state.sessionId,
       connectionGeneration: state.connectionGeneration, trackRevision: state.trackRevision,
       action: 'seekto', positionMs });
-    if (!accepted) pending = null;
+    if (!accepted) { pending = null; seekTarget = null; }
     // The phone's subsequent position report is authoritative, including when it rejects a seek.
   }
 
@@ -46,7 +54,7 @@ export function createBrowserMediaSession({
     const key = `${state.sessionId}/${state.connectionGeneration}/${state.trackRevision}/${seekable()}`;
     if (controls === key) return;
     controls = key; pending = null;
-    cancel(seekTimer); seekTimer = null; queuedSeek = null;
+    cancel(seekTimer); seekTimer = null; queuedSeek = null; seekTarget = null;
     const expectedEpoch = ++epoch;
     for (const action of seekActions) safely(() => session.setActionHandler(action, seekable() ? (details = {}) => {
       if (!opened || !state?.available || epoch !== expectedEpoch || !seekable()) return;
@@ -59,7 +67,7 @@ export function createBrowserMediaSession({
         if (!Number.isFinite(offset) || offset <= 0) return;
         const elapsed = state.status === 'playing' ? Math.max(0, now() - stateAt) *
           (Number.isFinite(state.speed) && state.speed > 0 ? state.speed : 1) : 0;
-        const position = queuedSeek ?? pending?.positionMs ?? Math.min(state.durationMs, state.positionMs + elapsed);
+        const position = queuedSeek ?? targetPosition() ?? Math.min(state.durationMs, state.positionMs + elapsed);
         target = position + (action === 'seekforward' ? 1 : -1) * offset * 1000;
       }
       if (!Number.isFinite(target)) return;
@@ -113,6 +121,7 @@ export function createBrowserMediaSession({
     close() { opened = false; state = null; revision = -1; clear(); },
     receive(data) {
       if (data.type === 'media-command-result') {
+        if (seekTarget?.id === data.requestId && data.result !== 'sent') seekTarget = null;
         if (opened && pending?.id === data.requestId) pending = null;
         return true;
       }
@@ -121,6 +130,11 @@ export function createBrowserMediaSession({
           !Number.isSafeInteger(data.connectionGeneration) || !Number.isSafeInteger(data.trackRevision)) return true;
       revision = data.revision;
       state = data; stateAt = now();
+      // A transport receipt can precede the phone's position update. Retain the target for
+      // successive relative actions, but never use it as the displayed playback position.
+      const target = targetPosition();
+      if (target === null || Number.isFinite(data.positionMs) && Math.abs(data.positionMs - target) <= 1000)
+        seekTarget = null;
       render();
       return true;
     },
