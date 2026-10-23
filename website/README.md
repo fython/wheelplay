@@ -1,65 +1,88 @@
-# WheelPlay 官网
+# WheelPlay 官网（Astro）
 
-独立于 Android 内置浏览器客户端的静态产品官网。采用原生 HTML、CSS 和 JavaScript，无运行时第三方依赖、远程字体、分析 SDK 或设备连接请求。只有深浅主题偏好会写入浏览器 localStorage；导航／音乐／配对面板均为明确标注的界面示意。
+独立于 Android 内置浏览器客户端的 Astro 静态产品官网。页面由 Astro 组件在构建时生成，浏览器仅加载全局 CSS 和少量 TypeScript 编译出的主题、标签页交互脚本，无需 React/Vue hydration 或服务端运行时。没有远程字体、分析 SDK 或设备连接请求；只有深浅主题偏好会写入 localStorage。
 
-参考 [Lovable JSON Formatter 模板](https://lovable.dev/templates/apps/developer-tools/json-formatter) 的蓝色强调、双栏工作区和标签式输出布局，重新设计为产品介绍网站。模板说明页可访问，交互预览未能访问；未复制模板源码或声称逐像素复刻。产品功能以本仓库 README 和文档为依据。
+设计参考 [Lovable JSON Formatter 模板](https://lovable.dev/templates/apps/developer-tools/json-formatter) 的蓝色强调、双栏工作区和标签页布局。保留 WheelPlay 的既有图标、产品文案、响应式样式和交互示意。
 
 ## 本地开发
 
-需要 Node.js 22+，不需要运行 `npm install`，也不需要 Android SDK。
+推荐 Node.js 24 LTS（Astro 7.4.2 要求至少 Node.js 22.23.4）。官网依赖与仓库根目录的 Android 开发工具独立，不需要 Android SDK。
 
 从仓库根目录运行：
 
 ```sh
+npm ci --prefix website
 npm run site:dev
-npm run site:check
-npm run site:build
 ```
 
-预览地址为 `http://127.0.0.1:4173`。可通过 `PORT=4180 npm run site:dev` 修改端口。预览服务器启动时构建一次，修改文件后需重新运行构建或重启预览；不含自动刷新。构建只清理并重建 `website/dist/`，不会修改 Android 资源。
+开发地址为 `http://127.0.0.1:4173`，修改 Astro 组件、样式和脚本会自动更新。自定义端口可运行 `npm --prefix website run dev -- --port 4180`。
+
+```sh
+npm run site:check    # Astro 模板和 TypeScript 检查
+npm run site:build    # 输出 website/dist/
+npm run site:test     # 检查已构建产物、CSP 兼容性和共享资源
+npm run site:preview  # Astro 预览已构建产物
+```
+
+`site:preview` 不会重新构建，请先运行 `site:build`。Astro 开发服务器和预览服务器不解释 Cloudflare 的 `_headers`；如需验证生产 CSP、响应头和路由，先构建，再运行：
+
+```sh
+npx wrangler@4.152.0 pages dev --cwd website --port 4174
+```
+
+## 项目结构
 
 | 路径 | 用途 |
 | --- | --- |
-| `public/index.html` | 官网结构、产品文案、GitHub 和文档链接 |
-| `public/style.css` | 响应式样式、深浅主题、减少动态效果支持 |
-| `public/app.js` | 主题切换、键盘可操作的预览标签页 |
-| `public/_headers` | Cloudflare 静态资源响应头，本地预览也会应用 |
-| `public/404.html` | 独立 404 页面，避免将未知路径当作 SPA 首页 |
-| `scripts/build.mjs` | 拷贝静态文件及仓库现有 App 图标和图标许可证 |
-| `wrangler.worker.jsonc` | Workers Static Assets 配置，通过 `--config` 显式选择 |
-| `wrangler.jsonc` | Pages Git 集成和 CLI 的默认配置 |
+| `astro.config.mjs` | 静态输出、开发端口、CSS/JS 外部文件策略 |
+| `src/layouts/BaseLayout.astro` | HTML 外壳、SEO 元数据、全局样式 |
+| `src/pages/index.astro` | 组合首页各功能区 |
+| `src/pages/404.astro` | 独立 404 页面与 `noindex` 元数据 |
+| `src/components/` | 品牌、导航、首屏、交互示意、功能、使用步骤、FAQ、页脚 |
+| `src/scripts/` | 类型检查和打包后的主题／标签页交互 |
+| `src/styles/global.css` | 既有响应式样式、深浅主题、减少动态效果支持 |
+| `src/pages/assets/` | 构建时生成的图标和许可证静态资源路由 |
+| `public/_headers` | 原样复制到构建目录的 Cloudflare 响应头 |
+| `test/build.test.mjs` | 构建产物和 CSP 回归检查 |
+| `wrangler.jsonc` | Pages 默认配置 |
+| `wrangler.worker.jsonc` | Workers Static Assets 配置 |
+
+共享图标与许可证由静态资源路由直接导入 `docs/` 中的原文件，保留 `/assets/app-icon.svg` 和 `/assets/Material-Symbols-Apache-2.0.txt` 地址。构建后只输出静态文件，不需要 API 服务，也不维护重复素材或额外拷贝脚本。应保留完整仓库供构建使用。
+
+Astro 组件中的 `<script>` 由框架打包为带哈希的外部文件。配置禁用小脚本及 CSS 内联，以满足 `_headers` 中的 `script-src 'self'` 和 `style-src 'self'`；不要为迁就构建输出加入 `unsafe-inline`。构建回归检查会验证这一点。
 
 ## Cloudflare Pages
 
-在 Cloudflare 中连接本仓库，选择 Pages 项目：
+连接本仓库后使用以下构建设置：
 
 | 设置 | 值 |
 | --- | --- |
-| 框架预设 | None |
+| 框架预设 | Astro |
 | 根目录 | `website` |
+| 依赖安装 | 使用提交的 `package-lock.json`；本地和 CI 使用 `npm ci` |
 | 构建命令 | `npm run build` |
 | 输出目录 | `dist` |
-| Node.js 版本 | `22` 或更新版本，可设置 `NODE_VERSION=22` |
-| 生产分支 | 选择官网代码所在分支；合并后可设为 `main` |
+| 环境变量 | `NODE_VERSION=24` |
+| 生产分支 | 官网代码所在分支；合并后可设为 `main` |
 
-构建需要完整仓库中的 `docs/assets/app-icon.svg` 和 `docs/licenses/Material-Symbols-Apache-2.0.txt`，请勿只上传未构建的 `website/` 源文件。Pages 会读取默认 `wrangler.jsonc` 中的 `pages_build_output_dir`。Pages 不支持自定义配置路径，因此保留默认文件名；Workers 使用独立命名的配置。
+Pages 读取默认 `wrangler.jsonc` 中的 `pages_build_output_dir`。Pages 不支持自定义配置路径，因此将默认文件名留给 Pages，Workers 使用独立命名的配置。
 
-也可以先在本地构建，再通过 Wrangler 上传（以下命令从仓库根目录运行）：
+从仓库根目录手动上传：
 
 ```sh
+npm ci --prefix website
 npm run site:build
 npx wrangler@4.152.0 pages deploy --cwd website
 ```
 
-首次使用需登录 Cloudflare，并选择或创建 `wheelplay-website` Pages 项目。若项目名不同，更新 `wrangler.jsonc` 中的 `name`。Git 集成和直接上传的项目创建方式请按自己的发布流程选择。
+首次发布需要登录 Cloudflare，并选择或创建 `wheelplay-website` Pages 项目。若项目名称不同，更新 `wrangler.jsonc` 的 `name`。按照自己的发布流程选择 Git 集成或直接上传项目。
 
 ## Cloudflare Workers
 
-同一构建也支持 Workers Static Assets。官网目前没有后端业务，因此无需自定义 Worker handler、数据库或 Secrets。静态资源配置本身即可作为 Worker 部署，不必把 CarPlay 局域网服务迁到云端。
-
-从仓库根目录运行：
+官网使用 Astro 的 `output: 'static'`，无需 `@astrojs/cloudflare` SSR adapter、Worker handler、数据库或 Secrets，现有 Workers Static Assets 配置直接托管 `dist/`。
 
 ```sh
+npm ci --prefix website
 npm run site:build
 # 仅校验打包，不发布
 npx wrangler@4.152.0 deploy --config website/wrangler.worker.jsonc --dry-run
@@ -67,26 +90,23 @@ npx wrangler@4.152.0 deploy --config website/wrangler.worker.jsonc --dry-run
 npx wrangler@4.152.0 deploy --config website/wrangler.worker.jsonc
 ```
 
-使用 Workers Git 构建时，设置根目录 `website`、构建命令 `npm run build`、部署命令 `npx wrangler@4.152.0 deploy --config wrangler.worker.jsonc`。按需修改配置中的 `name`。后续若需要真正的 API，可在此配置中增加 `main` 和 Assets binding，而不影响 Android 应用。
+Workers Git 构建设置根目录 `website`、Node.js 24、构建命令 `npm run build`、部署命令 `npx wrangler@4.152.0 deploy --config wrangler.worker.jsonc`。按需修改配置中的 `name`。
 
-Pages 和 Workers 是两种独立托管方式，任选其一即可运行官网；无需同时部署。部署凭据只配置在你的 Cloudflare 账户或 CI Secrets 中，不写入仓库。
+Pages 和 Workers 是两种独立托管方式，任选其一即可，无需同时部署。若未来增加按需服务端渲染，再引入对应 Astro adapter 并调整输出方式。部署凭据只配置在 Cloudflare 账户或 CI Secrets 中。
 
-官方参考：[Pages 静态 HTML](https://developers.cloudflare.com/pages/framework-guides/deploy-anything/)、[Workers Static Assets](https://developers.cloudflare.com/workers/static-assets/get-started/)。
+官方参考：[Astro 部署到 Cloudflare](https://docs.astro.build/en/guides/deploy/cloudflare/)、[Workers Static Assets](https://developers.cloudflare.com/workers/static-assets/get-started/)。
 
 ## 内容维护
 
-- 下载入口使用现有 GitHub Actions 工作流与实际产物名 `wheelplay-debug-apk`。没有假设存在稳定版 Release；获取开发产物需要登录 GitHub，且过期产物可能不可下载。发布稳定版后可在 `index.html` 替换入口及相邻说明。
-- 页面默认中文，提供英文项目文档入口；未声称官网支持双语切换。
-- 导航图和音乐图案是本站 CSS/SVG 示意，不是真实 CarPlay 截图；预览不播放音频，也不连接设备。
-- 沿用仓库现有绿色 App 图标。Material Symbols 图标许可证随构建输出到 `/assets/Material-Symbols-Apache-2.0.txt`，来源见 [`docs/APP_ICON.md`](../docs/APP_ICON.md)。其余简单线条图标和场景由本站绘制。
-- 官网部署地址确定前，不写入虚构的 canonical、站点地图域名或分享图 URL。确定域名后可补充这些 SEO 元数据。
-- CSP 限制外部脚本和网络请求。若后续添加分析或外部 API，需同步维护 `_headers`，而不是直接关闭 CSP。
+- `GettingStarted.astro` 中的下载入口使用现有 GitHub Actions 工作流与产物名 `wheelplay-debug-apk`。下载需要登录 GitHub，产物可能过期；发布稳定版后在此组件中替换入口和相邻说明。
+- `ExperiencePreview.astro` 中的导航、音乐、配对是明确标注的示意，不是真实 CarPlay 截图，不播放音频，也不连接设备。
+- 页面默认中文，并提供英文项目文档入口。
+- 绿色 App 图标与 Material Symbols 许可证沿用仓库文件，来源见 [`docs/APP_ICON.md`](../docs/APP_ICON.md)。
+- 部署域名确定后，可在 Astro 配置中增加 `site`，并在共享布局中补充 canonical 和分享图片；目前不写入虚构域名。
+- 添加分析或外部 API 时，需要同步维护 CSP，不能直接关闭策略。
 
 ## 验证
 
-`npm run site:check` 检查脚本语法，`npm run site:build` 生成完整静态产物；网站 CI 执行这两项并上传构建产物。发布前可用浏览器确认以下行为：
+网站 CI 使用 Node.js 24 和锁文件安装依赖，依次执行 Astro 检查、静态构建和产物测试，然后上传 `dist/`。产物测试确认首页交互脚本和两条页面路由的 CSS 均是有效的本地外部文件、404 带 `noindex`、共享图标／许可证／响应头没有丢失。
 
-- 桌面和手机上无横向溢出；三个预览标签均可切换。
-- 标签页支持方向键、Home/End；深浅主题刷新后保留，禁用存储时仍可切换。
-- FAQ 可展开；无 JavaScript 时仍能阅读正文、使用文档／构建链接和展开 FAQ。
-- 未知路径返回 404，图标、CSS、JS 加载成功；控制台无 CSP 错误。
+浏览器回归检查应覆盖桌面和手机布局、三个标签页、方向键与 Home/End、主题保存、禁止存储、FAQ、无 JavaScript 阅读，以及 Cloudflare 本地运行器下的 CSP 和 404 响应。

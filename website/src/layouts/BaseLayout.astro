@@ -1,0 +1,40 @@
+---
+import "../styles/global.css";
+
+interface Props {
+  title?: string;
+  description?: string;
+  socialDescription?: string;
+  noIndex?: boolean;
+  bodyClass?: string;
+}
+const {
+  title = "WheelPlay · 让 CarPlay，在浏览器里就位",
+  description = "WheelPlay 是开源的 Android 局域网 CarPlay 服务端。将 iPhone 的 CarPlay 带到车机浏览器，支持触控、USB 与无线连接，无需在车机安装客户端。",
+  socialDescription = "一部 Android，一块车机屏幕。通过局域网，在浏览器里显示和操作 iPhone 的 CarPlay。",
+  noIndex = false,
+  bodyClass,
+} = Astro.props;
+---
+
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content={Astro.generator} />
+    <meta name="theme-color" content="#f8fafc" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="zh_CN" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={socialDescription} />
+    {noIndex && <meta name="robots" content="noindex" />}
+    <title>{title}</title>
+    <link rel="icon" href="/assets/app-icon.svg" type="image/svg+xml" />
+  </head>
+  <body class={bodyClass}>
+    <slot />
+  </body>
+</html>

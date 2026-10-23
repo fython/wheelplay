@@ -8,7 +8,7 @@ Install the app on an Android device and open the displayed address in your car'
 
 ## Product website
 
-The product website lives in [`website/`](website/README.md), separately from the Android-hosted LAN client. With Node.js 22+, run `npm run site:dev` to preview or `npm run site:build` to generate `website/dist/`. No npm dependencies are required. See the [website guide](website/README.md) for Cloudflare Pages and Workers deployment.
+The Astro product website lives in [`website/`](website/README.md), separately from the Android-hosted LAN client. With Node.js 24 LTS, run `npm ci --prefix website`, then `npm run site:dev` for live development or `npm run site:build` to generate `website/dist/`. See the [website guide](website/README.md) for Cloudflare Pages and Workers deployment.
 
 ## Features
 

@@ -10,8 +10,10 @@
   },
   "scripts": {
     "site:dev": "npm run dev --prefix website",
+    "site:preview": "npm run preview --prefix website",
     "site:build": "npm run build --prefix website",
     "site:check": "npm run check --prefix website",
+    "site:test": "npm run test:build --prefix website",
     "dev": "node scripts/preview.mjs",
     "demo": "node scripts/preview.mjs --demo",
     "test": "node --test test/*.test.js",

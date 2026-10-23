@@ -1,0 +1,13 @@
+---
+interface Props {
+  href?: string;
+  size?: number;
+  label?: boolean;
+}
+const { href = "/", size = 32, label = false } = Astro.props;
+---
+
+<a class="brand" href={href} aria-label="WheelPlay 首页">
+  <img src="/assets/app-icon.svg" width={size} height={size} alt="" />
+  WheelPlay{label && <span class="brand-label">开源项目</span>}
+</a>

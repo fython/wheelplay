@@ -8,7 +8,7 @@ WheelPlay 是一款 Android 局域网 CarPlay 服务端应用，可将 iPhone �
 
 ## 项目官网
 
-介绍网站位于 [`website/`](website/README.md)，与 Android 内置的局域网浏览器客户端独立。使用 Node.js 22+ 在仓库根目录运行 `npm run site:dev` 预览，运行 `npm run site:build` 生成 `website/dist/`。无需安装 npm 依赖；Cloudflare Pages 和 Workers 部署配置见[官网说明](website/README.md)。
+Astro 官网位于 [`website/`](website/README.md)，与 Android 内置的局域网浏览器客户端独立。推荐 Node.js 24 LTS，在仓库根目录先运行 `npm ci --prefix website` 安装官网依赖，再运行 `npm run site:dev` 开发预览，或运行 `npm run site:build` 生成 `website/dist/`。Cloudflare Pages 和 Workers 部署配置见[官网说明](website/README.md)。
 
 ## 功能
 
