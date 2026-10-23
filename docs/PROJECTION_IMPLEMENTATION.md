@@ -1,5 +1,7 @@
 # 投影输入源框架：当前实现
 
+后续 Android Auto USB/TCP 协议实现、使用方法和 ICCOA SDK 阻塞见 [Android Auto 接入](ANDROID_AUTO.md)。下文记录 #33 框架阶段的范围。
+
 对应 [#28](https://github.com/fython/wheelplay/issues/28)，实现基线为 `66d0455`（PR #31 合入后的 main）。继续使用 Kotlin/C++，没有引入 Rust 后端或承诺普通 Linux 宿主支持。
 
 本次落实公共框架、CarPlay 兼容适配及三种诊断源，即 P0–P2 的代码基础。P1 的 CarPlay 真机回归、P2 的设备性能验收，以及 P3–P5 的真实新协议接入仍需单独验收；不能据此关闭整个跟踪 Issue。完整研究背景保存在 [设计草案](INPUT_SOURCE_FRAMEWORK.md)。

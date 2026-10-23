@@ -2,10 +2,14 @@
 <resources>
     <string name="projection_sources">Projection sources</string>
     <string name="projection_demo_hint">Diagnostic sources work without CarPlay authentication. Surface and framebuffer demos show touch feedback; the H.264 clip is read-only.</string>
-    <string name="projection_choose_demo">Choose a diagnostic source</string>
+    <string name="projection_choose_demo">Choose projection source</string>
     <string name="projection_stop">Stop projection</string>
     <string name="projection_failed">Could not change source: %1$s</string>
     <string name="projection_waiting">Waiting for a projection source</string>
     <string name="projection_active">Source: %1$s</string>
     <string name="projection_busy">A projection source is already active. Switch sources in WheelPlay.</string>
+    <string name="aa_tcp_title">Android Auto phone address</string>
+    <string name="aa_tcp_hint">Enable Android Auto developer mode and start its Head Unit Server. Enter the phone address reachable from this host (TCP 5277). Audio plays on the host. Microphone uses the Android setting; browser microphone is unavailable.</string>
+    <string name="aa_invalid_address">Enter a valid phone IPv4 address.</string>
+    <string name="iccoa_sdk_unavailable">ICCOA CarLink needs the proprietary SDK. It is not included in the public MiAuto repository or this build; CarLink protocol integration is unavailable.</string>
 </resources>

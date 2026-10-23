@@ -2,10 +2,14 @@
 <resources>
     <string name="projection_sources">投影輸入源</string>
     <string name="projection_demo_hint">診斷源無需 CarPlay 認證。Surface 和 framebuffer 示範支援觸控回饋，H.264 測試串流為唯讀畫面。</string>
-    <string name="projection_choose_demo">選擇診斷輸入源</string>
+    <string name="projection_choose_demo">選擇投影輸入源</string>
     <string name="projection_stop">停止投影</string>
     <string name="projection_failed">無法切換輸入源：%1$s</string>
     <string name="projection_waiting">等待連接投影輸入源</string>
     <string name="projection_active">輸入源：%1$s</string>
     <string name="projection_busy">已有投影輸入源運行，請在 WheelPlay 中切換輸入源。</string>
+    <string name="aa_tcp_title">Android Auto 手機位址</string>
+    <string name="aa_tcp_hint">在手機 Android Auto 開發者設定中啟動 Head Unit Server，輸入宿主可存取的手機位址（TCP 5277）。音訊由宿主播放；麥克風使用 Android 設定，不支援瀏覽器麥克風。</string>
+    <string name="aa_invalid_address">請輸入有效的手機 IPv4 位址。</string>
+    <string name="iccoa_sdk_unavailable">ICCOA CarLink 需要專有 SDK。MiAuto 公開倉庫及本安裝套件均不包含該執行庫，目前無法接入 CarLink 協議。</string>
 </resources>

@@ -567,12 +567,36 @@ class DiPlayActivity : AppCompatActivity() {
         val sources = projectionSessions.sources()
         android.app.AlertDialog.Builder(this).setTitle(getString(UiR.string.projection_choose_demo))
             .setItems(sources.map { it.descriptor.displayName }.toTypedArray()) { _, index ->
-                startWebServiceIfReady()
-                projectionSessions.switchTo(sources[index].descriptor.id).whenComplete { _, failure -> runOnUiThread {
-                    if (failure != null) toast(getString(UiR.string.projection_failed, failure.cause?.message ?: failure.message.orEmpty()))
-                    refreshStatus(); refreshService()
-                } }
+                val id = sources[index].descriptor.id
+                if (id == "android-auto-tcp") {
+                    val host = android.widget.EditText(this).apply {
+                        setSingleLine(true)
+                        hint = "192.168.1.2"
+                        setText(getSharedPreferences("projection", 0).getString("aa_host", ""))
+                    }
+                    android.app.AlertDialog.Builder(this)
+                        .setTitle(getString(UiR.string.aa_tcp_title))
+                        .setMessage(getString(UiR.string.aa_tcp_hint))
+                        .setView(host)
+                        .setPositiveButton(android.R.string.ok) { _, _ ->
+                            val address = host.text.toString().trim()
+                            if (!com.shilapi.xcertplay.projection.androidauto.AapTcpConnection.validAddress(address)) {
+                                toast(getString(UiR.string.aa_invalid_address))
+                            } else {
+                                getSharedPreferences("projection", 0).edit().putString("aa_host", address).putInt("aa_port", 5277).apply()
+                                startProjectionSource(id)
+                            }
+                        }.setNegativeButton(android.R.string.cancel, null).show()
+                } else startProjectionSource(id)
             }.setNegativeButton(android.R.string.cancel, null).show()
+    }
+
+    private fun startProjectionSource(id: String) {
+        startWebServiceIfReady()
+        projectionSessions.switchTo(id).whenComplete { _, failure -> runOnUiThread {
+            if (failure != null) toast(getString(UiR.string.projection_failed, failure.cause?.message ?: failure.message.orEmpty()))
+            refreshStatus(); refreshService()
+        } }
     }
 
     private fun refreshAuthentication() {
