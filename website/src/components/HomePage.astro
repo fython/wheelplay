@@ -4,6 +4,7 @@ const { t } = useTranslations(Astro.url.pathname);
 import BaseLayout from "../layouts/BaseLayout.astro";
 import SiteHeader from "./SiteHeader.astro";
 import Hero from "./Hero.astro";
+import InputSources from "./InputSources.astro";
 import ExperiencePreview from "./ExperiencePreview.astro";
 import Features from "./Features.astro";
 import GettingStarted from "./GettingStarted.astro";
@@ -17,6 +18,7 @@ import SiteFooter from "./SiteFooter.astro";
   <SiteHeader />
   <main id="main">
     <Hero />
+    <InputSources />
     <ExperiencePreview />
     <Features />
     <GettingStarted />

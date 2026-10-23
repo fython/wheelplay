@@ -37,7 +37,7 @@ npx wrangler@4.152.0 dev --config website/wrangler.worker.jsonc --port 4174
 | `astro.config.mjs` | 静态输出、开发端口、CSS/JS 外部文件策略 |
 | `src/layouts/BaseLayout.astro` | HTML 外壳、SEO 元数据、全局样式 |
 | `src/pages/index.astro` | 中文首页路由，共用 HomePage 组件 |
-| `src/pages/docs/*.md` | 使用指南、常见问题正文及页面元数据 |
+| `src/pages/docs/*.md` | 使用指南、输入源与兼容性、常见问题正文及页面元数据 |
 | `src/pages/en/` | 英文首页和英文 Markdown 文档 |
 | `src/i18n/` | 类型检查的英文界面翻译、语言识别与站内链接工具 |
 | `src/components/HomePage.astro` | 两种语言共用的首页结构 |
