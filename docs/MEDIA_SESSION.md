@@ -69,6 +69,34 @@ Enabling seek requires reliable protocol evidence or a device capture confirming
 
 Synthetic fixtures and successful sends cannot establish these protocol behaviors.
 
+## Browser / head-unit Media Session
+
+The paired browser receives the same iPhone-authoritative Now Playing state as the Android native session. `browser-media-session.js` maps it to the optional Web Media Session API (`navigator.mediaSession`): title, artist, album, JPEG artwork, playback state, duration, position, and play/pause/previous/next controls. Stop maps to pause. Seek handlers remain disabled. Missing or partially implemented APIs do not interrupt video, touch, or browser audio. This also works as a remote control when audio is routed through Android; it does not change the selected audio route or add a synthetic audio track to activate system UI.
+
+`/stream?...&nowPlaying=1` opts into the protocol; clients without the capability keep their existing messages. `BrowserMediaBridge` follows background controller replacement, subscribes to the initial and incremental media snapshots, and closes both subscriptions when its viewer leaves. Observers only post work to the main thread. Small state messages use the existing coalescing `WebStreamSender` control queue; no writes run on the iAP2 reader.
+
+Server → browser `now-playing` fields:
+
+| Field | Meaning |
+| --- | --- |
+| `sessionId` | Opaque binding ID, replaced whenever the controller changes, including replacement controllers with the same connection generation |
+| `revision` | Monotonically increasing snapshot revision within this WebSocket connection |
+| `connectionGeneration`, `trackRevision` | iPhone connection and track identity boundaries |
+| `connected`, `available` | Connection and Now Playing availability; unavailable snapshots clear the browser session |
+| `title`, `artist`, `album`, `appName` | Nullable display metadata, including possible live lyrics |
+| `status` | `unknown`, `stopped`, `playing`, `paused`, `seek_forward`, or `seek_backward`; only playing/paused map to those Web API states, others map to `none` |
+| `durationMs`, `positionMs`, `speed` | Nullable duration/position in milliseconds, position extrapolated using the server's monotonic clock at publication, and reported playback rate |
+| `canSeek` | Always false until the underlying seek protocol is verified |
+| `artworkUrl` | Nullable same-origin `/now-playing/artwork?id=...` capability URL |
+
+The browser converts milliseconds to seconds, clamps position to duration, clears unknown positions, and uses a positive API playback rate while setting `playbackState` to paused. It does not compare Android `elapsedRealtime` with a browser clock. Metadata is republished only when its display values or media identity change. Artwork URLs remain stable across position and lyric updates. Each URL is an unguessable bearer capability that serves only the current scaled JPEG while its originating viewer remains authorized, and is invalidated on image replacement, track/connection/controller changes, pairing revocation, or viewer close. Responses are `private, no-store`; pairing codes and tokens do not appear in artwork URLs.
+
+Browser → server controls use `{"type":"media-command","requestId":1,"sessionId":"opaque-binding","connectionGeneration":7,"action":"pause"}`. Valid actions are `play`, `pause`, `stop`, `previoustrack`, `nexttrack`. The server validates pairing, viewer ownership, binding, connection generation and increasing accepted request IDs; it allows one pending command with a 150 ms admission interval. Controls pass through the foreground service's native media bridge so local audio focus and buffered pause gating behave like notification controls. Replies are `{"type":"media-command-result","requestId":1,"result":"sent"}` (or `unavailable`/`failed`). `sent` is transport completion, never a playback acknowledgement. The browser waits for a reply before another command, with a three-second client wait limit, and does not retry successful sends or update playback optimistically.
+
+WebSocket closure, page exit, and iPhone disconnection clear metadata, position state, and action handlers. Old snapshot revisions and callbacks are ignored. Native clients embedding a WebView still need a host implementation if their engine does not expose Media Session to the system; this protocol does not define a vendor-specific JS bridge. Actual head-unit media cards, steering-wheel keys, audio-focus ownership, HTTP/HTTPS exposure and Web Audio-only session activation depend on the browser/OS and require device acceptance testing.
+
+Validation includes Robolectric state/identity/command tests, real HTTP/WebSocket pairing and artwork revocation, native pause gating, Node browser lifecycle/backpressure tests, and real Chromium metadata/cover/control roundtrips under the production CSP. Chromium action callbacks are invoked by the test harness; this does not verify physical head-unit buttons or OS media-card visibility.
+
 ## Validation
 
 `shared/src/test/resources/media/` contains synthetic full-update and pause-delta CSM fixtures. Their README documents their origin; they are not iPhone captures.

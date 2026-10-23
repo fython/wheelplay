@@ -532,3 +532,14 @@ run-1 捕获的第 12 个访问单元（索引 11）为：
 1280px 连接页三列、390px 单列，均无横向溢出且 Video 数为 0。测试后 UI 确认恢复 30 fps、HEVC 关闭、原始分辨率、自适应开启和 10 秒容忍时间；新增加的图片格式 WebP / 质量 75 沿用安装后的设置，测试未修改。实际重新协商 H.264 后，触控与直接 Canvas 正常，末次收到 / 解码均为 1038 帧，丢弃为 0，未回退；Video 创建和 play 调用均为 0。随后释放触点，撤销页面观测包装，恢复直接 Canvas 偏好，断开并关闭专用测试浏览器。设备保留最终修复版 APK。
 
 记录、真实码流、设备与构建日志保存至忽略的 `.local/rebase-qa/`；不提交私人画面。目标车机型号及长时间运行仍需单独验证，本轮未操作用户原 Chrome。
+
+## 浏览器 Media Session（2026-10-23）
+
+将 iAP2 Now Playing 状态经已配对 WebSocket 推送到车机网页，再通过 Web Media Session API 发布歌曲、歌手、专辑、封面、播放状态和进度。播放／暂停／切歌回传复用原生媒体桥的音频焦点及暂停逻辑；未启用尚未验证的 seek。协议及兼容性边界见 [MEDIA_SESSION.md](MEDIA_SESSION.md#browser--head-unit-media-session)。
+
+- `npm test`：150 项通过；`npm run check` 通过。覆盖 API 缺失／部分支持、暂停进度、过期状态、旧按键回调、WebSocket 背压与重连清理。
+- Android 定向回归累计覆盖 43 个独立测试：`BrowserMediaBridgeTest` 7 项、`CarPlayMediaSessionBridgeTest` 12 项、`LanWebServerTest` 24 项，均通过。最后补充的命令排队后撤销权限、未完成命令限制及旧 controller 完成回调隔离已单独复测。
+- 真实 HTTP / WebSocket 测试验证状态推送、控制结果、封面读取与撤销配对后返回 404；既有不声明 `nowPlaying=1` 的客户端保持原协议。
+- `npm run test:browser:media`：真实 Chromium 在生产 CSP 下通过元数据、JPEG 封面、控制回传、iPhone 回报后暂停、禁用 seek、断线清理及旧回调隔离，同时保留画面／触控回归。媒体按键回调由测试脚本触发，不代表物理按键验收。
+- `:mobile:lintDebug` 通过：0 错误、18 警告。`git diff --check` 通过。云环境使用可写 Android／Gradle／Robolectric 缓存及会话代理运行检查，未修改仓库工具链设置。
+- 未安装到车机或 iPhone。车机系统媒体卡片、方向盘按键、Web Audio 会话激活，以及具体浏览器在 HTTP／HTTPS 下的支持情况仍需实机验收。

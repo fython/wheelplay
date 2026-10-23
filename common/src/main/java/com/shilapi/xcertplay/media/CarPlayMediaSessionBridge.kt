@@ -13,6 +13,7 @@ import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.os.Handler
 import android.os.Looper
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -126,12 +127,24 @@ internal class CarPlayMediaSessionBridge(
     }
 
     fun command(command: MediaCommand) {
-        if (closed || !state.available) return
-        val current = source?.mediaSnapshot() ?: return
-        if (!current.available || current.connectionGeneration != state.connectionGeneration) return
+        dispatchCommand(command)
+    }
+
+    /** Called on the main thread; browser controls share native focus and pause handling. */
+    fun browserCommand(expected: CarPlayMediaSource, generation: Long, command: MediaCommand): CompletableFuture<MediaCommandResult> {
+        if (source !== expected || state.connectionGeneration != generation)
+            return CompletableFuture.completedFuture(MediaCommandResult.UNAVAILABLE)
+        return dispatchCommand(command)
+    }
+
+    private fun dispatchCommand(command: MediaCommand): CompletableFuture<MediaCommandResult> {
+        fun unavailable() = CompletableFuture.completedFuture(MediaCommandResult.UNAVAILABLE)
+        if (closed || !state.available) return unavailable()
+        val current = source?.mediaSnapshot() ?: return unavailable()
+        if (!current.available || current.connectionGeneration != state.connectionGeneration) return unavailable()
         if (command == MediaCommand.PLAY || command == MediaCommand.TOGGLE && !state.playing) {
             focusBlocked = false; pausePending = false; ++pauseRequest
-            if (!remote && !requestFocus()) return
+            if (!remote && !requestFocus()) return unavailable()
         }
         if (command == MediaCommand.PAUSE || command == MediaCommand.TOGGLE && state.playing) {
             pausePending = true
@@ -144,7 +157,7 @@ internal class CarPlayMediaSessionBridge(
                 }
             }, 3000)
         }
-        source?.sendMediaCommand(command, state.connectionGeneration)
+        return source?.sendMediaCommand(command, state.connectionGeneration) ?: unavailable()
     }
 
     private fun apply(next: NowPlayingState) {

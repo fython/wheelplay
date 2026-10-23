@@ -21,12 +21,15 @@ import android.os.Looper
 import android.os.PowerManager
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.media.CarPlayMediaSessionBridge
+import com.shilapi.xcertplay.media.CarPlayMediaSource
 import com.shilapi.xcertplay.media.MediaCommand
+import com.shilapi.xcertplay.media.MediaCommandResult
 import com.shilapi.xcertplay.media.NowPlayingState
 import com.shilapi.xcertplay.shared.R as UiR
 import com.shilapi.xcertplay.web.RootAccess
 import com.shilapi.xcertplay.web.WebListenSettings
 import com.shilapi.xcertplay.web.WebSession
+import java.util.concurrent.CompletableFuture
 
 /** Keeps the connection and its media session alive while no dashboard is visible. */
 class DiPlaySessionService : Service() {
@@ -63,6 +66,7 @@ class DiPlaySessionService : Service() {
                 currentArtwork = artwork
                 if (!destroyed) updateNotification()
             }
+        browserMediaBridge = media
         sessionSubscription =
             CarPlayBackgroundSession.subscribe { _ ->
                 main.post {
@@ -264,6 +268,7 @@ class DiPlaySessionService : Service() {
 
     override fun onDestroy() {
         destroyed = true
+        if (browserMediaBridge === media) browserMediaBridge = null
         sessionSubscription?.close()
         media.close()
         runWebAction { WebSession.stop() }
@@ -274,6 +279,12 @@ class DiPlaySessionService : Service() {
     }
 
     companion object {
+        // Only accessed on the main thread, like the native MediaSession callbacks.
+        private var browserMediaBridge: CarPlayMediaSessionBridge? = null
+        internal fun browserMediaCommand(source: CarPlayMediaSource, generation: Long, command: MediaCommand): CompletableFuture<MediaCommandResult> =
+            browserMediaBridge?.browserCommand(source, generation, command)
+                ?: CompletableFuture.completedFuture(MediaCommandResult.UNAVAILABLE)
+
         const val ACTION_STOP = "com.shihab.diplay.DISCONNECT"
         private const val ACTION_MEDIA = "com.shilapi.xcertplay.MEDIA_COMMAND"
         private const val EXTRA_COMMAND = "command"

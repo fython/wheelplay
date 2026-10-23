@@ -17,6 +17,23 @@ import java.util.concurrent.CompletableFuture
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29], shadows = [RecordingMediaSession::class, LinkedMediaController::class, LinkedTransportControls::class])
 class CarPlayMediaSessionBridgeTest {
+    @Test fun browserControlsShareNativePauseGatingAndRejectRetiredSources() {
+        val source = Source(); val output = Output()
+        val bridge = CarPlayMediaSessionBridge(RuntimeEnvironment.getApplication()) { _, _, _ -> }
+        try {
+            bridge.bind(source, output); source.update(playing().copy(connectionGeneration = 7)); idle()
+            assertEquals(MediaCommandResult.UNAVAILABLE, bridge.browserCommand(Source(), 7, MediaCommand.PAUSE).get())
+            assertEquals(MediaCommandResult.UNAVAILABLE, bridge.browserCommand(source, 6, MediaCommand.PAUSE).get())
+            assertTrue(source.sent.isEmpty())
+            assertEquals(MediaCommandResult.SENT, bridge.browserCommand(source, 7, MediaCommand.PAUSE).get())
+            assertFalse(output.allowed)
+            assertEquals(listOf(MediaCommand.PAUSE), source.sent)
+            assertEquals(PlaybackState.STATE_PLAYING, MediaController(RuntimeEnvironment.getApplication(), bridge.session.sessionToken).playbackState!!.state)
+            bridge.close()
+            assertEquals(MediaCommandResult.UNAVAILABLE, bridge.browserCommand(source, 7, MediaCommand.NEXT).get())
+        } finally { bridge.close() }
+    }
+
     @Test fun positionStatusAndOutputRouteChangesDoNotRepublishArtworkMetadata() {
         val context = RuntimeEnvironment.getApplication()
         val source = Source(); val output = Output()

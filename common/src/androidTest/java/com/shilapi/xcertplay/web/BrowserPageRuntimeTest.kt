@@ -70,6 +70,8 @@ class BrowserPageRuntimeTest {
                         "app.js",
                         "text.js",
                         "browser-audio.js",
+                        "browser-media-session.js",
+                        "browser-location.js",
                         "audio-worklet.js",
                         "style.css",
                     )) {
