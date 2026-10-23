@@ -4,7 +4,7 @@ import test from "node:test";
 
 const dist = new URL("../dist/", import.meta.url);
 
-for (const page of ["index.html", "404.html"]) {
+for (const page of ["index.html", "404.html", "docs/index.html", "docs/faq/index.html"]) {
   test(`${page} ships external assets compatible with the Cloudflare CSP`, async () => {
     const html = await readFile(new URL(page, dist), "utf8");
     assert.doesNotMatch(
@@ -33,7 +33,7 @@ for (const page of ["index.html", "404.html"]) {
     const styles = [...html.matchAll(/<link\b[^>]*rel="stylesheet"[^>]*>/gi)];
     assert.ok(
       styles.length > 0,
-      "Global styles must be emitted for both routes",
+      "Global styles must be emitted for every route",
     );
     sources.push(...styles.map(([tag]) => tag.match(/\bhref="([^"]+)"/)[1]));
     for (const source of sources) {
@@ -46,6 +46,17 @@ for (const page of ["index.html", "404.html"]) {
     }
     if (page === "404.html")
       assert.match(html, /name="robots" content="noindex"/);
+    if (page.startsWith("docs/")) {
+      assert.equal([...html.matchAll(/<h1\b/g)].length, 1);
+      assert.match(html, /aria-current="page"/);
+      const headings = [...html.matchAll(/<h2\b[^>]*id="([^"]+)"/g)];
+      assert.ok(headings.length > 0, "Markdown headings must be rendered");
+      for (const [, id] of headings) {
+        assert.ok(html.includes(`href="#${id}"`), `Missing TOC link for ${id}`);
+      }
+      assert.match(html, /href="\/docs\/"/);
+      assert.match(html, /href="\/docs\/faq\/"/);
+    }
   });
 }
 

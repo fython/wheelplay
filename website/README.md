@@ -2,8 +2,6 @@
 
 独立于 Android 内置浏览器客户端的 Astro 静态产品官网。页面由 Astro 组件在构建时生成，浏览器仅加载全局 CSS 和少量 TypeScript 编译出的主题、标签页交互脚本，无需 React/Vue hydration 或服务端运行时。没有远程字体、分析 SDK 或设备连接请求；只有深浅主题偏好会写入 localStorage。下载按钮通过 `/download` 的 Cloudflare Worker 查询 GitHub Actions 元数据，再重定向到 GitHub 产物页面。
 
-设计参考 [Lovable JSON Formatter 模板](https://lovable.dev/templates/apps/developer-tools/json-formatter) 的蓝色强调、双栏工作区和标签页布局。保留 WheelPlay 的既有图标、产品文案、响应式样式和交互示意。
-
 ## 本地开发
 
 推荐 Node.js 24 LTS（Astro 7.4.2 要求至少 Node.js 22.23.4）。官网依赖与仓库根目录的 Android 开发工具独立，不需要 Android SDK。
@@ -39,6 +37,9 @@ npx wrangler@4.152.0 dev --config website/wrangler.worker.jsonc --port 4174
 | `astro.config.mjs` | 静态输出、开发端口、CSS/JS 外部文件策略 |
 | `src/layouts/BaseLayout.astro` | HTML 外壳、SEO 元数据、全局样式 |
 | `src/pages/index.astro` | 组合首页各功能区 |
+| `src/pages/docs/*.md` | 使用指南、常见问题正文及页面元数据 |
+| `src/layouts/DocsLayout.astro` | 文档导航、自动目录和共享页面布局 |
+| `src/styles/docs.css` | Markdown 正文排版、深浅主题和移动端样式 |
 | `src/pages/404.astro` | 独立 404 页面与 `noindex` 元数据 |
 | `src/components/` | 品牌、导航、首屏、交互示意、功能、使用步骤、FAQ、页脚 |
 | `src/scripts/` | 类型检查和打包后的主题／标签页交互 |
@@ -141,6 +142,9 @@ npx wrangler@4.152.0 pages secret put GITHUB_TOKEN --project-name wheelplay-webs
 
 ## 内容维护
 
+- **文档页面使用 Markdown。** 使用指南位于 `src/pages/docs/index.md`，常见问题位于 `src/pages/docs/faq.md`；正文、标题、说明均在 Markdown 中维护，不在 Astro 布局中编写文档正文。首页仍由产品展示组件组成。
+- 新增文档时，在 `src/pages/docs/` 添加 `.md` 文件，frontmatter 填写 `layout: ../../layouts/DocsLayout.astro`、`title` 和 `description`；文件名决定路径。在 `DocsLayout.astro` 的 `pages` 中添加导航入口即可。正文从 `##` 开始，页面主标题由布局读取 `title` 生成，二级标题自动生成本页目录。
+- 使用标准 Markdown 编写段落、列表、链接、表格和代码块，无需内嵌 HTML。代码块关闭内联样式高亮以兼容 CSP；导航、主题与响应式排版由布局负责。Astro 原生支持 Markdown，无需新增运行时依赖。
 - `GettingStarted.astro` 中的下载入口为 `/download`，仓库、工作流和产物名集中定义于 `worker/download.ts`。更换下载来源时同步修改解析器、缓存键版本、测试与页面说明。
 - `ExperiencePreview.astro` 中的导航、音乐、配对是明确标注的示意，不是真实 CarPlay 截图，不播放音频，也不连接设备。
 - 页面默认中文，并提供英文项目文档入口。
@@ -150,6 +154,6 @@ npx wrangler@4.152.0 pages secret put GITHUB_TOKEN --project-name wheelplay-webs
 
 ## 验证
 
-网站 CI 使用 Node.js 24 和锁文件安装依赖，依次执行 Astro 检查、静态构建、产物测试与下载解析器测试，然后上传 `dist/`（该产物仅含静态页面，部署下载功能还需要仓库中的 Worker／Functions 源码）。产物测试确认首页交互脚本和两条页面路由的 CSS 均是有效的本地外部文件、404 带 `noindex`、共享图标／许可证／响应头没有丢失。
+网站 CI 使用 Node.js 24 和锁文件安装依赖，依次执行 Astro 检查、静态构建、产物测试与下载解析器测试，然后上传 `dist/`（该产物仅含静态页面，部署下载功能还需要仓库中的 Worker／Functions 源码）。产物测试确认首页、404 和文档页面使用有效的本地外部资源、文档目录指向实际标题、404 带 `noindex`，以及共享图标／许可证／响应头没有丢失。
 
 浏览器回归检查应覆盖桌面和手机布局、三个标签页、方向键与 Home/End、主题保存、禁止存储、FAQ、无 JavaScript 阅读，以及 Cloudflare 本地运行器下的 CSP 和 404 响应。
