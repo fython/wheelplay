@@ -1,5 +1,9 @@
 package com.shilapi.xcertplay
 
+import com.shilapi.xcertplay.projection.CarPlaySourceSession
+import com.shilapi.xcertplay.projection.ProjectionResource
+import com.shilapi.xcertplay.projection.projectionSessions
+
 import com.shilapi.xcertplay.shared.R as UiR
 import com.shilapi.xcertplay.i18n.*
 
@@ -415,6 +419,10 @@ class CarPlayHostActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         showSystemBars()
+        if (projectionSessions.hasSession() &&
+            projectionSessions.snapshot()?.descriptor?.id != "carplay") {
+            showDiPlayHome("home"); finish(); return
+        }
         if (intent.action == "android.hardware.usb.action.USB_DEVICE_ATTACHED") {
             AirPlayPersistence.saveWirelessEnabled(this, false)
         }
@@ -2796,8 +2804,14 @@ class CarPlayHostActivity : ComponentActivity() {
         return AndroidMediaSink(
             surface = output.surface,
             encodedVideo = source,
+            frameDecoderFactory = { key ->
+                try {
+                    com.shilapi.xcertplay.web.NativeVideoDecoder(key, platform = true)
+                        .also { source.setProcessorName(it.name) }
+                } catch (_: LinkageError) { null }
+            },
             remoteAudio = WebSession.audio.createRoute(),
-            onClosed = { output.close(); WebSession.endVideo(videoGeneration) },
+            onClosed = { output.closeAndAwait(); WebSession.endVideo(videoGeneration) },
             videoWidth = videoWidth,
             videoHeight = videoHeight,
             preferSoftwareHevcDecoder = hevcSoftwareDecoderEnabled,
@@ -2837,6 +2851,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
             override fun onSessionEnded(session: AirPlaySession) {
                 runOnUiThread {
+                    if (controllerGeneration != restartGeneration) return@runOnUiThread
                     if (activeAirPlaySession === session) activeAirPlaySession = null
                     CarPlayBackgroundSession.active = false
                     WebSession.videoActive = false
@@ -2903,10 +2918,6 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun adoptBackgroundSession(): Boolean {
         val snapshot = CarPlayBackgroundSession.snapshot() ?: return false
-        if (snapshot.controller.isClosed()) {
-            CarPlayBackgroundSession.clear(snapshot.controller)
-            return false
-        }
         displayDiagnosticAttempt = DisplayDiagnosticSnapshot.currentAttempt(this)
         controller = snapshot.controller
         sink = snapshot.sink
@@ -2918,6 +2929,10 @@ class CarPlayHostActivity : ComponentActivity() {
         }
         if (snapshot.width > 0 && snapshot.height > 0) {
             activeDisplaySize = DisplaySize(snapshot.width, snapshot.height)
+        }
+        if (snapshot.controller.isClosed()) {
+            restartCarPlay("Replacing closed background CarPlay controller")
+            return true
         }
         val generation = restartGeneration
         snapshot.controller.attachUi(
@@ -2960,6 +2975,13 @@ class CarPlayHostActivity : ComponentActivity() {
             setLocalizedConnectionStage(UiText(UiR.string.ui_authentication_resources_are_not_ready_import_files_or_a))
             return
         }
+        if (!CarPlayBackgroundSession.reserve(this, { WebSession.stageDetail(this) }) { completion ->
+                runOnUiThread { shutdown(false, "WheelPlay disconnect", completion); finish() }
+            }) {
+            showDiPlayHome("home")
+            finish()
+            return
+        }
         val controllerGeneration = restartGeneration
         // The settings page can change branding while this activity remains in the back stack.
         simulatedManufacturerName = AirPlayPersistence.loadSimulatedManufacturerName(this)
@@ -2993,6 +3015,8 @@ class CarPlayHostActivity : ComponentActivity() {
             )
         } catch (error: Exception) {
             Log.e(TAG, "Offscreen video initialization failed", error)
+            if (error is com.shilapi.xcertplay.projection.ProjectionCleanupException)
+                CarPlayBackgroundSession.teardownFinished(false)
             setLocalizedConnectionStage(UiText(UiR.string.host_this_device_cannot_create_an_offscreen_decoder_surface_check))
             return
         }
@@ -3179,9 +3203,16 @@ class CarPlayHostActivity : ComponentActivity() {
         controller = null
         sink = null
         teardownExecutor.execute {
-            oldController?.close()
-            oldController?.awaitClosed(CONTROLLER_CLOSE_TIMEOUT_MILLIS)
-            oldSink?.close()
+            val clean = runCatching {
+                oldController?.close()
+                val transportStopped = oldController?.awaitClosed(CONTROLLER_CLOSE_TIMEOUT_MILLIS) ?: true
+                if (transportStopped) oldSink?.close(awaitWorkers = true)
+                transportStopped && CarPlayBackgroundSession.teardownClean
+            }.getOrDefault(false)
+            if (!clean) {
+                CarPlayBackgroundSession.teardownFinished(false)
+                return@execute
+            }
             runOnUiThread {
                 if (!shuttingDown.get() && generation == restartGeneration) {
                     handshakeResetInProgress = false
@@ -3252,16 +3283,22 @@ class CarPlayHostActivity : ComponentActivity() {
         sink = null
         Log.i(TAG, "shutdown reason=$reason terminateProcess=$terminateProcess")
         teardownExecutor.execute {
-            oldController?.close()
-            val clean = oldController?.awaitClosed(CONTROLLER_CLOSE_TIMEOUT_MILLIS) ?: true
-            oldSink?.close()
+            val clean = runCatching {
+                oldController?.close()
+                val transportStopped = oldController?.awaitClosed(CONTROLLER_CLOSE_TIMEOUT_MILLIS) ?: true
+                if (transportStopped) oldSink?.close(awaitWorkers = true)
+                transportStopped && CarPlayBackgroundSession.teardownClean
+            }.getOrDefault(false)
             if (terminateProcess) {
                 applicationContext.stopService(Intent(applicationContext, CarPlayVpnService::class.java))
             }
             Log.i(TAG, "shutdown complete clean=$clean")
-            applicationContext.stopService(Intent(applicationContext, DiPlaySessionService::class.java))
+            if (terminateProcess) applicationContext.stopService(Intent(applicationContext, DiPlaySessionService::class.java))
             teardownExecutor.shutdown()
-            mainHandler.post { completion() }
+            mainHandler.post {
+                completion()
+                CarPlayBackgroundSession.teardownFinished(clean)
+            }
             if (terminateProcess) Process.killProcess(Process.myPid())
         }
     }
@@ -3548,6 +3585,31 @@ internal object CarPlayBackgroundSession {
         val height: Int,
     )
 
+    @Volatile var teardownClean = true
+        private set
+
+    @Synchronized fun reserve(owner: Any, status: () -> String?, stop: (() -> Unit) -> Unit): Boolean {
+        if (projection != null) return this.owner === owner
+        val adapter = CarPlaySourceSession(status)
+        if (!projectionSessions.adopt(adapter,
+                ProjectionResource.entries.toSet())) return false
+        projection = adapter
+        this.owner = owner
+        stopAction = stop
+        teardownClean = true
+        return true
+    }
+
+    fun teardownFinished(clean: Boolean) {
+        val adapter = synchronized(this) {
+            teardownClean = clean
+            projection.also { if (clean) projection = null }
+        }
+        adapter?.completed(clean)
+        if (clean) adapter?.let { projectionSessions.ended(it) }
+    }
+
+    private var projection: CarPlaySourceSession? = null
     private var controller: CarPlayController? = null
     private var sink: AndroidMediaSink? = null
     private var width = 0
@@ -3573,9 +3635,11 @@ internal object CarPlayBackgroundSession {
             this.owner = owner
             this.controller = controller
             this.sink = sink
+            projection?.bind(controller, sink)
             this.width = width
             this.height = height
         }
+        projection?.let { projectionSessions.changed(it) }
         listeners.forEach { it(snapshot()) }
     }
 
@@ -3584,6 +3648,7 @@ internal object CarPlayBackgroundSession {
             if (expected != null && controller !== expected) return
             controller = null
             sink = null
+            projection?.bind(null, null)
             if (!keepOwner) { stopAction = null; owner = null }
             active = false
             width = 0

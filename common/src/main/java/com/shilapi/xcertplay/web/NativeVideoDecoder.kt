@@ -2,7 +2,7 @@ package com.shilapi.xcertplay.web
 
 import androidx.annotation.Keep
 import com.shilapi.xcertplay.airplay.AirPlayCrypto
-import com.shilapi.xcertplay.airplay.VideoCodec
+import com.shilapi.xcertplay.media.VideoCodec
 import com.shilapi.xcertplay.media.CompressedVideoFrame
 import com.shilapi.xcertplay.media.VideoFrameDecoder
 import java.util.concurrent.atomic.AtomicInteger

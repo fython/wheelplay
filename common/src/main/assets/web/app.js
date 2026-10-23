@@ -931,6 +931,7 @@ if (typeof document !== 'undefined') {
   }
   $('refresh-qr').addEventListener('click', startQr);
   const pointers = new Map();
+  let maxTouchContacts = 2;
   const send = (data, kind) => {
     if (data.type === 'touch' && presentation.current.videoEpoch !== null) {
       const { sessionId, videoEpoch } = presentation.current;
@@ -1172,6 +1173,8 @@ if (typeof document !== 'undefined') {
           performanceStats.transport = data.performance?.transport ?? null;
           performanceStats.image = data.performance?.image ?? null;
           lastStatus = Date.now();
+          const nextTouchLimit = Number.isInteger(data.maxTouchContacts) ? Math.max(0, Math.min(10, data.maxTouchContacts)) : 2;
+          if (nextTouchLimit !== maxTouchContacts) { release(); maxTouchContacts = nextTouchLimit; }
           const previousRevision = presentation.current.revision;
           if (!presentation.status(data)) return;
           if (previousRevision !== presentation.current.revision) {
@@ -1306,11 +1309,12 @@ if (typeof document !== 'undefined') {
   function bindSurface(surface) {
   surface.addEventListener('contextmenu', event => event.preventDefault());
   surface.addEventListener('pointerdown', event => {
-    if (!live || pointers.size >= 2 || (event.pointerType === 'mouse' && event.button !== 0)) return;
+    if (!live || pointers.size >= maxTouchContacts || (event.pointerType === 'mouse' && event.button !== 0)) return;
     const point = mapPoint(event.clientX, event.clientY, surface.getBoundingClientRect(), width, height);
     if (!point) return;
     event.preventDefault();
-    const id = [...pointers.values()].some(p => p.id === 0) ? 1 : 0;
+    const used = new Set([...pointers.values()].map(p => p.id));
+    let id = 0; while (used.has(id)) id++;
     pointers.set(event.pointerId, { id, ...point });
     surface.setPointerCapture(event.pointerId);
     cancelMove();

@@ -42,34 +42,31 @@ class AuthenticationActivationTest : ComposeSettingsTest() {
             else emptyList()
 
     @Test
-    fun missingResourcesGuideToSettingsWithoutStartingWebOrCarPlay() {
+    fun missingResourcesAllowHostButCarPlayRemainsUnavailable() {
         val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
         val activity = controller.get()
         val ui = views(activity.window.decorView)
-        assertEquals(3, ui.filterIsInstance<BottomNavigationView>().single().selectedItemId)
-        assertNull(shadowOf(activity).nextStartedService)
-        assertFalse(WebSession.running)
+        assertNotNull(shadowOf(activity).nextStartedService)
         assertFalse(CarPlayBackgroundSession.hasSession())
-        compose.onNodeWithText("从 DiPlay APK 导入").assertExists()
         assertFalse(ui.filterIsInstance<Button>().single { it.text == "连接 iPhone" }.isEnabled)
         WebSession.start(app)
-        assertFalse(WebSession.running)
-        assertNull(WebSession.tls)
-        assertEquals("", WebSession.code)
+        assertTrue(WebSession.running)
+        assertTrue(WebSession.code.isNotEmpty())
         controller.pause().stop().destroy()
     }
 
     @Test
-    fun directServiceStartAndRestartCannotActivateWithoutResources() {
+    fun directServiceStartAndRestartWorkWithoutCarPlayResources() {
         val controller = Robolectric.buildService(DiPlaySessionService::class.java).create()
         val service = controller.get()
         assertEquals(Service.START_NOT_STICKY, service.onStartCommand(null, 0, 1))
         shadowOf(Looper.getMainLooper()).idle()
-        assertTrue(shadowOf(service).isStoppedBySelf)
-        assertFalse(WebSession.running)
-        assertNull(WebSession.tls)
-        assertNull(ReflectionHelpers.getField<Any?>(service, "wakeLock"))
+        assertFalse(shadowOf(service).isStoppedBySelf)
+        assertTrue(WebSession.running)
+        assertNotNull(ReflectionHelpers.getField<Any?>(service, "wakeLock"))
+        assertFalse(CarPlayBackgroundSession.hasSession())
         controller.destroy()
+        assertFalse(WebSession.running)
     }
 
     @Test
@@ -92,17 +89,18 @@ class AuthenticationActivationTest : ComposeSettingsTest() {
     }
 
     @Test
-    fun invalidPairCannotActivateWeb() {
+    fun invalidCarPlayPairDoesNotPreventOtherSources() {
         val directory = File(app.noBackupFilesDir, "offline-mfi").apply { mkdirs() }
         val key = SyntheticMfiIdentity.create()
         val other = SyntheticMfiIdentity.create()
         File(directory, "identity.pk8").writeBytes(key.key)
         File(directory, "certificate.p7b").writeBytes(other.certificate)
         WebSession.start(app)
-        assertFalse(WebSession.running)
+        assertTrue(WebSession.running)
         val controller = Robolectric.buildService(DiPlaySessionService::class.java).create()
         controller.get().onStartCommand(Intent(app, DiPlaySessionService::class.java), 0, 1)
-        assertFalse(WebSession.running)
+        assertTrue(WebSession.running)
+        assertFalse(CarPlayBackgroundSession.hasSession())
         controller.destroy()
     }
 

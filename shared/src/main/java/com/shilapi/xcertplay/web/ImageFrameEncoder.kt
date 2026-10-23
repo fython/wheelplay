@@ -3,7 +3,7 @@ package com.shilapi.xcertplay.web
 import java.io.ByteArrayOutputStream
 
 /** Reuse staging storage, but publish immutable bytes. A failed WebP encoder stays on JPEG. */
-internal class ImageFrameEncoder {
+class ImageFrameEncoder {
     private val output = ByteArrayOutputStream()
     private var webpFailed = false
 

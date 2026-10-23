@@ -189,6 +189,23 @@ try {
   assert.equal(await evaluate(showing), true);
   await command('Emulation.setPageScaleFactor', { pageScaleFactor: 1 });
   await evaluate(`document.getElementById('ignore-browser-zoom').checked=false;document.getElementById('ignore-browser-zoom').dispatchEvent(new Event('change'))`);
+  // Source capabilities replace the old global two-finger limit.
+  status({ maxTouchContacts: 5 });
+  await pause(100);
+  await command('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints:
+    Array.from({ length: 5 }, (_, id) => ({ x: 70 + id * 30, y: 100, id })) });
+  for (let attempt = 0; touches.at(-1)?.contacts.length !== 5 && attempt < 100; attempt++) await pause(10);
+  assert.equal(touches.at(-1).contacts.length, 5, 'Negotiated five-touch source accepts five fingers');
+  assert.equal(new Set(touches.at(-1).contacts.map(p => p.id)).size, 5);
+  await command('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  status({ maxTouchContacts: 0, inputReady: false });
+  await pause(100);
+  const readOnlyCount = touches.length;
+  await touch('pointerdown'); await touch('pointerup'); await pause(50);
+  assert.equal(touches.length, readOnlyCount, 'Read-only source must not accept touches');
+  assert.equal(await evaluate(`document.getElementById('waiting').hidden`), true, 'Read-only video stays visible');
+  status({ maxTouchContacts: 2, inputReady: true });
+  await wait(showing);
   await evaluate(`window.overlayFlashes=0;new MutationObserver(()=>{if(!document.getElementById('waiting').hidden)overlayFlashes++}).observe(document.getElementById('waiting'),{attributes:true,attributeFilter:['hidden']})`);
   for (let index = 0; index < 10; index++) {
     const previous = acks; frame(); status();
@@ -237,7 +254,7 @@ try {
   frame(); await wait(showing);
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ passed: true, connections, imageAcks: acks, webpProbes, jpegFallbacks,
-    checks: ['WebP capability probe', 'WebP touch with zoom compensation', 'JPEG fallback after corrupt WebP', 'two-image pipeline with exact ACKs',
+    checks: ['five-touch source', 'read-only source', 'WebP capability probe', 'WebP touch with zoom compensation', 'JPEG fallback after corrupt WebP', 'two-image pipeline with exact ACKs',
       'decode without overlay flashes', 'gap releases touch', 'deadline without status', 'cancelled deadline',
       'same-size rebuild', 'old frame rejection', 'rotation', 'real socket reconnect', 'native browser Media Session metadata and cover',
       'media action roundtrip', 'phone-authoritative pause', 'capability-gated seek and final drag position', 'media cleanup and retired callback isolation'] }, null, 2));

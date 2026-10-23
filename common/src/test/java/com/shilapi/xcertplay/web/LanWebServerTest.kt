@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.web
 
+import com.shilapi.xcertplay.projection.*
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Paint
@@ -539,6 +540,14 @@ class LanWebServerTest {
         val context = org.robolectric.RuntimeEnvironment.getApplication()
         com.shilapi.xcertplay.AirPlayPersistence.saveMediaBufferMillis(context, 1000)
         com.shilapi.xcertplay.AirPlayPersistence.saveBrowserAudioPlayback(context, true)
+        val audioSource = object : ProjectionSession {
+            override val descriptor = SourceDescriptor("audio-test", "Audio test")
+            override val capabilities = ProjectionCapabilities(emptySet(), audioPlayback = true)
+            override val inputReady = false
+            override fun touch(contacts: List<ProjectionContact>) = false
+            override fun stop() = java.util.concurrent.CompletableFuture.completedFuture(Unit)
+        }
+        assertTrue(projectionSessions.adopt(audioSource, emptySet()))
         WebSession.start(context)
         try {
             handshake(WebSession.code).use { client ->
@@ -563,7 +572,7 @@ class LanWebServerTest {
                 assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
                 assertEquals(500, org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).getInt("mediaBufferMillis"))
             }
-        } finally { WebSession.stop() }
+        } finally { projectionSessions.stop().join(); WebSession.stop() }
     }
     @Test fun plainHttpRejectsMicrophoneCaptureEvenForAPairedViewer() {
         WebSession.start(org.robolectric.RuntimeEnvironment.getApplication())

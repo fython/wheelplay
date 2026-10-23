@@ -8,6 +8,7 @@ Install the app on an Android device and open the displayed address in your car'
 
 ## Features
 
+- **Multiple-source framework**: A single active projection session routes video, touch and media controls independently of CarPlay. Three diagnostic sources exercise H.264, Surface and framebuffer output; Android Auto and ICCOA adapters are follow-up work. See the [implementation and device test guide](docs/PROJECTION_IMPLEMENTATION.md).
 - **Browser display and touch control**: CarPlay streaming, touch input, and fullscreen display.
 - **Selectable streaming modes**: Choose WebRTC video passthrough (H.264 / HEVC) or image compatibility mode in settings, with JPEG / WebP format and image quality from 1 to 100. Image streaming retains JPEG compatibility fallback and overlaps up to two frames while audio and touch keep their existing routes.
 - **Optional browser audio**: After pairing, the browser can play CarPlay audio. The browser microphone can provide CarPlay voice input through a trusted HTTPS page; Android handles audio and microphone input by default.
@@ -82,7 +83,7 @@ Use Android NDK 28.2.13676358 and CMake 3.22.1. The first build fetches pinned v
 ./gradlew :mobile:assembleDebug
 ```
 
-Source-only builds omit CarPlay authentication resources. Web and CarPlay remain disabled until valid resources are configured; successful import automatically starts the Web service. APKs with valid bundled resources work immediately and still allow replacement, with imported resources taking priority. Open **Settings → CarPlay authentication resources** to select `identity.pk8` and `certificate.p7b`, or follow the DiPlay website download link and import the downloaded APK. You can also share that APK with WheelPlay from a file manager; DiPlay does not need to be installed. Imports run locally and replace existing resources only after key/certificate validation. Resources stay in private, backup-excluded app storage and are never uploaded. See the [authentication import guide](docs/AUTHENTICATION_IMPORT.md).
+Source-only builds omit CarPlay authentication resources. The Web service and diagnostic projection sources work without these resources; only CarPlay connections require a valid identity. APKs with valid bundled resources work immediately and still allow replacement, with imported resources taking priority. Open **Settings → CarPlay authentication resources** to select `identity.pk8` and `certificate.p7b`, or follow the DiPlay website download link and import the downloaded APK. You can also share that APK with WheelPlay from a file manager; DiPlay does not need to be installed. Imports run locally and replace existing resources only after key/certificate validation. Resources stay in private, backup-excluded app storage and are never uploaded. See the [authentication import guide](docs/AUTHENTICATION_IMPORT.md).
 
 Developers may still set `WHEELPLAY_AUTH_ASSETS_DIR` (or `DIPLAY_AUTH_ASSETS_DIR`) to a local asset directory, or use `.local/auth-assets/`, containing `offline-mfi/identity.pk8` and `offline-mfi/certificate.p7b`. These files stay out of Git. Run `./gradlew :mobile:assembleProvisionedDebug` to build and verify both packaged assets against the local input. Public source-only APKs should use the ordinary build without configured authentication assets, letting users import their own resources after installation.
 

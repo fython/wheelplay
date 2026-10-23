@@ -1,12 +1,7 @@
 package com.shilapi.xcertplay.airplay
 
-/** One normalized touch contact (0..1 coordinates). */
-data class AirPlayContact(
-    val id: Int,
-    val x: Double,
-    val y: Double,
-    val down: Boolean,
-)
+/** Compatibility name; the public contact model is protocol independent. */
+typealias AirPlayContact = com.shilapi.xcertplay.projection.ProjectionContact
 
 /** Momentary knob/button state for the head-unit rotary controller. */
 data class AirPlayKnobState(

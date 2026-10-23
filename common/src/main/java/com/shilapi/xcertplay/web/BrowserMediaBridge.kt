@@ -3,7 +3,7 @@ package com.shilapi.xcertplay.web
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
-import com.shilapi.xcertplay.CarPlayBackgroundSession
+import com.shilapi.xcertplay.projection.projectionSessions
 import com.shilapi.xcertplay.DiPlaySessionService
 import com.shilapi.xcertplay.media.CarPlayMediaSource
 import com.shilapi.xcertplay.media.MediaArtwork
@@ -18,8 +18,8 @@ import org.json.JSONObject
 /** One paired viewer. All binding/state/command work is serialized on main, never on iAP2. */
 internal class BrowserMediaBridge(
     private val send: (String) -> Unit,
-    private val currentSource: () -> CarPlayMediaSource? = { CarPlayBackgroundSession.snapshot()?.controller },
-    private val observeSource: (() -> Unit) -> AutoCloseable = { listener -> CarPlayBackgroundSession.subscribe { listener() } },
+    private val currentSource: () -> CarPlayMediaSource? = { projectionSessions.snapshot()?.media },
+    private val observeSource: (() -> Unit) -> AutoCloseable = { listener -> projectionSessions.subscribe { listener() } },
     private val dispatch: (CarPlayMediaSource, Long, MediaCommand) -> CompletableFuture<MediaCommandResult> = DiPlaySessionService::browserMediaCommand,
     private val dispatchSeek: (CarPlayMediaSource, Long, Long, Long) -> CompletableFuture<MediaCommandResult> = DiPlaySessionService::browserMediaSeek,
     private val main: Handler = Handler(Looper.getMainLooper()),

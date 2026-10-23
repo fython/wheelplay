@@ -1,16 +1,14 @@
 package com.shilapi.xcertplay.web
 
-import com.shilapi.xcertplay.airplay.VideoCodec
-import android.util.Log
+import com.shilapi.xcertplay.media.VideoCodec
 import com.shilapi.xcertplay.media.CompressedVideoFrame
 import com.shilapi.xcertplay.media.HeapVideoFrame
-import com.shilapi.xcertplay.media.VideoFrameDecoder
 import com.shilapi.xcertplay.media.EncodedVideoSink
 import com.shilapi.xcertplay.media.MediaCodecSupport
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
-/** Owned by one AirPlay session, including the decoder handoff and keyframe recovery. */
+/** Owned by one projection video stream, including the decoder handoff and keyframe recovery. */
 internal class WebVideoSource(val technology: StreamTechnology) : EncodedVideoSink {
     val performance = VideoPerformance()
     @Volatile private var processor = "JVM"
@@ -29,11 +27,7 @@ internal class WebVideoSource(val technology: StreamTechnology) : EncodedVideoSi
     private var lastConfig: ByteArray? = null
     val jpegNeeded get() = !displayed
 
-    override fun createFrameDecoder(key: ByteArray): VideoFrameDecoder? = try {
-        NativeVideoDecoder(key, platform = true).also { processor = it.name }
-    } catch (e: LinkageError) {
-        Log.w("WheelPlayRtc", "Native video processing unavailable; using JVM", e); null
-    }
+    fun setProcessorName(name: String) { processor = name }
 
     override fun recovery(type: Int, request: () -> Unit) { recovery[type] = request }
 

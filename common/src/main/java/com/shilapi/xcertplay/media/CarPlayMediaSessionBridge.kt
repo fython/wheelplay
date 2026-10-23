@@ -24,14 +24,14 @@ internal class CarPlayMediaSessionBridge(
 ) : AutoCloseable {
     private val main = Handler(Looper.getMainLooper())
     private val audio = context.getSystemService(AudioManager::class.java)
-    internal val session = MediaSession(context, "WheelPlay iPhone")
+    internal val session = MediaSession(context, "WheelPlay projection")
     private val artworkWorker = Executors.newSingleThreadExecutor { Thread(it, "carplay-artwork-preview").apply { isDaemon = true } }
     private val defaultArtwork = Bitmap.createBitmap(128, 128, Bitmap.Config.ARGB_8888).also { bitmap ->
         context.applicationInfo.loadIcon(context.packageManager).apply {
             setBounds(0, 0, 128, 128); draw(Canvas(bitmap))
         }
     }
-    private var source: CarPlayMediaSource? = null
+    private var source: MediaControlSource? = null
     private var output: MediaOutputControl? = null
     private var subscription: AutoCloseable? = null
     private var routeSubscription: AutoCloseable? = null
@@ -91,7 +91,7 @@ internal class CarPlayMediaSessionBridge(
         }, main)
     }
 
-    fun bind(next: CarPlayMediaSource?, nextOutput: MediaOutputControl?) {
+    fun bind(next: MediaControlSource?, nextOutput: MediaOutputControl?) {
         if (closed || source === next && output === nextOutput) return
         val generation = ++epoch
         ++commandGeneration

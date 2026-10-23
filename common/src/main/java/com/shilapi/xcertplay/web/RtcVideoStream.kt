@@ -1,7 +1,7 @@
 package com.shilapi.xcertplay.web
 
 import android.util.Log
-import com.shilapi.xcertplay.airplay.VideoCodec
+import com.shilapi.xcertplay.media.VideoCodec
 import com.shilapi.xcertplay.media.CompressedVideoFrame
 import java.io.Closeable
 import java.util.concurrent.Executors

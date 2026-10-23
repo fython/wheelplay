@@ -257,6 +257,16 @@ internal class MicrophoneUplink(
         release()
     }
 
+    internal val isStopped get() = !running.get() && thread?.isAlive != true
+
+    internal fun awaitStopped() {
+        thread?.let { worker ->
+            check(Thread.currentThread() !== worker) { "Cannot await own microphone worker" }
+            worker.join(5_000)
+            check(!worker.isAlive) { "Microphone worker did not stop" }
+        }
+    }
+
     @Synchronized
     private fun release() {
         running.set(false)

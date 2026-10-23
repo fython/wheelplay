@@ -1,7 +1,6 @@
 package com.shilapi.xcertplay.media
 
 import android.view.Surface
-import com.shilapi.xcertplay.airplay.VideoCodec
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 

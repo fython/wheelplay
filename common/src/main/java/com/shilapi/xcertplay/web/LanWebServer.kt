@@ -2,7 +2,7 @@ package com.shilapi.xcertplay.web
 
 import android.content.Context
 import android.os.SystemClock
-import com.shilapi.xcertplay.airplay.AirPlayContact
+import com.shilapi.xcertplay.projection.ProjectionContact
 import com.shilapi.xcertplay.shared.R as UiR
 import fi.iki.elonen.NanoHTTPD
 import fi.iki.elonen.NanoWSD
@@ -696,6 +696,9 @@ internal class LanWebServer(
                                     .put("videoEpoch", media.videoEpoch)
                                     .put("sourceState", media.sourceState)
                                     .put("inputReady", media.inputReady)
+                                    .put("sourceId", media.sourceId)
+                                    .put("sourceName", media.sourceName)
+                                    .put("maxTouchContacts", media.maxTouchContacts)
                                     .put("stage", WebSession.stage(context))
                                     .put(
                                         "streaming",
@@ -783,11 +786,11 @@ internal class LanWebServer(
                         }
                     "touch" -> {
                         val contacts = data.getJSONArray("contacts")
-                        require(contacts.length() <= 2)
+                        require(contacts.length() <= 10)
                         val list =
                             (0 until contacts.length()).map {
                                 val point = contacts.getJSONObject(it)
-                                AirPlayContact(
+                                ProjectionContact(
                                     point.getInt("id"),
                                     point.getDouble("x"),
                                     point.getDouble("y"),
