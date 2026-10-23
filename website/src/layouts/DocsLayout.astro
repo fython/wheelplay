@@ -4,6 +4,8 @@ import BaseLayout from "./BaseLayout.astro";
 import SiteHeader from "../components/SiteHeader.astro";
 import SiteFooter from "../components/SiteFooter.astro";
 import "../styles/docs.css";
+import { useTranslations } from "../i18n";
+const { t, local } = useTranslations(Astro.url.pathname);
 
 type Props = MarkdownLayoutProps<{
   title: string;
@@ -13,8 +15,8 @@ type Props = MarkdownLayoutProps<{
 const { frontmatter, headings } = Astro.props;
 const sections = headings.filter(({ depth }) => depth === 2);
 const pages = [
-  { href: "/docs/", label: "使用指南" },
-  { href: "/docs/faq/", label: "常见问题" },
+  { href: local("/docs/"), label: t("使用指南") },
+  { href: local("/docs/faq/"), label: t("常见问题") },
 ];
 const currentPath = Astro.url.pathname.replace(/\/$/, "");
 ---
@@ -24,19 +26,19 @@ const currentPath = Astro.url.pathname.replace(/\/$/, "");
   description={frontmatter.description}
   socialDescription={frontmatter.description}
 >
-  <a class="skip-link" href="#main">跳到主要内容</a>
+  <a class="skip-link" href="#main">{t("跳到主要内容")}</a>
   <SiteHeader />
   <div class="container docs-layout">
     <aside class="docs-sidebar">
-      <nav aria-label="文档导航">
+      <nav aria-label={t("文档导航")}>
         <p class="eyebrow">WHEELPLAY DOCS</p>
         {pages.map(({ href, label }) => (
           <a href={href} aria-current={currentPath === href.replace(/\/$/, "") ? "page" : undefined}>{label}</a>
         ))}
       </nav>
       {sections.length > 0 && (
-        <nav class="docs-toc" aria-label="本页目录">
-          <p>本页目录</p>
+        <nav class="docs-toc" aria-label={t("本页目录")}>
+          <p>{t("本页目录")}</p>
           {sections.map(({ slug, text }) => <a href={`#${slug}`}>{text}</a>)}
         </nav>
       )}

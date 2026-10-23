@@ -1,6 +1,6 @@
 # WheelPlay 官网（Astro）
 
-独立于 Android 内置浏览器客户端的 Astro 静态产品官网。页面由 Astro 组件在构建时生成，浏览器仅加载全局 CSS 和少量 TypeScript 编译出的主题、标签页交互脚本，无需 React/Vue hydration 或服务端运行时。没有远程字体、分析 SDK 或设备连接请求；只有深浅主题偏好会写入 localStorage。下载按钮通过 `/download` 的 Cloudflare Worker 查询 GitHub Actions 元数据，再重定向到 GitHub 产物页面。
+独立于 Android 内置浏览器客户端的 Astro 静态产品官网。页面由 Astro 组件在构建时生成，浏览器仅加载全局 CSS 和少量 TypeScript 编译出的主题、语言、标签页交互脚本，无需 React/Vue hydration 或服务端运行时。没有远程字体、分析 SDK 或设备连接请求；深浅主题及手动选择的语言偏好会写入 localStorage。下载按钮通过 `/download` 的 Cloudflare Worker 查询 GitHub Actions 元数据，再重定向到 GitHub 产物页面。
 
 ## 本地开发
 
@@ -36,8 +36,11 @@ npx wrangler@4.152.0 dev --config website/wrangler.worker.jsonc --port 4174
 | --- | --- |
 | `astro.config.mjs` | 静态输出、开发端口、CSS/JS 外部文件策略 |
 | `src/layouts/BaseLayout.astro` | HTML 外壳、SEO 元数据、全局样式 |
-| `src/pages/index.astro` | 组合首页各功能区 |
+| `src/pages/index.astro` | 中文首页路由，共用 HomePage 组件 |
 | `src/pages/docs/*.md` | 使用指南、常见问题正文及页面元数据 |
+| `src/pages/en/` | 英文首页和英文 Markdown 文档 |
+| `src/i18n/` | 类型检查的英文界面翻译、语言识别与站内链接工具 |
+| `src/components/HomePage.astro` | 两种语言共用的首页结构 |
 | `src/layouts/DocsLayout.astro` | 文档导航、自动目录和共享页面布局 |
 | `src/styles/docs.css` | Markdown 正文排版、深浅主题和移动端样式 |
 | `src/pages/404.astro` | 独立 404 页面与 `noindex` 元数据 |
@@ -142,14 +145,18 @@ npx wrangler@4.152.0 pages secret put GITHUB_TOKEN --project-name wheelplay-webs
 
 ## 内容维护
 
+- **中英文路由。** 中文使用 `/`、`/docs/`、`/docs/faq/`，英文使用 `/en/`、`/en/docs/`、`/en/docs/faq/`。导航中的语言链接切换到对应页面，无 JavaScript 时同样可用。脚本记住手动选择的语言；再次访问 `/` 时，已选择英文的用户会进入 `/en/`。明确的文档链接始终以 URL 的语言为准，不根据浏览器语言强制跳转。禁用存储不会影响语言链接。
+- **界面翻译。** `src/i18n/en.ts` 以中文原文为键存放英文翻译，共用组件通过 `useTranslations(Astro.url.pathname)` 获取 `t` 和 `local`。修改中文原文时同步更新翻译键及所有调用；缺失键由类型检查发现。品牌名、协议名及装饰性英文标语可共用。页面元数据、无障碍标签、主题按钮也需要翻译。
+- **英文文档。** `src/pages/en/docs/*.md` 与中文文档成对维护，英文文档的布局路径为 `../../../layouts/DocsLayout.astro`，站内链接使用 `/en/docs/`。新增页面时同时更新 `DocsLayout.astro` 的导航与 `LanguageSwitch.astro` 的页面映射。高级仓库文档仍可能为中文，英文站内指南已注明。
+- **下载与错误页。** 英文下载链接使用 `/download?lang=en`，只在输出错误消息时翻译，仍与中文共用内存、边缘缓存和 GitHub 查询。静态 404 包含两种语言，在脚本可用时按实际请求路径选择语言。
 - **文档页面使用 Markdown。** 使用指南位于 `src/pages/docs/index.md`，常见问题位于 `src/pages/docs/faq.md`；正文、标题、说明均在 Markdown 中维护，不在 Astro 布局中编写文档正文。首页仍由产品展示组件组成。
 - 新增文档时，在 `src/pages/docs/` 添加 `.md` 文件，frontmatter 填写 `layout: ../../layouts/DocsLayout.astro`、`title` 和 `description`；文件名决定路径。在 `DocsLayout.astro` 的 `pages` 中添加导航入口即可。正文从 `##` 开始，页面主标题由布局读取 `title` 生成，二级标题自动生成本页目录。
 - 使用标准 Markdown 编写段落、列表、链接、表格和代码块，无需内嵌 HTML。代码块关闭内联样式高亮以兼容 CSP；导航、主题与响应式排版由布局负责。Astro 原生支持 Markdown，无需新增运行时依赖。
 - `GettingStarted.astro` 中的下载入口为 `/download`，仓库、工作流和产物名集中定义于 `worker/download.ts`。更换下载来源时同步修改解析器、缓存键版本、测试与页面说明。
 - `ExperiencePreview.astro` 中的导航、音乐、配对是明确标注的示意，不是真实 CarPlay 截图，不播放音频，也不连接设备。
-- 页面默认中文，并提供英文项目文档入口。
+- 页面默认中文，提供内置英文首页及使用文档。
 - 绿色 App 图标与 Material Symbols 许可证沿用仓库文件，来源见 [`docs/APP_ICON.md`](../docs/APP_ICON.md)。
-- 部署域名确定后，可在 Astro 配置中增加 `site`，并在共享布局中补充 canonical 和分享图片；目前不写入虚构域名。
+- Astro 的 `site` 使用 `https://wheelplay.gwo.app`，共享布局生成 canonical 及中英文 hreflang。更换正式域名时同步修改此设置和构建检查；分享图片可按需补充。
 - 添加分析或外部 API 时，需要同步维护 CSP，不能直接关闭策略。
 
 ## 验证

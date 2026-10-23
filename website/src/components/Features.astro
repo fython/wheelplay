@@ -1,3 +1,8 @@
+---
+import { useTranslations } from "../i18n";
+const { t } = useTranslations(Astro.url.pathname);
+---
+
 <section
   class="features container section"
   id="features"
@@ -6,9 +11,9 @@
   <div class="section-intro">
     <div>
       <p class="eyebrow">LESS SETUP. MORE POSSIBILITY.</p>
-      <h2 id="features-title">屏幕之间，<br />不必有那么多距离。</h2>
+      <h2 id="features-title">{t("屏幕之间，")}<br />{t("不必有那么多距离。")}</h2>
     </div>
-    <p>让 Android 做好连接，<br />让车机浏览器专注于眼前的体验。</p>
+    <p>{t("让 Android 做好连接，")}<br />{t("让车机浏览器专注于眼前的体验。")}</p>
   </div>
   <div class="feature-grid">
     <article>
@@ -17,12 +22,10 @@
         <rect x="3" y="5" width="26" height="19" rx="3" />
         <path d="M11 29h10m-5-5v5m-8-9V10h8m7 0v9h-8" />
       </svg>
-      <h3>打开浏览器，就是新视野。</h3>
-      <p>
-        显示、触控、全屏，一张网页就能完成。车机端无需安装额外客户端。
-      </p>
+      <h3>{t("打开浏览器，就是新视野。")}</h3>
+      <p>{t("显示、触控、全屏，一张网页就能完成。车机端无需安装额外客户端。")}</p>
       <div class="feature-tags">
-        <span>触摸操作</span><span>全屏显示</span>
+        <span>{t("触摸操作")}</span><span>{t("全屏显示")}</span>
       </div>
     </article>
     <article>
@@ -30,11 +33,8 @@
       ><svg class="feature-icon" viewBox="0 0 32 32" aria-hidden="true">
         <path d="m18 3-12 16h9l-1 10 12-16h-9l1-10Z" />
       </svg>
-      <h3>为不同的屏幕，留一条路。</h3>
-      <p>
-        支持 WebRTC
-        视频直通，也提供图片兼容模式。按你的设备和网络，选择合适的串流方式。
-      </p>
+      <h3>{t("为不同的屏幕，留一条路。")}</h3>
+      <p>{t("支持 WebRTC 视频直通，也提供图片兼容模式。按你的设备和网络，选择合适的串流方式。")}</p>
       <div class="feature-tags">
         <span>H.264 / HEVC</span><span>JPEG / WebP</span>
       </div>
@@ -47,12 +47,10 @@
         <circle cx="16" cy="23" r="3" />
         <circle cx="25" cy="9" r="3" />
       </svg>
-      <h3>合不合适，由你来调。</h3>
-      <p>
-        调整分辨率、帧率与安全区域，选择音频输出和定位来源，让设置适应你的使用习惯。
-      </p>
+      <h3>{t("合不合适，由你来调。")}</h3>
+      <p>{t("调整分辨率、帧率与安全区域，选择音频输出和定位来源，让设置适应你的使用习惯。")}</p>
       <div class="feature-tags">
-        <span>显示偏好</span><span>音频路由</span>
+        <span>{t("显示偏好")}</span><span>{t("音频路由")}</span>
       </div>
     </article>
   </div>

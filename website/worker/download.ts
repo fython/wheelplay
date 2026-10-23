@@ -6,6 +6,11 @@ const WORKFLOW_URL = `https://github.com/${REPOSITORY}/actions/workflows/${WORKF
 const SUCCESS_TTL = 300;
 const FAILURE_TTL = 60;
 const TIMEOUT_MS = 5_000;
+const ENGLISH_ERRORS: Record<string, string> = {
+  "暂时没有 main 分支的成功构建。": "No successful build is available on the main branch yet.",
+  "最新成功构建中的 wheelplay-debug-apk 不存在或已过期，请稍后再试。": "The wheelplay-debug-apk artifact in the latest successful build is missing or expired. Please try again later.",
+  "暂时无法查询 GitHub 构建，请稍后重试，或手动打开构建列表。": "GitHub builds are temporarily unavailable. Please try again later or open the workflow runs below.",
+};
 
 export interface DownloadEnv {
   /** Optional Worker/Pages secret; never returned to the browser. */
@@ -236,7 +241,11 @@ export function createDownloadHandler({
     headers["Retry-After"] = String(
       Math.max(1, Math.ceil((result.validUntil - now()) / 1_000)),
     );
-    const body = `${result.message}\n\nGitHub 构建列表：${WORKFLOW_URL}\n`;
+    // Translate only the response; both languages share the same metadata cache.
+    const english = url.searchParams.get("lang") === "en";
+    headers["Content-Language"] = english ? "en" : "zh-CN";
+    const message = english ? ENGLISH_ERRORS[result.message ?? ""] : result.message;
+    const body = `${message}\n\n${english ? "GitHub workflow runs: " : "GitHub 构建列表："}${WORKFLOW_URL}\n`;
     return new Response(request.method === "HEAD" ? null : body, {
       status: result.status,
       headers,

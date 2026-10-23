@@ -1,15 +1,17 @@
+---
+import { useTranslations } from "../i18n";
+const { t, local } = useTranslations(Astro.url.pathname);
+---
+
 <section class="hero container" aria-labelledby="hero-title">
   <a class="announcement" href="#start"
-    ><span class="status-dot"></span>为你的车机，打开一种新可能<span
+    ><span class="status-dot"></span>{t("为你的车机，打开一种新可能")}<span
       aria-hidden="true"
       >↗</span
     ></a
   >
-  <h1 id="hero-title">让 CarPlay，<br /><span>在浏览器里就位。</span></h1>
-  <p class="hero-description">
-    一部 Android，一块车机屏幕。<br />把 iPhone
-    的熟悉体验，带到你的每一次出发。
-  </p>
+  <h1 id="hero-title">{t("让 CarPlay，")}<br /><span>{t("在浏览器里就位。")}</span></h1>
+  <p class="hero-description">{t("一部 Android，一块车机屏幕。")}<br />{t("把 iPhone 的熟悉体验，带到你的每一次出发。")}</p>
   <div class="hero-actions">
     <a class="button primary" href="#start"
       ><svg
@@ -20,11 +22,11 @@
         aria-hidden="true"
       >
         <path d="m9 5 7 7-7 7" /></svg
-      >开始使用 WheelPlay</a
+      >{t("开始使用 WheelPlay")}</a
     ><a
       class="button secondary"
-      href="/docs/"
-      >阅读使用文档<span aria-hidden="true">→</span></a
+      href={local("/docs/")}
+      >{t("阅读使用文档")}<span aria-hidden="true">→</span></a
     >
   </div>
   <div class="hero-notes">
@@ -35,11 +37,11 @@
     ><span
       ><svg viewBox="0 0 16 16" aria-hidden="true">
         <path d="m3 8 3 3 7-7" /></svg
-      >车机无需安装 App</span
+      >{t("车机无需安装 App")}</span
     ><span
       ><svg viewBox="0 0 16 16" aria-hidden="true">
         <path d="m3 8 3 3 7-7" /></svg
-      >局域网直连</span
+      >{t("局域网直连")}</span
     >
   </div>
 </section>

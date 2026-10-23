@@ -1,0 +1,17 @@
+---
+import { localeFromPath, localizePath } from "../i18n";
+
+const locale = localeFromPath(Astro.url.pathname);
+const target = locale === "en" ? "zh-CN" : "en";
+const knownPath = ["/", "/en/", "/docs/", "/en/docs/", "/docs/faq/", "/en/docs/faq/"].includes(Astro.url.pathname);
+const href = localizePath(knownPath ? Astro.url.pathname : "/", target);
+---
+
+<a
+  class="language-switch"
+  href={href}
+  lang={target}
+  hreflang={target}
+  data-language-switch={target}
+  aria-label={target === "en" ? "Switch to English" : "切换到中文"}
+>{target === "en" ? "EN" : "中文"}</a>

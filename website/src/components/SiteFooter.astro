@@ -1,26 +1,24 @@
 ---
+import { useTranslations } from "../i18n";
+const { t, local } = useTranslations(Astro.url.pathname);
 import Brand from "./Brand.astro";
 ---
 
 <footer class="container site-footer">
   <div class="footer-top">
-    <Brand href="/" size={28} /><span>让连接简单一点，让屏幕多一种可能。</span>
+    <Brand href={local("/")} size={28} /><span>{t("让连接简单一点，让屏幕多一种可能。")}</span>
     <div>
       <a
-        href="https://github.com/fython/wheelplay/blob/main/README.md"
-        lang="en"
-        >English docs ↗</a
+        href={local("/docs/")}
+        >{t("使用文档")} →</a
       ><a
         href="https://github.com/fython/wheelplay/blob/main/docs/upstream/THIRD_PARTY_NOTICES.md"
-        >第三方声明 ↗</a
+        >{t("第三方声明 ↗")}</a
       >
     </div>
   </div>
   <div class="footer-bottom">
-    <span>开源于 GPL-3.0 · Built for the road ahead.</span>
-    <p>
-      CarPlay 是 Apple Inc. 的商标。WheelPlay 是独立开源项目，与 Apple
-      或车厂无隶属关系。
-    </p>
+    <span>{t("开源于 GPL-3.0 · Built for the road ahead.")}</span>
+    <p>{t("CarPlay 是 Apple Inc. 的商标。WheelPlay 是独立开源项目，与 Apple 或车厂无隶属关系。")}</p>
   </div>
 </footer>

@@ -4,7 +4,7 @@ import test from "node:test";
 
 const dist = new URL("../dist/", import.meta.url);
 
-for (const page of ["index.html", "404.html", "docs/index.html", "docs/faq/index.html"]) {
+for (const page of ["index.html", "404.html", "docs/index.html", "docs/faq/index.html", "en/index.html", "en/docs/index.html", "en/docs/faq/index.html"]) {
   test(`${page} ships external assets compatible with the Cloudflare CSP`, async () => {
     const html = await readFile(new URL(page, dist), "utf8");
     assert.doesNotMatch(
@@ -46,7 +46,8 @@ for (const page of ["index.html", "404.html", "docs/index.html", "docs/faq/index
     }
     if (page === "404.html")
       assert.match(html, /name="robots" content="noindex"/);
-    if (page.startsWith("docs/")) {
+    if (page.includes("docs/")) {
+      const prefix = page.startsWith("en/") ? "/en" : "";
       assert.equal([...html.matchAll(/<h1\b/g)].length, 1);
       assert.match(html, /aria-current="page"/);
       const headings = [...html.matchAll(/<h2\b[^>]*id="([^"]+)"/g)];
@@ -54,8 +55,21 @@ for (const page of ["index.html", "404.html", "docs/index.html", "docs/faq/index
       for (const [, id] of headings) {
         assert.ok(html.includes(`href="#${id}"`), `Missing TOC link for ${id}`);
       }
-      assert.match(html, /href="\/docs\/"/);
-      assert.match(html, /href="\/docs\/faq\/"/);
+      assert.ok(html.includes(`href="${prefix}/docs/"`));
+      assert.ok(html.includes(`href="${prefix}/docs/faq/"`));
+    }
+    if (page !== "404.html") {
+      const english = page.startsWith("en/");
+      const path = `/${page.replace(/index\.html$/, "")}`;
+      const alternate = english ? path.replace(/^\/en/, "") : `/en${path}`;
+      assert.ok(html.includes(`<html lang="${english ? "en" : "zh-CN"}"`));
+      assert.ok(html.includes(`rel="canonical" href="https://wheelplay.gwo.app${path}"`));
+      assert.ok(html.includes(`hreflang="${english ? "zh-CN" : "en"}" href="https://wheelplay.gwo.app${alternate}"`));
+      assert.ok(html.includes(`href="${alternate}" lang="${english ? "zh-CN" : "en"}"`));
+      if (english) {
+        assert.match(html, /Switch to dark theme/);
+        assert.match(html, /href="\/download\?lang=en"|Frequently asked questions/);
+      }
     }
   });
 }
