@@ -5,6 +5,8 @@ package com.shilapi.xcertplay
 import com.shilapi.xcertplay.projection.projectionSessions
 import com.shilapi.xcertplay.projection.registerProjectionSources
 import com.shilapi.xcertplay.projection.androidauto.LocalAndroidAuto
+import com.shilapi.xcertplay.projection.vnc.VncSource
+import com.shilapi.xcertplay.projection.vnc.VncEndpoint
 
 import com.shilapi.xcertplay.shared.R as UiR
 import com.shilapi.xcertplay.i18n.*
@@ -56,7 +58,7 @@ class DiPlayActivity : AppCompatActivity() {
     private val ui by lazy { ServerUi(this) }
     private val handler = Handler(Looper.getMainLooper())
     private var page = "service"
-    private val sourceDetailPages = setOf("source-carplay", "source-android-auto", "source-iccoa", "source-diagnostics")
+    private val sourceDetailPages = setOf("source-carplay", "source-android-auto", "source-iccoa", "source-vnc", "source-diagnostics")
     private val sourceStatuses = mutableMapOf<String, TextView>()
     private val sourceStopButtons = mutableMapOf<String, Button>()
     private val settingsModel by lazy { ViewModelProvider(this)[SettingsViewModel::class.java] }
@@ -67,6 +69,7 @@ class DiPlayActivity : AppCompatActivity() {
     private var webInterface: TextView? = null
     private var webBusy = false
     private var awaitingTeslaVpnConsent = false
+    private var vncDialog: android.app.AlertDialog? = null
     private var localAndroidAutoDialog: android.app.AlertDialog? = null
     private val localAndroidAutoSettings = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (!isFinishing && !isDestroyed) showLocalAndroidAutoSetup()
@@ -291,7 +294,7 @@ class DiPlayActivity : AppCompatActivity() {
         }
     }
     override fun onPause() { WebSession.setPhoneConnectHandler(null); handler.removeCallbacks(tick); super.onPause() }
-    override fun onDestroy() { localAndroidAutoDialog?.dismiss(); settingsDialogs.cancel(); pendingPemCertificate?.fill(0); pendingPemCertificate = null; super.onDestroy() }
+    override fun onDestroy() { vncDialog?.dismiss(); localAndroidAutoDialog?.dismiss(); settingsDialogs.cancel(); pendingPemCertificate?.fill(0); pendingPemCertificate = null; super.onDestroy() }
 
     private fun normalizedPage(value: String) = when (value) {
         "home" -> "phone"
@@ -334,6 +337,7 @@ class DiPlayActivity : AppCompatActivity() {
         shell.put("source-carplay", ui.content(::carPlaySource))
         shell.put("source-android-auto", ui.content(::androidAutoSource))
         shell.put("source-iccoa", ui.content(::iccoaSource))
+        shell.put("source-vnc", ui.content(::vncSource))
         shell.put("source-diagnostics", ui.content(::diagnosticSources))
         refreshStatus()
     }
@@ -542,6 +546,7 @@ class DiPlayActivity : AppCompatActivity() {
         ui.sourceCard(content, getString(UiR.string.source_carplay), getString(UiR.string.source_carplay_summary), R.drawable.ic_server_phone) { navigate("source-carplay") }
         ui.sourceCard(content, "Android Auto", getString(UiR.string.source_aa_summary), R.drawable.ic_server_launch) { navigate("source-android-auto") }
         ui.sourceCard(content, "ICCOA CarLink", getString(UiR.string.source_iccoa_summary), R.drawable.ic_server_wifi) { navigate("source-iccoa") }
+        ui.sourceCard(content, "VNC", getString(UiR.string.vnc_summary), R.drawable.ic_server_server) { navigate("source-vnc") }
         ui.sourceCard(content, getString(UiR.string.source_diagnostics), getString(UiR.string.source_diagnostics_summary), R.drawable.ic_server_server) { navigate("source-diagnostics") }
     }
 
@@ -604,6 +609,50 @@ class DiPlayActivity : AppCompatActivity() {
         sourceHeading(content, "ICCOA CarLink")
         ui.card(content, getString(UiR.string.source_unavailable), R.drawable.ic_server_phone) { body ->
             body.addView(label(getString(UiR.string.iccoa_sdk_unavailable), 16, MUTED))
+        }
+    }
+
+    private fun vncSource(content: LinearLayout) {
+        sourceHeading(content, "VNC")
+        sourceSessionControls(content, "vnc")
+        ui.card(content, getString(UiR.string.vnc_desktop), R.drawable.ic_server_server) { body ->
+            body.addView(label(getString(UiR.string.vnc_hint), 15, MUTED))
+            body.addView(button(getString(UiR.string.vnc_connect), true) { configureVnc() }, matchButton(12))
+        }
+    }
+
+    private fun configureVnc() {
+        registerProjectionSources(this)
+        val source = projectionSessions.sources().filterIsInstance<VncSource>().single()
+        val endpoint = source.endpoint()
+        val fields = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(24), 0, dp(24), 0) }
+        fun field(title: Int, value: String, type: Int) = EditText(this).apply {
+            hint = getString(title); contentDescription = hint
+            inputType = type; setSingleLine(true); setText(value); fields.addView(this)
+        }
+        val host = field(UiR.string.vnc_host, endpoint.host, android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS)
+        val port = field(UiR.string.vnc_port, endpoint.port.toString(), android.text.InputType.TYPE_CLASS_NUMBER)
+        val password = field(UiR.string.vnc_password, "", android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD)
+        val readOnly = CheckBox(this).apply { text = getString(UiR.string.vnc_read_only); isChecked = endpoint.readOnly; fields.addView(this) }
+        vncDialog?.dismiss()
+        val dialog = android.app.AlertDialog.Builder(this).setTitle(getString(UiR.string.vnc_connect))
+            .setMessage(getString(UiR.string.vnc_security_hint)).setView(fields)
+            .setPositiveButton(android.R.string.ok, null).setNegativeButton(android.R.string.cancel, null).create()
+        dialog.setOnDismissListener { password.text.clear(); if (vncDialog === dialog) vncDialog = null }
+        vncDialog = dialog
+        dialog.show()
+        dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val target = VncEndpoint(host.text.toString().trim(), port.text.toString().toIntOrNull() ?: 0, readOnly.isChecked)
+            if (!target.valid()) { host.error = getString(UiR.string.vnc_invalid_address); return@setOnClickListener }
+            val secret = CharArray(password.length()) { password.text[it] }
+            try {
+                if (secret.size > 8 || secret.any { it.code !in 1..255 }) {
+                    password.error = getString(UiR.string.vnc_password_hint); return@setOnClickListener
+                }
+                source.configure(target, secret)
+                dialog.dismiss()
+                startProjectionSource("vnc-tcp")
+            } finally { secret.fill('\u0000') }
         }
     }
 

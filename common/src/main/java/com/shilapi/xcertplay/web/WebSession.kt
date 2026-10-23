@@ -10,6 +10,7 @@ import com.shilapi.xcertplay.CarPlayAppearance
 import com.shilapi.xcertplay.projection.projectionSessions
 import com.shilapi.xcertplay.projection.ProjectionContact
 import com.shilapi.xcertplay.projection.ProjectionSession
+import com.shilapi.xcertplay.projection.ProjectionInput
 import com.shilapi.xcertplay.CarPlayMicrophoneSource
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.i18n.*
@@ -31,6 +32,7 @@ internal object WebSession {
         val sessionId: Long, val videoEpoch: Long, val width: Int, val height: Int,
         val sourceState: String, val inputReady: Boolean, val frame: Frame?, val source: WebVideoSource?,
         val sourceId: String? = null, val sourceName: String? = null, val maxTouchContacts: Int = 0,
+        val pointerInput: Boolean = false, val keyboardInput: Boolean = false,
     )
 
     private var mediaSessionId = SecureRandom().nextLong().ushr(11)
@@ -49,6 +51,7 @@ internal object WebSession {
         frame, videoSource,
         inputSession?.descriptor?.id, inputSession?.descriptor?.displayName,
         inputSession?.capabilities?.maxTouchContacts ?: 0,
+        inputSession?.capabilities?.pointerInput == true, inputSession?.capabilities?.keyboardInput == true,
     )
 
     @Synchronized fun mediaMatches(sessionId: Long, epoch: Long): Boolean =
@@ -60,6 +63,11 @@ internal object WebSession {
         if (!mediaMatches(sessionId, epoch) ||
             !projectionSessions.inputReady(inputSession)) return false
         return touch.touch(client, contacts, at)
+    }
+    @Synchronized fun mediaInput(client: Any, sessionId: Long, epoch: Long,
+        event: ProjectionInput, at: Long): Boolean {
+        if (!mediaMatches(sessionId, epoch) || !projectionSessions.inputReady(inputSession)) return false
+        return touch.input(client, event, at)
     }
 
     @Volatile
@@ -137,7 +145,9 @@ internal object WebSession {
     @Volatile private var browserViewportListener: ((Int?, Int?) -> Unit)? = null
     @Volatile private var inputSession: ProjectionSession? = null
     val maxTouchContacts get() = projectionSessions.snapshot()?.capabilities?.maxTouchContacts ?: 0
-    val touch = TouchLease(maxContacts = { maxTouchContacts }) { contacts ->
+    val touch = TouchLease(maxContacts = { maxTouchContacts }, sendInput = { event ->
+        inputSession?.let { projectionSessions.input(it, event) } ?: false
+    }) { contacts ->
         val target = inputSession
         target != null && projectionSessions.touch(target, contacts)
     }

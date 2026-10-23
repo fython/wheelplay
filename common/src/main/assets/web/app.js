@@ -1,4 +1,5 @@
 import { t } from './text.js';
+import { createDesktopInput } from './desktop-input.js';
 // A surface inversely scaled inside the visual viewport cancels browser zoom.
 // Its bounding rectangle remains in the same CSS coordinates as pointer events.
 export function unzoomedDisplayRect(rect, visual) {
@@ -277,11 +278,11 @@ export function createControlOutbox(socket, {
       else if (data.type === 'rtc-feedback') feedback = json;
       else if (data.type === 'viewport') viewport = json;
       else if (data.type === 'location') locationFix = json;
-      else if (data.type === 'touch') {
+      else if (data.type === 'touch' || data.type === 'input') {
         const tail = touches[touches.length - 1];
         // Only consecutive moves may be replaced; never cross a down/up/release boundary.
-        if (kind === 'move' && tail && tail.kind === 'move') tail.json = json;
-        else if (touches.length < 64) touches.push({ kind, json });
+        if (kind === 'move' && tail && tail.kind === 'move' && tail.type === data.type && tail.eventKind === data.kind) tail.json = json;
+        else if (touches.length < 64) touches.push({ kind, json, type: data.type, eventKind: data.kind });
         else { fail(); return false; }
       } else if (['rtc-start', 'rtc-answer', 'rtc-ready', 'rtc-fallback', 'phone-connect', 'image-format', 'location-start', 'location-stop', 'location-clear', 'media-command'].includes(data.type)) {
         if (signals.length >= 8 || json.length > 32768) { fail(); return false; }
@@ -932,13 +933,18 @@ if (typeof document !== 'undefined') {
   $('refresh-qr').addEventListener('click', startQr);
   const pointers = new Map();
   let maxTouchContacts = 2;
+  let pointerInput = false, keyboardInput = false;
   const send = (data, kind) => {
-    if (data.type === 'touch' && presentation.current.videoEpoch !== null) {
+    if ((data.type === 'touch' || data.type === 'input') && presentation.current.videoEpoch !== null) {
       const { sessionId, videoEpoch } = presentation.current;
       data = { ...data, sessionId, videoEpoch };
     }
     return outbox ? outbox.send(data, kind) : false;
   };
+  const desktop = createDesktopInput({ send, pointerEnabled: () => pointerInput,
+    keyboardEnabled: () => keyboardInput, interactive: () => live,
+    point: (event, surface, clamp) => mapPoint(event.clientX, event.clientY, surface.getBoundingClientRect(), width, height, clamp) });
+  let desktopRevision = presentation.current.revision;
   const browserMedia = createBrowserMediaSession({ send });
   const browserAudio = createBrowserAudio({
     send,
@@ -994,13 +1000,16 @@ if (typeof document !== 'undefined') {
   });
   function cancelMove() { moveGeneration++; movePending = false; }
   function contacts() { return [...pointers.values()].map(p => ({ id: p.id, x: p.x, y: p.y, down: true })); }
-  function release() { cancelMove(); pointers.clear(); send({ type: 'touch', contacts: [] }); }
+  function release() { cancelMove(); pointers.clear(); desktop.release(); send({ type: 'touch', contacts: [] }); }
   function renderPresentation(value) {
+    if (value.revision !== desktopRevision) {
+      desktop.release(false); desktopRevision = value.revision;
+    }
     live = value.interactive;
     for (const surface of [...screens, video, canvas, heldFrame].filter(Boolean)) surface.classList.toggle('stale', !value.visible);
     touchSurface.classList.toggle('stale', !live);
     $('waiting').hidden = value.visible;
-    if (!live && pointers.size) release();
+    if (!live && (pointers.size || desktop.active)) release();
     const rtcVisible = rtc && value.visible && value.frame?.transport === 'rtc';
     rendererStats.activeMode = rtcVisible ? launchMode : value.visible ? 'jpeg' : 'waiting';
     const rendererLabel = launchMode === 'native' ? 'Video' : t(launchMode === 'video-canvas' ? 'web_video_renderer_compat' : 'web_video_renderer_direct');
@@ -1142,6 +1151,7 @@ if (typeof document !== 'undefined') {
         if (Date.now() - lastStatus > 6000) { ws.close(); return; }
         send({ type: 'ping' });
         if (pointers.size) send({ type: 'touch', contacts: contacts() }, 'move');
+        desktop.heartbeat();
       }, 400);
     };
     ws.onmessage = event => {
@@ -1177,6 +1187,9 @@ if (typeof document !== 'undefined') {
           if (nextTouchLimit !== maxTouchContacts) { release(); maxTouchContacts = nextTouchLimit; }
           const previousRevision = presentation.current.revision;
           if (!presentation.status(data)) return;
+          if (previousRevision !== presentation.current.revision) desktop.release(false);
+          if (pointerInput !== (data.pointerInput === true) || keyboardInput !== (data.keyboardInput === true)) desktop.release();
+          pointerInput = data.pointerInput === true; keyboardInput = data.keyboardInput === true;
           if (previousRevision !== presentation.current.revision) {
             jpeg.cancelPending();
             if (rtcMedia.revision !== presentation.current.revision) { rtc.close(); rtcRequested = false; }
@@ -1218,7 +1231,8 @@ if (typeof document !== 'undefined') {
       if (socket !== ws) return;
       if (outbox) { outbox.close(); outbox = null; }
       cancelMove();
-      socket = null; pointers.clear(); clearInterval(heartbeat); presentation.close(); cleanupRtc(); cleanupImage();
+      socket = null; pointers.clear(); desktop.release(false); pointerInput = false; keyboardInput = false;
+      clearInterval(heartbeat); presentation.close(); cleanupRtc(); cleanupImage();
       browserMedia.close(); browserAudio.close(); $('audio-message').hidden = true;
       browserLocation.close();
       if (stopped) return;
@@ -1307,8 +1321,10 @@ if (typeof document !== 'undefined') {
   });
   // A separate layer prevents Android Chrome's native video gestures cancelling drags.
   function bindSurface(surface) {
+  desktop.bind(surface);
   surface.addEventListener('contextmenu', event => event.preventDefault());
   surface.addEventListener('pointerdown', event => {
+    if (pointerInput && event.pointerType === 'mouse') return;
     if (!live || pointers.size >= maxTouchContacts || (event.pointerType === 'mouse' && event.button !== 0)) return;
     const point = mapPoint(event.clientX, event.clientY, surface.getBoundingClientRect(), width, height);
     if (!point) return;

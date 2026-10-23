@@ -1,0 +1,13 @@
+<resources>
+    <string name="vnc_summary">透過 VNC 存取遠端桌面</string>
+    <string name="vnc_desktop">遠端桌面</string>
+    <string name="vnc_connect">連接 VNC</string>
+    <string name="vnc_invalid_address">請輸入有效的 IPv4 或 IPv6 位址，以及 1–65535 範圍內的連接埠。</string>
+    <string name="vnc_host">伺服器 IP 位址</string>
+    <string name="vnc_port">連接埠（通常為 5900）</string>
+    <string name="vnc_password">密碼（不會儲存）</string>
+    <string name="vnc_read_only">僅檢視</string>
+    <string name="vnc_hint">連接區域網路或 VPN 中已有的 VNC 伺服器。觸控對應滑鼠左鍵；滑鼠支援右鍵、拖曳和捲動。點擊桌面後可用實體鍵盤輸入。暫不支援音訊、剪貼簿和輸入法組合輸入。</string>
+    <string name="vnc_security_hint">僅支援無驗證或傳統 VNC 密碼驗證（最多 8 個 Latin-1 字元）。傳輸不加密，請使用可信區域網路或 VPN。不支援 TLS/VeNCrypt。</string>
+    <string name="vnc_password_hint">密碼最多包含 8 個 Latin-1 字元。</string>
+</resources>

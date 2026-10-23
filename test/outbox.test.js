@@ -99,3 +99,18 @@ test('flush stops when actual WebSocket buffering crosses the watermark', () => 
   assert.deepEqual(f.sent, [touch(0), touch(0.5, false)]);
   assert.equal(f.timers.size, 0);
 });
+
+test('desktop and touch share ordering without coalescing across key or release boundaries', () => {
+  const f = fixture();
+  const pointer = x => ({ type: 'input', kind: 'pointer', x, y: 0.5, buttons: 1 });
+  f.outbox.send(pointer(0));
+  for (let i = 0; i < 100; i++) f.outbox.send(pointer(i), 'move');
+  const key = { type: 'input', kind: 'key', key: 'a', down: true };
+  f.outbox.send(key);
+  f.outbox.send(touch(0.2), 'move');
+  f.outbox.send(pointer(100), 'move');
+  const release = { type: 'input', kind: 'release' };
+  f.outbox.send(release);
+  f.socket.bufferedAmount = 0; f.advance(10);
+  assert.deepEqual(f.sent, [pointer(0), pointer(99), key, touch(0.2), pointer(100), release]);
+});

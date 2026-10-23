@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import { resourceStrings } from '../scripts/resource-strings.mjs';
 const messages = resourceStrings('values-zh-rCN');
 
-const source = ['text.js', 'browser-audio.js', 'browser-location.js', 'browser-media-session.js', 'app.js']
+const source = ['text.js', 'desktop-input.js', 'browser-audio.js', 'browser-location.js', 'browser-media-session.js', 'app.js']
   .map(name => readFileSync(new URL(`../common/src/main/assets/web/${name}`, import.meta.url), 'utf8')
     .replace(/^import .*;$/gm, '').replaceAll('export function', 'function')).join('\n');
 function fixture({ storedCanvas = null, storedMode = null, processorAvailable = true, storedIgnoreZoom = null, storageDisabled = false, canvasAvailable = true, supportsWebp = false,
@@ -35,14 +35,14 @@ function fixture({ storedCanvas = null, storedMode = null, processorAvailable = 
       classList: { toggle(name, enabled) { if (enabled) classes.add(name); else classes.delete(name); }, contains: name => classes.has(name) },
       remove() { this.hidden = true; this.removed = true; },
       insertBefore(child) { child.removed = false; },
-      removeAttribute() {}, setAttribute() {}, setPointerCapture() {},
+      removeAttribute() {}, setAttribute() {}, setPointerCapture() {}, focus() {},
       getBoundingClientRect() {
         if (id !== 'display' || !classes.has('ignore-browser-zoom')) return mainRect;
         const scale = Number(this.style.transform.match(/scale\((.*)\)/)[1]);
         return { left: parseFloat(this.style.left), top: parseFloat(this.style.top),
           width: parseFloat(this.style.width) * scale, height: parseFloat(this.style.height) * scale };
       },
-      addEventListener(name, fn) { this.handlers[name] = fn; } });
+      addEventListener(name, fn) { const previous = this.handlers[name]; this.handlers[name] = previous ? event => { previous(event); fn(event); } : fn; } });
     return elements.get(id);
   };
   class Socket {

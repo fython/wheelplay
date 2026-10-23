@@ -12,6 +12,9 @@ internal val projectionSessions = ProjectionRuntime()
         })
     }
     projectionSessions.register(IccoaSource(app))
+    projectionSessions.register(com.shilapi.xcertplay.projection.vnc.VncSource(app) { width, height ->
+        BrowserProjectionVideo(app, width, height, VideoIngressKind.FRAMEBUFFER)
+    })
     VideoIngressKind.entries.forEach { kind ->
         projectionSessions.register(SyntheticSource(kind,
             { ingress, width, height -> BrowserProjectionVideo(app, width, height, ingress) },

@@ -1,12 +1,15 @@
 package com.shilapi.xcertplay.web
 
 import com.shilapi.xcertplay.projection.ProjectionContact
+import com.shilapi.xcertplay.projection.ProjectionInput
 
 /** Serializes browser ownership and releases fingers when a client disappears. */
-class TouchLease(private val maxContacts: () -> Int = { 2 }, private val send: (List<ProjectionContact>) -> Boolean) {
+class TouchLease(private val maxContacts: () -> Int = { 2 },
+    private val sendInput: (ProjectionInput) -> Boolean = { false }, private val send: (List<ProjectionContact>) -> Boolean) {
     private var owner: Any? = null
     private var lastTouch = 0L
     private var pressed = false
+    private var desktopActive = false
 
     @Synchronized fun claim(client: Any): Boolean {
         if (owner != null && owner !== client) return false
@@ -25,7 +28,14 @@ class TouchLease(private val maxContacts: () -> Int = { 2 }, private val send: (
     }
 
     @Synchronized fun expire(now: Long) {
-        if (pressed && now - lastTouch > 1500) releaseFingers()
+        if ((pressed || desktopActive) && now - lastTouch > 1500) releaseFingers()
+    }
+
+    @Synchronized fun input(client: Any, event: ProjectionInput, now: Long): Boolean {
+        if (owner !== client || !sendInput(event)) return false
+        desktopActive = event != ProjectionInput.Release
+        lastTouch = now
+        return true
     }
 
     @Synchronized fun drop(client: Any) {
@@ -37,5 +47,8 @@ class TouchLease(private val maxContacts: () -> Int = { 2 }, private val send: (
 
     @Synchronized fun cancel() { releaseFingers() }
 
-    private fun releaseFingers() { send(emptyList()); pressed = false }
+    private fun releaseFingers() {
+        send(emptyList()); sendInput(ProjectionInput.Release)
+        pressed = false; desktopActive = false
+    }
 }
