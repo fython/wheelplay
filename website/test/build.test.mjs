@@ -17,6 +17,12 @@ for (const page of ["index.html", "404.html"]) {
     ];
     if (page === "index.html")
       assert.ok(scripts.length > 0, "Homepage must load its interactions");
+    if (page === "index.html")
+      assert.match(
+        html,
+        /href="\/download"/,
+        "Download button must use the resolver",
+      );
     const sources = [];
     for (const [, attributes, content] of scripts) {
       assert.equal(content.trim(), "", "Astro must not inline small scripts");
@@ -51,6 +57,7 @@ test("static routes preserve the repository icon, license, and Cloudflare header
       "../docs/licenses/Material-Symbols-Apache-2.0.txt",
     ],
     ["_headers", "public/_headers"],
+    ["_routes.json", "public/_routes.json"],
   ]) {
     const expected = new URL(input, new URL("../", import.meta.url));
     assert.deepEqual(

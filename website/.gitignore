@@ -1,3 +1,5 @@
 dist/
 .wrangler/
 .astro/
+.dev.vars
+.dev.vars.*

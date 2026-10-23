@@ -13,7 +13,7 @@
     "site:preview": "npm run preview --prefix website",
     "site:build": "npm run build --prefix website",
     "site:check": "npm run check --prefix website",
-    "site:test": "npm run test:build --prefix website",
+    "site:test": "npm run test:build --prefix website && npm run test:worker --prefix website",
     "dev": "node scripts/preview.mjs",
     "demo": "node scripts/preview.mjs --demo",
     "test": "node --test test/*.test.js",

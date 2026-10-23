@@ -11,7 +11,8 @@
     "dev": "astro dev",
     "preview": "astro preview",
     "check": "astro check",
-    "test:build": "node --test test/build.test.mjs"
+    "test:build": "node --test test/build.test.mjs",
+    "test:worker": "node --experimental-strip-types --test test/download.test.mjs"
   },
   "dependencies": {
     "astro": "7.4.2"
