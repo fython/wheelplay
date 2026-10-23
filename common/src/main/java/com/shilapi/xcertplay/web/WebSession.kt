@@ -223,8 +223,8 @@ internal object WebSession {
         val source = AirPlayPersistence.loadMicrophoneSource(context)
         val capabilities = projectionSessions.snapshot()?.capabilities
         audio.configure(
-            capabilities?.audioPlayback == true && AirPlayPersistence.loadBrowserAudioPlayback(context),
-            capabilities?.microphone == true && source == CarPlayMicrophoneSource.BROWSER,
+            capabilities?.browserAudio == true && AirPlayPersistence.loadBrowserAudioPlayback(context),
+            capabilities?.browserMicrophone == true && source == CarPlayMicrophoneSource.BROWSER,
             AirPlayPersistence.loadMediaBufferMillis(context),
             capabilities?.microphone == true && source != CarPlayMicrophoneSource.DISABLED,
         )

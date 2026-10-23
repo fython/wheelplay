@@ -12,6 +12,8 @@ Astro 官网位于 [`website/`](website/README.md)，与 Android 内置的局域
 
 ## 功能
 
+- **多输入源与实验性 Android Auto**：支持 CarPlay、三类诊断源，以及 Android Auto USB AOA／显式 Head Unit Server TCP 接入，提供带首次设置引导的本机快捷入口。AA 使用 720p H.264、浏览器触控和宿主音频／麦克风，仍需真机验收；ICCOA 因缺少专有 SDK 暂不可用。详见 [Android Auto 使用与限制](docs/ANDROID_AUTO.md)。
+
 - **浏览器显示与触控**：支持 CarPlay 画面串流、触摸操作和全屏显示。
 - **可选串流技术**：设置中可选 WebRTC 视频直通（H.264 / HEVC）或图片兼容模式，并调整 JPEG / WebP 格式和 1–100 的图片质量。图片串流保留 JPEG 兼容回退，最多两帧并行传输，音频与触控保持原有路径。详见[图片串流与多缓冲](docs/IMAGE_STREAM.md)。
 - **可选浏览器音频**：配对后可改由浏览器播放 CarPlay 音频；浏览器麦克风可通过可信 HTTPS 页面接入 CarPlay 语音输入，默认仍由 Android 处理。

@@ -43,3 +43,7 @@ The static site layout, CSS and generator adapt DiAuto (AGPL-3.0). The AGPL lice
 Required Notice: Copyright AndyShaman (https://github.com/AndyShaman/BYDMate)
 
 The maneuver PNGs under `shared/src/main/assets/byd-hud-icons` were imported from BYDMate. Its PolyForm Noncommercial 1.0.0 terms and required notice are included alongside the assets. These files are separate from the project code license; upstream describes them as donor assets and their original provenance is not independently established. The validated DiLink5.1 windshield path uses factory turn codes rather than these images.
+
+## Android Auto protocol research
+
+The AAP wire field definitions and transport behavior were studied in [DiAuto at f304672](https://github.com/shihabal3amri/DiAuto/tree/f3046721814bff289a78e58f597b45d895efbb95) (AGPL-3.0). WheelPlay's adapter uses its own bounded wire codec and projection lifecycle; no upstream private keys or proprietary ICCOA runtime are included. MiAuto's public SDK documentation was used to identify the CarLink runtime dependency. See `docs/ANDROID_AUTO.md`.

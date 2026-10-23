@@ -116,4 +116,32 @@ class ProjectionRuntimeTest {
         assertFalse(runtime.touch(old, listOf(finger.copy(y = 1.1))))
         assertFalse(runtime.touch(old, listOf(finger.copy(id = -1))))
     }
+    @Test fun activationRunsAfterAdmissionAndFailureWaitsForCleanup() {
+        val runtime = ProjectionRuntime()
+        val closed = CompletableFuture<Unit>()
+        val session = object : ProjectionSession {
+            override val descriptor = SourceDescriptor("activate", "Activate")
+            override val capabilities = ProjectionCapabilities(emptySet())
+            override val inputReady = false
+            override fun activate() {
+                assertSame(this, runtime.snapshot())
+                throw IllegalStateException("failed after admission")
+            }
+            override fun touch(contacts: List<ProjectionContact>) = false
+            override fun stop() = closed
+        }
+        runtime.register(object : ProjectionSourceProvider {
+            override val descriptor = session.descriptor
+            override val resources = setOf(ProjectionResource.USB)
+            override fun probe() = SourceAvailability.Ready
+            override fun open() = CompletableFuture.completedFuture<ProjectionSession>(session)
+        })
+        val result = runtime.open("activate")
+        assertFalse(result.isDone)
+        assertSame(session, runtime.snapshot())
+        closed.complete(Unit)
+        assertTrue(result.isCompletedExceptionally)
+        assertNull(runtime.snapshot())
+    }
+
 }

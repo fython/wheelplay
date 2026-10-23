@@ -16,8 +16,15 @@ data class ProjectionCapabilities(
     val nightMode: Boolean = false,
     val audioPlayback: Boolean = false,
     val microphone: Boolean = false,
+    /** Source-managed audio may be available locally without a browser route. */
+    val browserAudio: Boolean = audioPlayback,
+    val browserMicrophone: Boolean = microphone,
 ) {
-    init { require(maxTouchContacts in 0..10) }
+    init {
+        require(maxTouchContacts in 0..10)
+        require(!browserAudio || audioPlayback)
+        require(!browserMicrophone || microphone)
+    }
 }
 
 data class SourceDescriptor(val id: String, val displayName: String)
@@ -34,6 +41,8 @@ interface ProjectionSession {
     val statusText: String? get() = null
     val media: MediaControlSource? get() = null
     val mediaOutput: MediaOutputControl? get() = null
+    /** Called after runtime admission. Start asynchronous producers here; stop may race activation. */
+    fun activate() = Unit
     /** Nonblocking admission; true means accepted, not acknowledged by the remote device. */
     fun touch(contacts: List<ProjectionContact>): Boolean
     fun setNightMode(night: Boolean): ProjectionCommandResult = ProjectionCommandResult.UNSUPPORTED

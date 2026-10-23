@@ -77,7 +77,15 @@ class ProjectionRuntime {
                     }
                 }
                 publish()
-                if (failure == null) result.complete(session) else result.completeExceptionally(failure)
+                if (failure == null) {
+                    try { session.activate(); result.complete(session) }
+                    catch (activationFailure: Throwable) {
+                        stop(session).whenComplete { _, cleanupFailure ->
+                            if (cleanupFailure != null) activationFailure.addSuppressed(cleanupFailure)
+                            result.completeExceptionally(activationFailure)
+                        }
+                    }
+                } else result.completeExceptionally(failure)
             }
         } catch (failure: Throwable) {
             synchronized(lock) {
