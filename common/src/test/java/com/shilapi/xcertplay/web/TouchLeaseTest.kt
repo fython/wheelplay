@@ -42,4 +42,18 @@ class TouchLeaseTest {
         }
         assertTrue(reports.isEmpty())
     }
+    @Test fun desktopHeartbeatRetainsKeysAndDroppingOwnerReleasesThem() {
+        val events = mutableListOf<com.shilapi.xcertplay.projection.ProjectionInput>()
+        val desktop = TouchLease(sendInput = { events.add(it); true }) { true }
+        val key = com.shilapi.xcertplay.projection.ProjectionInput.Key("Shift",true)
+        desktop.claim(owner)
+        assertFalse(desktop.input(Any(),key,0))
+        assertTrue(desktop.input(owner,key,0))
+        desktop.input(owner,com.shilapi.xcertplay.projection.ProjectionInput.KeepAlive,1400)
+        desktop.expire(2000); assertEquals(2,events.size)
+        desktop.drop(Any()); assertEquals(2,events.size)
+        desktop.drop(owner)
+        assertEquals(com.shilapi.xcertplay.projection.ProjectionInput.Release,events.last())
+    }
+
 }

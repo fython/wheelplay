@@ -12,6 +12,7 @@ Run CarPlay on an Android device and use it from your car's browser. WheelPlay h
 | --- | --- |
 | **CarPlay** | USB and wireless iPhone connections, browser display and touch control. Requires valid CarPlay authentication resources. |
 | **Android Auto — experimental** | USB AOA, explicit Head Unit Server TCP connections, and a guided same-phone connection. Device compatibility still needs validation. |
+| **VNC — experimental** | Remote desktop over RFB 3.3/3.7/3.8, JPEG/WebP display, touch, mouse and physical keyboard input, and view-only mode. Actual server/device compatibility still needs validation. |
 | **Diagnostic sources** | H.264, Surface, and framebuffer test sources for checking the display pipeline without a phone connection. |
 | **ICCOA CarLink** | Unavailable: the proprietary SDK is not included and no protocol implementation is provided. |
 
@@ -39,6 +40,8 @@ You need an **Android 9 or newer** host, a supported phone, and a modern car bro
 For **CarPlay**, open **Settings → CarPlay authentication resources**. Public CI builds do not bundle these resources. Import a matching `identity.pk8` and `certificate.p7b`, or import them from a compatible DiPlay APK using the app's guided flow. DiPlay itself does not need to be installed. Imports are validated locally and stored in private, backup-excluded storage; they are not uploaded. See the [authentication import guide](docs/AUTHENTICATION_IMPORT.md).
 
 Missing CarPlay resources do not prevent the Web service, browser pairing, or diagnostic sources from working. For **Android Auto**, use **Input sources → Android Auto** and follow the [USB / local / TCP instructions](docs/ANDROID_AUTO.md). Same-phone mode requires manually starting Android Auto's Head Unit Server first.
+
+For **VNC**, open **Input sources → VNC** and enter the IP address, port, and optional temporary password of an existing VNC server. Use a trusted LAN or VPN: VNC traffic is unencrypted and TLS/VeNCrypt is not supported. See the [VNC guide](docs/VNC.md) for setup and limitations.
 
 ### 3. Pair the car browser
 
@@ -124,7 +127,7 @@ The static output is `website/dist/`. Chinese and English documentation lives in
 | --- | --- |
 | [`mobile/`](mobile/) | Android application entry point and packaging |
 | [`common/`](common/) | Host UI, Compose settings, LAN server, browser assets, projection sources, and native WebRTC bridge |
-| [`shared/`](shared/) | CarPlay / AirPlay and Android Auto protocol components and shared resources |
+| [`shared/`](shared/) | CarPlay / AirPlay, Android Auto, and VNC protocol components and shared resources |
 | [`website/`](website/) | Astro product website and Cloudflare download endpoint |
 | [`scripts/`](scripts/), [`test/`](test/) | Desktop fixtures and browser / repository checks |
 | [`docs/`](docs/README.md) | Implementation guides, validation notes, and retained upstream documentation |

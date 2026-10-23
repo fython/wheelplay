@@ -12,6 +12,7 @@
 | --- | --- |
 | **CarPlay** | 支持 iPhone USB 与无线连接、浏览器显示与触控；需要有效的 CarPlay 认证资源。 |
 | **Android Auto（实验性）** | 已实现 USB AOA、显式 Head Unit Server TCP 连接及本机连接引导；设备兼容性仍需真机验证。 |
+| **VNC（实验性）** | 通过 RFB 3.3/3.7/3.8 连接远程桌面，支持 JPEG/WebP 画面、触控、鼠标、实体键盘及仅查看模式。实际服务端与设备兼容性仍需验证。 |
 | **诊断输入源** | 提供 H.264、Surface 和帧缓冲测试源，无需连接手机即可检查画面链路。 |
 | **ICCOA CarLink** | 暂不可用：未包含专有 SDK，也未实现协议接入。 |
 
@@ -39,6 +40,8 @@
 使用 **CarPlay** 时，打开 **设置 → CarPlay 认证资源**。公开 CI 构建不包含这些资源，请导入匹配的 `identity.pk8` 和 `certificate.p7b`，或按应用引导从兼容的 DiPlay APK 导入，无需安装 DiPlay。导入和校验均在本机完成，资源存放于应用私有目录，不上传、不参与备份。详细步骤见[认证资源导入](docs/AUTHENTICATION_IMPORT.md)。
 
 缺少 CarPlay 认证资源不影响 Web 服务、浏览器配对和诊断输入源。使用 **Android Auto** 时，进入 **输入源 → Android Auto**，按 [USB／本机／TCP 说明](docs/ANDROID_AUTO.md) 配置；本机模式需要先手动启动 Android Auto 的车机服务器。
+
+使用 **VNC** 时，进入 **输入源 → VNC**，填写已有 VNC 服务端的 IP 地址、端口及可选的临时密码。请使用可信局域网或 VPN：VNC 传输不加密，暂不支持 TLS/VeNCrypt。配置步骤与限制见 [VNC 指南](docs/VNC.md)。
 
 ### 3. 配对车机浏览器
 
@@ -124,7 +127,7 @@ npm run site:test
 | --- | --- |
 | [`mobile/`](mobile/) | Android 应用入口与打包配置 |
 | [`common/`](common/) | 宿主界面、Compose 设置、局域网服务、浏览器资源、投影源及原生 WebRTC 桥接 |
-| [`shared/`](shared/) | CarPlay／AirPlay 与 Android Auto 协议组件、共享资源 |
+| [`shared/`](shared/) | CarPlay／AirPlay、Android Auto 与 VNC 协议组件、共享资源 |
 | [`website/`](website/) | Astro 官网与 Cloudflare 下载接口 |
 | [`scripts/`](scripts/)、[`test/`](test/) | 桌面演示及浏览器／仓库检查 |
 | [`docs/`](docs/README.md) | 实现说明、验证记录及保留的上游文档 |

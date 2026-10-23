@@ -7,6 +7,15 @@ import java.util.concurrent.CompletableFuture
 /** Coordinates refer to the displayed content, excluding letterboxing. IDs survive pointer lifts. */
 data class ProjectionContact(val id: Int, val x: Double, val y: Double, val down: Boolean)
 
+/** Desktop input uses normalized coordinates, DOM button bits and semantic key names/Unicode. */
+sealed interface ProjectionInput {
+    data class Pointer(val x: Double, val y: Double, val buttons: Int) : ProjectionInput
+    data class Scroll(val x: Double, val y: Double, val dx: Int, val dy: Int) : ProjectionInput
+    data class Key(val key: String, val down: Boolean) : ProjectionInput
+    data object Release : ProjectionInput
+    data object KeepAlive : ProjectionInput
+}
+
 enum class VideoIngressKind { ENCODED, SURFACE, FRAMEBUFFER }
 enum class ProjectionResource { USB, WIRELESS, MICROPHONE, DISPLAY }
 enum class ProjectionCommandResult { SENT, UNSUPPORTED, UNAVAILABLE, FAILED }
@@ -19,6 +28,8 @@ data class ProjectionCapabilities(
     /** Source-managed audio may be available locally without a browser route. */
     val browserAudio: Boolean = audioPlayback,
     val browserMicrophone: Boolean = microphone,
+    val pointerInput: Boolean = false,
+    val keyboardInput: Boolean = false,
 ) {
     init {
         require(maxTouchContacts in 0..10)
@@ -45,6 +56,7 @@ interface ProjectionSession {
     fun activate() = Unit
     /** Nonblocking admission; true means accepted, not acknowledged by the remote device. */
     fun touch(contacts: List<ProjectionContact>): Boolean
+    fun input(event: ProjectionInput): Boolean = false
     fun setNightMode(night: Boolean): ProjectionCommandResult = ProjectionCommandResult.UNSUPPORTED
     /** Completes only after transport, media producers and platform resources have stopped. */
     fun stop(): CompletableFuture<Unit>

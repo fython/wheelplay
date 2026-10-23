@@ -7,6 +7,7 @@ import com.shilapi.xcertplay.AirPlayPersistence
 import com.shilapi.xcertplay.media.AndroidMediaSink
 import com.shilapi.xcertplay.media.CompressedVideoFrame
 import com.shilapi.xcertplay.media.VideoCodec
+import com.shilapi.xcertplay.web.ImageEncodingOptions
 import com.shilapi.xcertplay.web.ImageFrameEncoder
 import com.shilapi.xcertplay.web.OffscreenVideoOutput
 import com.shilapi.xcertplay.web.StreamTechnology
@@ -33,6 +34,7 @@ internal class BrowserProjectionVideo(
     private var latest: ProjectionFramebuffer.Snapshot? = null
     private val imageEncoder = ImageFrameEncoder()
     private var hadViewer = false
+    private var lastImageOptions: ImageEncodingOptions? = null
     private var configured = false
     private var revision = 0L
 
@@ -57,14 +59,17 @@ internal class BrowserProjectionVideo(
                     val next = pending.getAndSet(null)
                     if (next != null) latest = next
                     val viewer = WebSession.hasViewer
-                    if (viewer && (next != null || !hadViewer)) latest?.let { snapshot ->
+                    // Static desktops still need a new image when browser fallback or user settings change.
+                    val options = if (viewer) AirPlayPersistence.imageEncoding(app, WebSession.imageFormat) else null
+                    if (options != null && (next != null || !hadViewer || options != lastImageOptions)) latest?.let { snapshot ->
                         val bitmap = Bitmap.createBitmap(snapshot.argb, width, height, Bitmap.Config.ARGB_8888)
                         try {
-                            val options = AirPlayPersistence.imageEncoding(app, WebSession.imageFormat)
                             val (bytes, format) = imageEncoder.encode(options) { format, quality, output ->
                                 bitmap.compress(format.compression, quality, output)
                             }
                             WebSession.publish(generation, bytes, format, options.quality)
+                            // Track requested options: encoder-side WebP fallback must not trigger an encode loop.
+                            lastImageOptions = options
                         } finally { bitmap.recycle() }
                     }
                     hadViewer = viewer

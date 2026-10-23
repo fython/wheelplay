@@ -174,6 +174,7 @@ internal class LanWebServer(
                 "/index.html" -> "index.html" to "text/html; charset=utf-8"
                 "/text.js" -> "text.js" to "text/javascript; charset=utf-8"
                 "/app.js" -> "app.js" to "text/javascript; charset=utf-8"
+                "/desktop-input.js" -> "desktop-input.js" to "text/javascript; charset=utf-8"
                 "/style.css" -> "style.css" to "text/css; charset=utf-8"
                 "/browser-audio.js" -> "browser-audio.js" to "text/javascript; charset=utf-8"
                 "/browser-location.js" -> "browser-location.js" to "text/javascript; charset=utf-8"
@@ -699,6 +700,8 @@ internal class LanWebServer(
                                     .put("sourceId", media.sourceId)
                                     .put("sourceName", media.sourceName)
                                     .put("maxTouchContacts", media.maxTouchContacts)
+                                    .put("pointerInput", media.pointerInput)
+                                    .put("keyboardInput", media.keyboardInput)
                                     .put("stage", WebSession.stage(context))
                                     .put(
                                         "streaming",
@@ -784,6 +787,19 @@ internal class LanWebServer(
                         synchronized(rtcLock) {
                             if (data.getLong("id") == rtcId) stopRtc(data.optBoolean("retryable", true))
                         }
+                    "input" -> {
+                        val event = when (data.getString("kind")) {
+                            "pointer" -> com.shilapi.xcertplay.projection.ProjectionInput.Pointer(data.getDouble("x"), data.getDouble("y"), data.getInt("buttons"))
+                            "scroll" -> com.shilapi.xcertplay.projection.ProjectionInput.Scroll(data.getDouble("x"), data.getDouble("y"), data.getInt("dx"), data.getInt("dy"))
+                            "key" -> com.shilapi.xcertplay.projection.ProjectionInput.Key(data.getString("key"), data.getBoolean("down"))
+                            "release" -> com.shilapi.xcertplay.projection.ProjectionInput.Release
+                            "keepalive" -> com.shilapi.xcertplay.projection.ProjectionInput.KeepAlive
+                            else -> error("Unknown input event")
+                        }
+                        if (!versionedMedia || !WebSession.mediaInput(this, data.optLong("sessionId", -1),
+                            data.optLong("videoEpoch", -1), event, lastSeen))
+                            reply(WebStreamSender.Control.INPUT_UNAVAILABLE, """{"type":"input-unavailable"}""")
+                    }
                     "touch" -> {
                         val contacts = data.getJSONArray("contacts")
                         require(contacts.length() <= 10)

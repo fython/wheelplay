@@ -197,6 +197,59 @@ class LanWebServerTest {
         } finally { WebSession.stop() }
     }
 
+    @Test
+    @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+    fun staticFramebufferReencodesForJpegFallbackAndQualityChanges() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        WebListenSettings.saveHttpsEnabled(context, false)
+        com.shilapi.xcertplay.AirPlayPersistence.saveImageFormat(context, ImageFormat.WEBP)
+        com.shilapi.xcertplay.AirPlayPersistence.saveImageQuality(context, 75)
+        WebSession.start(context)
+        fun waitFor(message: String, condition: () -> Boolean) {
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
+            while (!condition() && System.nanoTime() < deadline) Thread.sleep(10)
+            assertTrue(message, condition())
+        }
+        try {
+            BrowserProjectionVideo(context, 16, 16, VideoIngressKind.FRAMEBUFFER).use { output ->
+                handshake(WebSession.code, media = 2, images = 3).use { client ->
+                    assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                    fun receiveAndAck(expected: WebSession.Frame) {
+                        var data = frame(client)
+                        while (data.firstOrNull() == '{'.code.toByte()) data = frame(client)
+                        assertArrayEquals(VideoPacket.encode(expected, 3), data)
+                        val bitmap = BitmapFactory.decodeByteArray(data, 40, data.size - 40)
+                        assertNotNull(bitmap); assertEquals(16, bitmap.width); bitmap.recycle()
+                        text(client, """{"type":"ack","sessionId":${expected.sessionId},"videoEpoch":${expected.videoEpoch},"sequence":${expected.sequence}}""")
+                    }
+                    text(client, """{"type":"image-format","format":"webp"}""")
+                    waitFor("Browser negotiated WebP") { WebSession.imageFormat == ImageFormat.WEBP }
+                    output.framebuffer(ProjectionFramebuffer.Snapshot(16, 16, 1, IntArray(256) { -1 }))
+                    waitFor("Initial WebP encoded") { WebSession.frame?.format == ImageFormat.WEBP }
+                    val first = WebSession.frame!!
+                    receiveAndAck(first)
+
+                    // No further source snapshots: VNC may leave an incremental request pending indefinitely.
+                    text(client, """{"type":"image-format","format":"jpeg"}""")
+                    waitFor("Static desktop re-encoded as JPEG") { WebSession.frame?.format == ImageFormat.JPEG }
+                    val fallback = WebSession.frame!!
+                    assertTrue(fallback.sequence > first.sequence)
+                    assertEquals(first.videoEpoch, fallback.videoEpoch)
+                    receiveAndAck(fallback)
+
+                    com.shilapi.xcertplay.AirPlayPersistence.saveImageQuality(context, 60)
+                    waitFor("Static desktop picks up changed quality") { WebSession.frame?.quality == 60 }
+                    val quality = WebSession.frame!!
+                    assertEquals(ImageFormat.JPEG, quality.format)
+                    assertTrue(quality.sequence > fallback.sequence)
+                    receiveAndAck(quality)
+                    Thread.sleep(300) // Several image scheduler ticks with unchanged options.
+                    assertEquals("Static frames must not be re-encoded continuously", quality.sequence, WebSession.frame!!.sequence)
+                }
+            }
+        } finally { WebSession.stop() }
+    }
+
     @Test fun v3NegotiatesWebpPipelinesFramesAndRequiresExactAcksBeforeFallingBackToJpeg() {
         WebSession.start(org.robolectric.RuntimeEnvironment.getApplication())
         try {

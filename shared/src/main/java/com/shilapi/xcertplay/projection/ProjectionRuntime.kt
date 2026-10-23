@@ -115,6 +115,7 @@ class ProjectionRuntime {
         // Invalidate input before calling transport code. Never hold the runtime lock during I/O.
         publish()
         runCatching { session.touch(emptyList()) }
+        runCatching { session.input(ProjectionInput.Release) }
         val close = try { session.stop() } catch (failure: Throwable) {
             CompletableFuture<Unit>().also { it.completeExceptionally(failure) }
         }
@@ -157,6 +158,17 @@ class ProjectionRuntime {
                 it.id !in 0..31 || !it.x.isFinite() || !it.y.isFinite() || it.x !in 0.0..1.0 || it.y !in 0.0..1.0
             }) return false
         expected.touch(contacts)
+    }
+    fun input(expected: ProjectionSession, event: ProjectionInput): Boolean = synchronized(lock) {
+        if (current !== expected || (!inputReady(expected) && event != ProjectionInput.Release)) return false
+        fun point(x: Double, y: Double) = x.isFinite() && y.isFinite() && x in 0.0..1.0 && y in 0.0..1.0
+        val supported = when (event) {
+            is ProjectionInput.Pointer -> expected.capabilities.pointerInput && point(event.x, event.y) && event.buttons in 0..7
+            is ProjectionInput.Scroll -> expected.capabilities.pointerInput && point(event.x, event.y) && event.dx in -10..10 && event.dy in -10..10
+            is ProjectionInput.Key -> expected.capabilities.keyboardInput && event.key.length in 1..32
+            else -> expected.capabilities.pointerInput || expected.capabilities.keyboardInput
+        }
+        supported && expected.input(event)
     }
     private fun cleanupFailed(failure: Throwable): Boolean =
         generateSequence(failure) { it.cause }.any { it is ProjectionCleanupException }
