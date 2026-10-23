@@ -22,6 +22,10 @@ class Iap2RouteGuidanceSubscriptionTest {
         val parameters = Iap2ParameterList.parse(
             Iap2IdentificationClient.identificationInformation(config).payload,
         ).asList()
+        val sent = parameters.single { it.id == 6 }.payload.toList().chunked(2).map {
+            ((it[0].toInt() and 255) shl 8) or (it[1].toInt() and 255)
+        }
+        org.junit.Assert.assertTrue(sent.contains(0x5003))
         val component = Iap2ParameterList.parse(parameters.single { it.id == 30 }.payload).asList()
         assertArrayEquals(byteArrayOf(0, 42), component.single { it.id == 0 }.payload)
         assertArrayEquals("RouteGuidance\u0000".encodeToByteArray(), component.single { it.id == 1 }.payload)

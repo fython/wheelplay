@@ -21,6 +21,7 @@ internal class BrowserMediaBridge(
     private val currentSource: () -> CarPlayMediaSource? = { CarPlayBackgroundSession.snapshot()?.controller },
     private val observeSource: (() -> Unit) -> AutoCloseable = { listener -> CarPlayBackgroundSession.subscribe { listener() } },
     private val dispatch: (CarPlayMediaSource, Long, MediaCommand) -> CompletableFuture<MediaCommandResult> = DiPlaySessionService::browserMediaCommand,
+    private val dispatchSeek: (CarPlayMediaSource, Long, Long, Long) -> CompletableFuture<MediaCommandResult> = DiPlaySessionService::browserMediaSeek,
     private val main: Handler = Handler(Looper.getMainLooper()),
     private val clock: () -> Long = SystemClock::elapsedRealtime,
 ) : AutoCloseable {
@@ -39,6 +40,11 @@ internal class BrowserMediaBridge(
     private var lastRequest = 0L
     private var lastCommandAt: Long? = null
 
+    private data class Seek(val id: Long, val session: String, val generation: Long, val track: Long,
+        val positionMs: Long, val source: CarPlayMediaSource, val authorized: () -> Boolean)
+    private var queuedSeek: Seek? = null
+    private val seekTask = Runnable { flushSeek() }
+
     fun start() { main.post {
         if (!closed.get() && sourceSubscription == null) {
             sourceSubscription = observeSource { main.post { bind() } }
@@ -55,6 +61,7 @@ internal class BrowserMediaBridge(
         binding = UUID.randomUUID().toString()
         val expected = binding
         pendingCommand = null
+        cancelSeek()
         publish(NowPlayingState())
         mediaSubscription = next?.subscribeMediaState { snapshot -> main.post {
             if (!closed.get() && binding == expected && currentSource() === next) publish(snapshot)
@@ -63,6 +70,7 @@ internal class BrowserMediaBridge(
 
     private fun publish(next: NowPlayingState) {
         val boundary = next.connectionGeneration != state.connectionGeneration || next.trackRevision != state.trackRevision
+        if (boundary || !next.canSeek) cancelSeek()
         if (boundary || next.artwork !== artwork || !next.available) {
             artwork = next.artwork.takeIf { next.available }
             cover = artwork?.let { Cover(UUID.randomUUID().toString(), it.bytes(), source,
@@ -77,7 +85,7 @@ internal class BrowserMediaBridge(
             .put("appName", next.appName ?: JSONObject.NULL)
             .put("status", next.status.name.lowercase()).put("durationMs", next.durationMs ?: JSONObject.NULL)
             .put("positionMs", next.positionAt(clock()) ?: JSONObject.NULL).put("speed", next.speed)
-            .put("canSeek", false)
+            .put("canSeek", next.canSeek)
             .put("artworkUrl", cover?.let { "/now-playing/artwork?id=${it.id}" } ?: JSONObject.NULL)
             .toString())
     }
@@ -97,6 +105,33 @@ internal class BrowserMediaBridge(
         require(requestId in 1..9_007_199_254_740_991L)
         val sessionId = data.getString("sessionId")
         val generation = data.getLong("connectionGeneration")
+        if (data.getString("action") == "seekto") {
+            fun integer(name: String): Long {
+                val value = data.get(name)
+                require(value is Number)
+                val number = value.toDouble()
+                require(number.isFinite() && number >= 0 && number <= 9_007_199_254_740_991.0 && number == number.toLong().toDouble())
+                return number.toLong()
+            }
+            val position = integer("positionMs")
+            val track = integer("trackRevision")
+            main.post {
+                if (closed.get() || !authorized()) return@post
+                val current = source
+                if (requestId <= lastRequest || sessionId != binding || generation != state.connectionGeneration ||
+                    track != state.trackRevision || current == null || currentSource() !== current || !state.available) {
+                    result(requestId, MediaCommandResult.UNAVAILABLE)
+                    return@post
+                }
+                lastRequest = requestId
+                if (!state.canSeek) { result(requestId, MediaCommandResult.UNSUPPORTED); return@post }
+                cancelSeek(MediaCommandResult.SUPERSEDED)
+                queuedSeek = Seek(requestId, sessionId, generation, track, position, current, authorized)
+                // Keep the last position from a drag, including when another control is in flight.
+                main.postDelayed(seekTask, 150)
+            }
+            return
+        }
         val command = when (data.getString("action")) {
             "play" -> MediaCommand.PLAY
             "pause", "stop" -> MediaCommand.PAUSE
@@ -130,6 +165,41 @@ internal class BrowserMediaBridge(
         }
     }
 
+    private fun cancelSeek(outcome: MediaCommandResult = MediaCommandResult.UNAVAILABLE) {
+        main.removeCallbacks(seekTask)
+        queuedSeek?.let { if (!closed.get()) result(it.id, outcome) }
+        queuedSeek = null
+    }
+
+    private fun flushSeek() {
+        val request = queuedSeek ?: return
+        if (closed.get() || !request.authorized()) { cancelSeek(); return }
+        val current = request.source.mediaSnapshot()
+        if (binding != request.session || currentSource() !== request.source ||
+            current.connectionGeneration != request.generation || current.trackRevision != request.track || !current.available) {
+            cancelSeek(); return
+        }
+        if (!current.canSeek) { cancelSeek(MediaCommandResult.UNSUPPORTED); return }
+        val remaining = lastCommandAt?.let { 150 - (clock() - it) } ?: 0
+        if (pendingCommand != null || remaining > 0) {
+            main.postDelayed(seekTask, maxOf(remaining, 150)); return
+        }
+        queuedSeek = null
+        pendingCommand = request.id
+        lastCommandAt = clock()
+        val future = try { dispatchSeek(request.source, request.generation, request.track, request.positionMs) }
+            catch (_: Exception) { CompletableFuture.completedFuture(MediaCommandResult.FAILED) }
+        future.whenComplete { outcome, error -> main.post {
+            if (!closed.get() && binding == request.session && pendingCommand == request.id) {
+                pendingCommand = null
+                val latest = request.source.mediaSnapshot()
+                result(request.id, if (currentSource() !== request.source || latest.connectionGeneration != request.generation ||
+                    latest.trackRevision != request.track) MediaCommandResult.UNAVAILABLE
+                    else if (error != null) MediaCommandResult.FAILED else outcome)
+            }
+        } }
+    }
+
     private fun result(id: Long, result: MediaCommandResult) {
         send(JSONObject().put("type", "media-command-result").put("requestId", id)
             .put("result", result.name.lowercase()).toString())
@@ -139,6 +209,7 @@ internal class BrowserMediaBridge(
         if (!closed.compareAndSet(false, true)) return
         cover = null
         main.post {
+            cancelSeek()
             mediaSubscription?.close(); mediaSubscription = null
             sourceSubscription?.close(); sourceSubscription = null
             source = null; artwork = null; state = NowPlayingState(); pendingCommand = null

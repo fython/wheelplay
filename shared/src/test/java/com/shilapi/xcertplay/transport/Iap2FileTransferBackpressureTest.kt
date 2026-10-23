@@ -86,6 +86,29 @@ class Iap2FileTransferBackpressureTest {
         } finally { link.close() }
     }
 
+    @Test fun queuedSeekIsDiscardedBeforeDispatchWhenItsTrackOrConnectionRetires() {
+        val phone = Phone()
+        val link = Iap2LinkChannel.openWireless(phone)
+        val current = java.util.concurrent.atomic.AtomicBoolean(true)
+        try {
+            assertTrue(link.awaitReady(2000))
+            phone.holdAcknowledgements(true)
+            repeat(4) { assertTrue(link.sendControl(byteArrayOf(it.toByte()))) }
+            repeat(2) { assertNotNull(phone.controls.poll(2, TimeUnit.SECONDS)) }
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+            while (link.awaitReady(0) && System.nanoTime() < deadline) Thread.sleep(5)
+            assertFalse(link.awaitReady(0))
+            val seek = com.shilapi.xcertplay.iap2.message.Iap2NowPlayingCodec.setElapsedTime(42000).encodedFrame()
+            assertTrue(link.sendControlAwaitCapacity(seek, 1000, current::get))
+            current.set(false)
+            phone.holdAcknowledgements(false)
+            repeat(2) { assertNotNull(phone.controls.poll(2, TimeUnit.SECONDS)) }
+            assertNull("Retired seek must never reach the phone", phone.controls.poll(200, TimeUnit.MILLISECONDS))
+            assertTrue(link.sendControlAwaitCapacity(seek, 1000))
+            assertArrayEquals(seek, phone.controls.poll(2, TimeUnit.SECONDS))
+        } finally { link.close() }
+    }
+
     @Test fun artworkReplyWaitingForQueueCapacityCannotEnterAfterRetirement() {
         val phone = Phone()
         val link = Iap2LinkChannel.openWireless(phone)

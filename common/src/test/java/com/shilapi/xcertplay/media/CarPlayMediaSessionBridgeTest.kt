@@ -114,6 +114,7 @@ class CarPlayMediaSessionBridgeTest {
         var state = NowPlayingState()
         val listeners = mutableListOf<(NowPlayingState) -> Unit>()
         val sent = mutableListOf<MediaCommand>()
+        val seeks = mutableListOf<Triple<Long, Long?, Long?>>()
         override fun mediaSnapshot() = state
         override fun subscribeMediaState(listener: (NowPlayingState) -> Unit): AutoCloseable {
             listeners.add(listener); listener(state)
@@ -122,7 +123,10 @@ class CarPlayMediaSessionBridgeTest {
         override fun sendMediaCommand(command: MediaCommand, connectionGeneration: Long?): CompletableFuture<MediaCommandResult> {
             sent.add(command); return CompletableFuture.completedFuture(MediaCommandResult.SENT)
         }
-        override fun seekTo(positionMs: Long) = CompletableFuture.completedFuture(MediaCommandResult.UNSUPPORTED)
+        override fun seekTo(positionMs: Long, connectionGeneration: Long?, trackRevision: Long?): CompletableFuture<MediaCommandResult> {
+            seeks.add(Triple(positionMs, connectionGeneration, trackRevision))
+            return CompletableFuture.completedFuture(MediaCommandResult.SENT)
+        }
         fun update(next: NowPlayingState) { state = next; listeners.toList().forEach { it(next) } }
     }
     private class Output : MediaOutputControl {
@@ -155,12 +159,21 @@ class CarPlayMediaSessionBridgeTest {
         assertEquals(PlaybackState.STATE_PLAYING, controller.playbackState!!.state)
         assertEquals(2000L, controller.playbackState!!.position)
         assertEquals(1234L, controller.playbackState!!.lastPositionUpdateTime)
-        assertEquals(0L, controller.playbackState!!.actions and PlaybackState.ACTION_SEEK_TO)
+        assertEquals(PlaybackState.ACTION_SEEK_TO, controller.playbackState!!.actions and PlaybackState.ACTION_SEEK_TO)
         controller.transportControls.pause(); idle()
         assertEquals(listOf(MediaCommand.PAUSE), source.sent)
         assertEquals("Sending pause is not acknowledgement", PlaybackState.STATE_PLAYING, controller.playbackState!!.state)
         source.update(playing().copy(status = PhonePlaybackStatus.PAUSED, positionMs = 2100)); idle()
         assertEquals(0f, controller.playbackState!!.playbackSpeed, 0f)
+        controller.transportControls.seekTo(42000); idle()
+        assertEquals(listOf(Triple(42000L, 0L, 0L)), source.seeks)
+        assertEquals(PlaybackState.STATE_PAUSED, controller.playbackState!!.state)
+        assertEquals(listOf(MediaCommand.PAUSE), source.sent)
+        assertEquals(MediaCommandResult.UNAVAILABLE, bridge.browserSeek(source, 99, 0, 100).get())
+        assertEquals(MediaCommandResult.UNAVAILABLE, bridge.browserSeek(source, 0, 99, 100).get())
+        source.update(playing().copy(setElapsedTimeAvailable = false)); idle()
+        assertEquals(0L, controller.playbackState!!.actions and PlaybackState.ACTION_SEEK_TO)
+        assertEquals(MediaCommandResult.UNSUPPORTED, bridge.browserSeek(source, 0, 0, 100).get())
         bridge.close()
         assertTrue(source.listeners.isEmpty()); assertNull(output.request)
     }

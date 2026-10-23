@@ -24,7 +24,7 @@ class Iap2NowPlayingCodecTest {
         assertEquals(91500L, state.positionAt(99000))
         assertEquals("Artist", state.artist)
         assertTrue(state.setElapsedTimeAvailable)
-        assertFalse("Unverified outbound units must never advertise seek", state.canSeek)
+        assertTrue(state.canSeek)
     }
 
     @Test fun trackChangesClearArtworkAndProgressButRetainAbsentFields() {
@@ -86,6 +86,23 @@ class Iap2NowPlayingCodecTest {
         val raw = Iap2NowPlayingCodec.setElapsedTime(0x12345678)
         assertEquals(0x5003, raw.messageId)
         assertArrayEquals(byteArrayOf(0x12,0x34,0x56,0x78), Iap2BodyReader.of(raw).raw(0))
+    }
+
+    @Test fun absoluteSeekUsesUnsignedBigEndianMillisecondsAndRejectsOverflow() {
+        assertArrayEquals(byteArrayOf(0x40, 0x40, 0, 14, 0x50, 3, 0, 8, 0, 0, 0, 0, 0xa4.toByte(), 0x10),
+            Iap2NowPlayingCodec.setElapsedTime(42000).encodedFrame())
+        assertEquals(0xffff_ffffL, Iap2BodyReader.of(Iap2NowPlayingCodec.setElapsedTime(0xffff_ffffL)).u32(0))
+        for (value in listOf(-1L, 0x1_0000_0000L))
+            assertThrows(IllegalArgumentException::class.java) { Iap2NowPlayingCodec.setElapsedTime(value) }
+        val state = NowPlayingState(connected = true, title = "Song", durationMs = 100000,
+            positionMs = 1000, setElapsedTimeAvailable = true)
+        assertTrue(state.canSeek)
+        assertFalse(state.copy(connected = false).canSeek)
+        assertFalse(state.copy(durationMs = null).canSeek)
+        assertFalse(state.copy(durationMs = 0).canSeek)
+        assertFalse(state.copy(positionMs = null).canSeek)
+        assertFalse(state.copy(setElapsedTimeAvailable = false).canSeek)
+        assertFalse(NowPlayingReducer.update(state.copy(persistentId = 1), NowPlayingUpdate(persistentId = 2), 0).canSeek)
     }
 
     @Test fun speedZeroMeansUnknownAndArtworkSnapshotsOwnTheirBytes() {

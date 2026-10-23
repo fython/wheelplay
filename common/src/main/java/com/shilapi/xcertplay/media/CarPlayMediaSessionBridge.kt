@@ -86,7 +86,7 @@ internal class CarPlayMediaSessionBridge(
             override fun onSkipToNext() = dispatch(MediaCommand.NEXT)
             override fun onSkipToPrevious() = dispatch(MediaCommand.PREVIOUS)
             override fun onSeekTo(pos: Long) {
-                if (!closed && generation == commandGeneration && state.canSeek) source?.seekTo(pos)
+                if (!closed && generation == commandGeneration && state.canSeek) source?.let { browserSeek(it, state.connectionGeneration, state.trackRevision, pos) }
             }
         }, main)
     }
@@ -137,6 +137,17 @@ internal class CarPlayMediaSessionBridge(
         return dispatchCommand(command)
     }
 
+    fun browserSeek(expected: CarPlayMediaSource, generation: Long, track: Long, positionMs: Long): CompletableFuture<MediaCommandResult> {
+        if (closed || source !== expected || state.connectionGeneration != generation || state.trackRevision != track)
+            return CompletableFuture.completedFuture(MediaCommandResult.UNAVAILABLE)
+        val current = expected.mediaSnapshot()
+        if (!current.available || current.connectionGeneration != generation || current.trackRevision != track)
+            return CompletableFuture.completedFuture(MediaCommandResult.UNAVAILABLE)
+        if (!current.canSeek) return CompletableFuture.completedFuture(MediaCommandResult.UNSUPPORTED)
+        // Seeking does not imply play, request focus, or release the pause gate.
+        return expected.seekTo(positionMs, generation, track)
+    }
+
     private fun dispatchCommand(command: MediaCommand): CompletableFuture<MediaCommandResult> {
         fun unavailable() = CompletableFuture.completedFuture(MediaCommandResult.UNAVAILABLE)
         if (closed || !state.available) return unavailable()
@@ -162,7 +173,8 @@ internal class CarPlayMediaSessionBridge(
 
     private fun apply(next: NowPlayingState) {
         val wasPaused = state.status == PhonePlaybackStatus.PAUSED || state.status == PhonePlaybackStatus.STOPPED
-        if (state.connectionGeneration != next.connectionGeneration || state.connected && !next.connected) {
+        if (state.connectionGeneration != next.connectionGeneration || state.trackRevision != next.trackRevision ||
+            state.connected && !next.connected) {
             ++commandGeneration
             installCallbacks()
         }

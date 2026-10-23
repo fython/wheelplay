@@ -50,6 +50,9 @@ object Iap2NowPlayingCodec {
         )
     }
 
-    /** Raw wire value, deliberately not a millisecond API until the outbound unit is verified. */
-    fun setElapsedTime(wireValue: Long): Iap2Frame = Iap2Messages.buildRaw(SET_INFORMATION) { u32(0, wireValue) }
+    /** Absolute position in milliseconds, matching LIVI and Nocturne (see docs/MEDIA_SESSION.md). */
+    fun setElapsedTime(positionMs: Long): Iap2Frame {
+        require(positionMs in 0..0xffff_ffffL)
+        return Iap2Messages.buildRaw(SET_INFORMATION) { u32(0, positionMs) }
+    }
 }

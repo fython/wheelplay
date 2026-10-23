@@ -20,6 +20,7 @@ class BrowserMediaBridgeTest {
             durationMs = 100000, positionMs = 2000, positionAtMs = 1000)
         val listeners = mutableListOf<(NowPlayingState) -> Unit>()
         val commands = mutableListOf<MediaCommand>()
+        val seeks = mutableListOf<Triple<Long, Long?, Long?>>()
         override fun mediaSnapshot() = state
         override fun subscribeMediaState(listener: (NowPlayingState) -> Unit): AutoCloseable {
             listeners.add(listener); listener(state)
@@ -28,7 +29,10 @@ class BrowserMediaBridgeTest {
         override fun sendMediaCommand(command: MediaCommand, connectionGeneration: Long?): CompletableFuture<MediaCommandResult> {
             commands.add(command); return CompletableFuture.completedFuture(MediaCommandResult.SENT)
         }
-        override fun seekTo(positionMs: Long) = CompletableFuture.completedFuture(MediaCommandResult.UNSUPPORTED)
+        override fun seekTo(positionMs: Long, connectionGeneration: Long?, trackRevision: Long?): CompletableFuture<MediaCommandResult> {
+            seeks.add(Triple(positionMs, connectionGeneration, trackRevision))
+            return CompletableFuture.completedFuture(MediaCommandResult.SENT)
+        }
         fun update(next: NowPlayingState) { state = next; listeners.toList().forEach { it(next) } }
     }
     private class Fixture {
@@ -43,12 +47,16 @@ class BrowserMediaBridgeTest {
             dispatch = { src, gen, cmd ->
                 val sent = src.sendMediaCommand(cmd, gen)
                 deferred ?: sent
-            }, clock = { time })
+            }, dispatchSeek = { src, gen, track, pos -> deferred ?: src.seekTo(pos, gen, track) }, clock = { time })
         init { bridge.start(); idle() }
         fun state() = sent.last { it.getString("type") == "now-playing" }
         fun command(action: String = "pause", id: Long = 1, snapshot: JSONObject = state()) = JSONObject()
             .put("requestId", id).put("action", action).put("sessionId", snapshot.getString("sessionId"))
             .put("connectionGeneration", snapshot.getLong("connectionGeneration"))
+        fun seek(id: Long, position: Long, snapshot: JSONObject = state()) = command("seekto", id, snapshot)
+            .put("positionMs", position).put("trackRevision", snapshot.getLong("trackRevision"))
+        fun tick() { time += 200; shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(200)) }
+        fun enableSeek() { first.update(first.state.copy(setElapsedTimeAvailable = true)); idle() }
         fun close() { bridge.close(); idle() }
     }
     companion object { private fun idle() = shadowOf(Looper.getMainLooper()).idle() }
@@ -113,7 +121,7 @@ class BrowserMediaBridgeTest {
         assertTrue(f.source!!.listeners.isEmpty()); assertNull(f.changed)
     }
 
-    @Test fun commandsAreBoundedDeduplicatedAndRejectUnverifiedSeek() {
+    @Test fun commandsAreBoundedDeduplicatedAndRejectIncompleteSeek() {
         val f = Fixture()
         try {
             f.bridge.command(f.command()); idle()
@@ -123,7 +131,7 @@ class BrowserMediaBridgeTest {
             f.bridge.command(f.command("nexttrack", 2)); idle()
             f.bridge.command(f.command("previoustrack", 3)); idle()
             assertEquals(listOf(MediaCommand.PAUSE, MediaCommand.NEXT), f.first.commands)
-            assertThrows(IllegalStateException::class.java) { f.bridge.command(f.command("seekto", 4)) }
+            assertThrows(org.json.JSONException::class.java) { f.bridge.command(f.command("seekto", 4)) }
             f.first.update(f.first.state.copy(connectionGeneration = 8));
             f.time += 200
             // Delivery is still guarded by the underlying source/native bridge while main catches up.
@@ -169,4 +177,58 @@ class BrowserMediaBridgeTest {
             assertEquals("sent", f.sent.last().getString("result"))
         } finally { f.close() }
     }
+    @Test fun finalSeekSurvivesRapidDragAndInFlightControlWithoutChangingPhoneState() {
+        val f = Fixture()
+        try {
+            f.enableSeek(); assertTrue(f.state().getBoolean("canSeek"))
+            f.deferred = CompletableFuture()
+            f.bridge.command(f.command()); idle()
+            f.bridge.command(f.seek(2, 10000)); f.bridge.command(f.seek(3, 42000)); idle()
+            assertEquals("superseded", f.sent.last { it.optLong("requestId") == 2L }.getString("result"))
+            f.tick(); assertTrue(f.first.seeks.isEmpty())
+            f.deferred!!.complete(MediaCommandResult.SENT); f.deferred = null; idle(); f.tick()
+            assertEquals(listOf(Triple(42000L, 7L, 2L)), f.first.seeks)
+            assertEquals("sent", f.sent.last().getString("result"))
+            assertEquals(3L, f.sent.last().getLong("requestId"))
+            assertEquals(2000L, f.first.state.positionMs)
+            assertEquals(PhonePlaybackStatus.PLAYING, f.first.state.status)
+        } finally { f.close() }
+    }
+
+    @Test fun queuedSeekRechecksTrackConnectionPairingAndCapabilityBeforeDispatch() {
+        for (change in 0..4) {
+            val f = Fixture()
+            try {
+                f.enableSeek()
+                var authorized = true
+                f.bridge.command(f.seek(1, 42000)) { authorized }; idle()
+                when (change) {
+                    0 -> f.first.update(f.first.state.copy(trackRevision = 3))
+                    1 -> f.first.update(f.first.state.copy(connectionGeneration = 8))
+                    2 -> f.first.update(f.first.state.copy(setElapsedTimeAvailable = false))
+                    3 -> authorized = false
+                    4 -> f.source = Source()
+                }
+                f.tick(); assertTrue(f.first.seeks.isEmpty())
+            } finally { f.close() }
+        }
+    }
+
+    @Test fun seeksRejectMalformedPositionsStaleTracksAndUnavailableTimelines() {
+        val f = Fixture()
+        try {
+            f.bridge.command(f.seek(1, 42000)); idle()
+            assertEquals("unsupported", f.sent.last().getString("result"))
+            f.enableSeek()
+            for (value in listOf<Any>(-1, 1.5, "42000", JSONObject.NULL, 9007199254740992L)) {
+                assertThrows(IllegalArgumentException::class.java) { f.bridge.command(f.seek(2, 42000).put("positionMs", value)) }
+            }
+            f.bridge.command(f.seek(2, 42000).put("trackRevision", 1)); idle(); f.tick()
+            assertTrue(f.first.seeks.isEmpty())
+            assertEquals("unavailable", f.sent.last().getString("result"))
+            f.bridge.command(f.seek(3, 42000)); idle(); f.bridge.close(); f.tick()
+            assertTrue(f.first.seeks.isEmpty())
+        } finally { f.close() }
+    }
+
 }

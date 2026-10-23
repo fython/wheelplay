@@ -25,9 +25,11 @@ class LanWebServerTest {
         val bytes = byteArrayOf(0xff.toByte(), 0xd8.toByte(), 1, 2, 3)
         val state = com.shilapi.xcertplay.media.NowPlayingState(connected = true, connectionGeneration = 7,
             title = "Phone song", status = com.shilapi.xcertplay.media.PhonePlaybackStatus.PLAYING,
+            durationMs = 100000, positionMs = 1000, setElapsedTimeAvailable = true,
             artwork = com.shilapi.xcertplay.media.MediaArtwork(bytes))
         val subscribed = CountDownLatch(1)
         val commands = java.util.concurrent.CopyOnWriteArrayList<com.shilapi.xcertplay.media.MediaCommand>()
+        val seeks = java.util.concurrent.CopyOnWriteArrayList<Triple<Long, Long?, Long?>>()
         val source = object : com.shilapi.xcertplay.media.CarPlayMediaSource {
             override fun mediaSnapshot() = state
             override fun subscribeMediaState(listener: (com.shilapi.xcertplay.media.NowPlayingState) -> Unit): AutoCloseable {
@@ -37,11 +39,15 @@ class LanWebServerTest {
                 commands.add(command)
                 return java.util.concurrent.CompletableFuture.completedFuture(com.shilapi.xcertplay.media.MediaCommandResult.SENT)
             }
-            override fun seekTo(positionMs: Long) = java.util.concurrent.CompletableFuture.completedFuture(com.shilapi.xcertplay.media.MediaCommandResult.UNSUPPORTED)
+            override fun seekTo(positionMs: Long, connectionGeneration: Long?, trackRevision: Long?): java.util.concurrent.CompletableFuture<com.shilapi.xcertplay.media.MediaCommandResult> {
+                seeks.add(Triple(positionMs, connectionGeneration, trackRevision))
+                return java.util.concurrent.CompletableFuture.completedFuture(com.shilapi.xcertplay.media.MediaCommandResult.SENT)
+            }
         }
         val server = LanWebServer(context, "123456", port = 0, mediaBridgeFactory = { send ->
             BrowserMediaBridge(send, currentSource = { source }, observeSource = { it(); AutoCloseable {} },
-                dispatch = { src, gen, cmd -> src.sendMediaCommand(cmd, gen) })
+                dispatch = { src, gen, cmd -> src.sendMediaCommand(cmd, gen) },
+                dispatchSeek = { src, gen, track, pos -> src.seekTo(pos, gen, track) })
         })
         server.start()
         val port = server.listeningPort
@@ -50,7 +56,7 @@ class LanWebServerTest {
         fun pumpUntil(condition: () -> Boolean) {
             val until = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
             while (!condition() && System.nanoTime() < until) {
-                org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+                org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(20))
                 Thread.sleep(5)
             }
             assertTrue(condition())
@@ -81,6 +87,16 @@ class LanWebServerTest {
                     while (result.optString("type") != "media-command-result")
                 assertEquals("sent", result.getString("result"))
                 assertEquals(listOf(com.shilapi.xcertplay.media.MediaCommand.PAUSE), commands)
+                assertTrue(snapshot.getBoolean("canSeek"))
+                text(client, org.json.JSONObject().put("type", "media-command").put("requestId", 2)
+                    .put("sessionId", snapshot.getString("sessionId")).put("connectionGeneration", 7)
+                    .put("trackRevision", snapshot.getLong("trackRevision"))
+                    .put("action", "seekto").put("positionMs", 42000).toString())
+                pumpUntil { seeks.isNotEmpty() }
+                do { result = org.json.JSONObject(frame(client).toString(Charsets.UTF_8)) }
+                    while (result.optString("type") != "media-command-result" || result.optLong("requestId") != 2L)
+                assertEquals("sent", result.getString("result"))
+                assertEquals(listOf(Triple(42000L, 7L, 0L)), seeks)
                 server.pairing.revoke(token)
                 val revoked = coverUrl.openConnection() as java.net.HttpURLConnection
                 assertEquals(404, revoked.responseCode); revoked.disconnect()

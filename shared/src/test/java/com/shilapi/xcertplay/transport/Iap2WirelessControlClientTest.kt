@@ -69,6 +69,7 @@ class Iap2WirelessControlClientTest {
         val received = u16Values(parameters.single { it.id == 7 }.payload)
         assertTrue(0x5703 in sent)
         assertTrue(0x4301 in sent)
+        assertTrue(0x5003 in sent)
         assertFalse(0xae03 in sent)
         assertTrue(0x4300 in received)
         assertTrue(0x4e0d in received)

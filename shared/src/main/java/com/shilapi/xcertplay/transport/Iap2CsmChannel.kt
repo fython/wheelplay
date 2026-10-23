@@ -85,6 +85,19 @@ class Iap2CsmChannel private constructor(
         }
     }
 
+    /** Only whole, single-packet frames may be cancelled without corrupting CSM framing.
+     * [isCurrent] must be non-blocking and lock-free, including at link dispatch.
+     */
+    fun sendIfCurrent(frame: Iap2Frame, isCurrent: () -> Boolean): Boolean = synchronized(sendLock) {
+        checkOpen()
+        if (!isCurrent()) return@synchronized false
+        val limit = link.peerMaxControlPayloadBytes()
+            ?: throw IllegalStateException("CSM send requires a successful iAP2 awaitReady")
+        val bytes = frame.encodedFrame()
+        require(bytes.size <= limit) { "Cancellable CSM frame must fit in one link packet" }
+        link.sendControlAwaitCapacity(bytes, DEFAULT_SEND_TIMEOUT_MILLIS, isCurrent)
+    }
+
     /**
      * Returns the next complete CSM frame, null on timeout or clean close, and throws on failure.
      * A single underlying control payload can decode into several frames; the remainder stays in a

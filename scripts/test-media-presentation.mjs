@@ -164,8 +164,19 @@ try {
   viewer.send(JSON.stringify({ ...nowPlaying, revision: 2, status: 'paused', speed: 0 }));
   await wait(`navigator.mediaSession.playbackState === 'paused'`);
   assert.equal(await evaluate('mediaHandlers.seekto === null && mediaHandlers.seekforward === null'), true);
-  viewer.send(JSON.stringify({ ...nowPlaying, revision: 3, trackRevision: 2, title: 'New track', artworkUrl: null, durationMs: null, positionMs: null }));
+  viewer.send(JSON.stringify({ ...nowPlaying, revision: 3, status: 'paused', speed: 0, canSeek: true }));
+  await wait(`typeof mediaHandlers.seekto === 'function' && typeof mediaHandlers.seekforward === 'function'`);
+  await evaluate(`window.retiredSeek = mediaHandlers.seekto; mediaHandlers.seekto({seekTime: 10, fastSeek: true}); mediaHandlers.seekto({seekTime: 42.123})`);
+  for (let attempt = 0; mediaCommands.length < 2 && attempt < 100; attempt++) await pause(10);
+  assert.equal(mediaCommands.length, 2);
+  assert.equal(mediaCommands[1].action, 'seekto');
+  assert.equal(mediaCommands[1].positionMs, 42123);
+  assert.equal(mediaCommands[1].trackRevision, 1);
+  assert.equal(await evaluate('navigator.mediaSession.playbackState'), 'paused');
+  viewer.send(JSON.stringify({ ...nowPlaying, revision: 4, trackRevision: 2, title: 'New track', artworkUrl: null, durationMs: null, positionMs: null }));
   await wait(`navigator.mediaSession.metadata?.title === 'New track' && navigator.mediaSession.metadata.artwork.length === 0`);
+  await evaluate(`retiredSeek({seekTime: 60})`);
+  await pause(200); assert.equal(mediaCommands.length, 2, 'Retired seek cannot control the new track');
   await wait(`document.getElementById('status').textContent.includes('WebP')`);
   assert.equal(webpProbes, 1, 'WebP is advertised only after real decoding succeeds');
   await evaluate(`const option=document.getElementById('ignore-browser-zoom');option.checked=true;option.dispatchEvent(new Event('change'))`);
@@ -221,7 +232,7 @@ try {
   assert.equal(connections, 2);
   assert.equal(await evaluate(`navigator.mediaSession.metadata === null && navigator.mediaSession.playbackState === 'none'`), true);
   await evaluate('retiredPause()'); await pause(50);
-  assert.equal(mediaCommands.length, 1, 'Retired system controls cannot reach the replacement socket');
+  assert.equal(mediaCommands.length, 2, 'Retired system controls cannot reach the replacement socket');
   assert.equal(await evaluate(`document.getElementById('waiting').hidden`), false, 'Reconnect must wait for its own frame');
   frame(); await wait(showing);
   assert.deepEqual(errors, []);
@@ -229,7 +240,7 @@ try {
     checks: ['WebP capability probe', 'WebP touch with zoom compensation', 'JPEG fallback after corrupt WebP', 'two-image pipeline with exact ACKs',
       'decode without overlay flashes', 'gap releases touch', 'deadline without status', 'cancelled deadline',
       'same-size rebuild', 'old frame rejection', 'rotation', 'real socket reconnect', 'native browser Media Session metadata and cover',
-      'media action roundtrip', 'phone-authoritative pause', 'no unverified seek', 'media cleanup and retired callback isolation'] }, null, 2));
+      'media action roundtrip', 'phone-authoritative pause', 'capability-gated seek and final drag position', 'media cleanup and retired callback isolation'] }, null, 2));
 } finally {
   devtools?.close(); browser.kill('SIGTERM');
   for (const client of wss.clients) client.terminate();

@@ -285,6 +285,10 @@ class DiPlaySessionService : Service() {
             browserMediaBridge?.browserCommand(source, generation, command)
                 ?: CompletableFuture.completedFuture(MediaCommandResult.UNAVAILABLE)
 
+        internal fun browserMediaSeek(source: CarPlayMediaSource, generation: Long, track: Long, positionMs: Long): CompletableFuture<MediaCommandResult> =
+            browserMediaBridge?.browserSeek(source, generation, track, positionMs)
+                ?: CompletableFuture.completedFuture(MediaCommandResult.UNAVAILABLE)
+
         const val ACTION_STOP = "com.shihab.diplay.DISCONNECT"
         private const val ACTION_MEDIA = "com.shilapi.xcertplay.MEDIA_COMMAND"
         private const val EXTRA_COMMAND = "command"
