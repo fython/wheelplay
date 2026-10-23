@@ -45,7 +45,10 @@ class CarPlayAudioFeedbackClockTest {
                             AirPlayIdentity.generate(), PairingStore(), null,
                             object : AirPlaySessionListener {}, engine)
                         val shared = ByteArray(32) { it.toByte() }
-                        ReflectionHelpers.setField(ReflectionHelpers.getField<Any>(session, "pairVerify"), "sharedSecret", shared)
+                        // This media-only fixture models an already authenticated control session.
+                        val verification = ReflectionHelpers.getField<Any>(session, "pairVerify")
+                        ReflectionHelpers.setField(verification, "sharedSecret", shared)
+                        ReflectionHelpers.setField(verification, "verified", true)
                         try {
                             val audioType = if (bits == 0x800000L) "media" else "telephony"
                             val setup = engine.onAudio(session, 100, mapOf("streamConnectionID" to 1L,

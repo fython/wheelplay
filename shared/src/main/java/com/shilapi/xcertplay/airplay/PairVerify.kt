@@ -23,7 +23,7 @@ class PairVerify(
     val isVerified: Boolean get() = verified
     val verifiedControllerId: String? get() = controllerId
     val controlKeys: ControlKeys? get() = keys
-    val shared: ByteArray? get() = sharedSecret
+    val shared: ByteArray? get() = if (verified) sharedSecret?.copyOf() else null
 
     fun handle(body: ByteArray): ByteArray {
         val tlv = Tlv8Codec.decode(body)
@@ -40,6 +40,7 @@ class PairVerify(
     }
 
     private fun m2(tlv: Map<Int, ByteArray>): ByteArray {
+        reset()
         val clientEphemeralPublicKey = tlv[TYPE_PUBLIC_KEY] ?: return err(2)
         val pair = AirPlayCrypto.x25519Generate()
         ephemeralPublicKey = pair.publicKey
@@ -101,12 +102,25 @@ class PairVerify(
         return Tlv8Codec.encode(listOf(Tlv8Item(TYPE_STATE, byteArrayOf(4))))
     }
 
-    private fun err(state: Int): ByteArray = Tlv8Codec.encode(
-        listOf(
-            Tlv8Item(TYPE_STATE, byteArrayOf(state.toByte())),
-            Tlv8Item(TYPE_ERROR, byteArrayOf(ERROR_AUTHENTICATION.toByte())),
-        ),
-    )
+    private fun reset() {
+        ephemeralPublicKey = null
+        clientEphemeralPublicKey = null
+        sharedSecret = null
+        encryptionKey = null
+        keys = null
+        verified = false
+        controllerId = null
+    }
+
+    private fun err(state: Int): ByteArray {
+        reset()
+        return Tlv8Codec.encode(
+            listOf(
+                Tlv8Item(TYPE_STATE, byteArrayOf(state.toByte())),
+                Tlv8Item(TYPE_ERROR, byteArrayOf(ERROR_AUTHENTICATION.toByte())),
+            ),
+        )
+    }
 
     private companion object {
         const val TYPE_IDENTIFIER = 0x01

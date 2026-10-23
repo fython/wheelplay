@@ -258,16 +258,19 @@ class AirPlaySession(
     private fun runControl() {
         val input = BufferedInputStream(socket.getInputStream())
         val output = BufferedOutputStream(socket.getOutputStream())
-        var accumulated = ByteArray(0)
+        val decoder = RtspMessage.Decoder()
+        val deadline = RtspReadDeadline()
         val buffer = ByteArray(READ_CHUNK_BYTES)
         var closeReason = "session closed"
         try {
             while (!closed.get()) {
+                socket.soTimeout = deadline.socketTimeoutMillis()
                 val count = input.read(buffer)
                 if (count < 0) {
                     closeReason = "peer EOF"
                     break
                 }
+                deadline.receivedBytes()
                 var plaintext = buffer.copyOf(count)
                 val activeCipher = cipher
                 if (activeCipher != null) {
@@ -282,10 +285,11 @@ class AirPlaySession(
                     encBuf = decrypted.rest
                     plaintext = decrypted.data
                 }
-                accumulated += plaintext
-                val parsed = RtspMessage.parseMessages(accumulated)
-                accumulated = parsed.rest
-                for (request in parsed.messages) {
+                decoder.feed(plaintext) { request ->
+                    // M4 enables encryption. Never dispatch another request from the plaintext
+                    // batch that carried M3, even if it was pipelined before authentication.
+                    require(activeCipher != null || !pairVerify.isVerified) { "RTSP: plaintext after pair-verify" }
+                    deadline.messageCompleted()
                     val cseq = request.headers["cseq"] ?: "-"
                     val path = request.path.lowercase()
                     val showInDebugOverlay =
@@ -322,8 +326,12 @@ class AirPlaySession(
                         debugLog("airplay control encryption enabled")
                     }
                 }
+                require(activeCipher != null || cipher == null || !decoder.hasPending) {
+                    "RTSP: plaintext remainder after pair-verify"
+                }
+                deadline.retainPartial(decoder.hasPending || encBuf.isNotEmpty())
                 output.flush()
-                notifySetupResponseSent()
+                if (pairVerify.isVerified) notifySetupResponseSent()
             }
         } catch (error: Exception) {
             closeReason = "control I/O failed: ${error.message ?: error.javaClass.simpleName}"
@@ -335,6 +343,16 @@ class AirPlaySession(
     }
 
     private fun handle(request: RtspMessage.Request): RtspMessage.Response {
+        val path = request.path.lowercase()
+        val pairing = path.endsWith("/pair-setup") || path.endsWith("/pair-verify")
+        val bootstrap = request.method == "OPTIONS" ||
+            (request.method == "POST" && (pairing || path.endsWith("/auth-setup"))) ||
+            (request.method in listOf("GET", "POST") && path.endsWith("/info"))
+        if (!pairVerify.isVerified && !bootstrap) return RtspMessage.Response(status = 401)
+        // Pairing establishes the keys once per connection. Rekeying an active session would
+        // leave the cipher and media/event keys referring to different handshakes.
+        if (pairVerify.isVerified && pairing) return RtspMessage.Response(status = 400)
+        if (request.method == "OPTIONS") return RtspMessage.Response(status = 200)
         when (request.method) {
             "SETUP" -> return handleSetup(request)
             "RECORD" -> {
@@ -344,7 +362,6 @@ class AirPlaySession(
             "TEARDOWN" -> return handleTeardown(request)
         }
 
-        val path = request.path.lowercase()
         return when {
             path.endsWith("/pair-setup") -> RtspMessage.Response(
                 headers = mapOf("Content-Type" to PAIRING_CONTENT_TYPE),
@@ -650,11 +667,14 @@ class AirPlaySession(
             val input = BufferedInputStream(socket.getInputStream())
             val output = BufferedOutputStream(socket.getOutputStream())
             var encrypted = ByteArray(0)
-            var plaintext = ByteArray(0)
+            val decoder = RtspMessage.Decoder()
+            val deadline = RtspReadDeadline()
             val buffer = ByteArray(READ_CHUNK_BYTES)
             while (!closed.get()) {
+                socket.soTimeout = deadline.socketTimeoutMillis()
                 val count = input.read(buffer)
                 if (count < 0) break
+                deadline.receivedBytes()
                 val cipher = eventCipher ?: break
                 encrypted += buffer.copyOf(count)
                 val decrypted = try {
@@ -664,11 +684,9 @@ class AirPlaySession(
                     break
                 }
                 encrypted = decrypted.rest
-                plaintext += decrypted.data
-                val parsed = RtspMessage.parseMessages(plaintext)
-                plaintext = parsed.rest
-                for (message in parsed.messages) {
-                    if (message.method.startsWith("RTSP/") || message.method.startsWith("HTTP/")) continue
+                decoder.feed(decrypted.data) { message ->
+                    deadline.messageCompleted()
+                    if (message.method.startsWith("RTSP/") || message.method.startsWith("HTTP/")) return@feed
                     debugLog(
                         "airplay event rx ${message.method} ${message.path} cseq=${message.headers["cseq"] ?: "-"} body=${message.body.size}",
                     )
@@ -683,6 +701,7 @@ class AirPlaySession(
                         output.flush()
                     }
                 }
+                deadline.retainPartial(decoder.hasPending || encrypted.isNotEmpty())
             }
         } catch (error: Exception) {
             if (!closed.get()) Log.e(TAG, "airplay event read failed", error)
