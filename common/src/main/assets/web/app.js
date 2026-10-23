@@ -228,10 +228,10 @@ export function createControlOutbox(socket, {
 } = {}) {
   const touches = [], imageAcks = new Map();
   const signals = [];
-  let ack = null, audioAck = null, audioReady = null, ping = null, feedback = null, viewport = null, timer = null, blockedSince = null, closed = false;
+  let ack = null, audioAck = null, audioReady = null, ping = null, feedback = null, viewport = null, locationFix = null, timer = null, blockedSince = null, closed = false;
   const close = () => {
     closed = true; cancel(timer); timer = null;
-    ack = null; audioAck = null; audioReady = null; ping = null; feedback = null; viewport = null; touches.length = 0; signals.length = 0;
+    ack = null; audioAck = null; audioReady = null; ping = null; feedback = null; viewport = null; locationFix = null; touches.length = 0; signals.length = 0;
     imageAcks.clear();
   };
   const fail = () => { close(); onFailure(); };
@@ -239,7 +239,7 @@ export function createControlOutbox(socket, {
     if (closed) return;
     if (socket.readyState !== 1) { close(); return; }
     try {
-      while ((ack || imageAcks.size || audioAck || audioReady || touches.length || signals.length || viewport || feedback || ping) && socket.bufferedAmount < 8192) {
+      while ((ack || imageAcks.size || audioAck || audioReady || touches.length || signals.length || viewport || locationFix || feedback || ping) && socket.bufferedAmount < 8192) {
         if (imageAcks.size) {
           const [key, json] = imageAcks.entries().next().value; socket.send(json); imageAcks.delete(key);
         } else if (ack) { socket.send(ack); ack = null; }
@@ -248,12 +248,13 @@ export function createControlOutbox(socket, {
         else if (touches.length) { socket.send(touches[0].json); touches.shift(); }
         else if (signals.length) { socket.send(signals[0]); signals.shift(); }
         else if (viewport) { socket.send(viewport); viewport = null; }
+        else if (locationFix) { socket.send(locationFix); locationFix = null; }
         else if (feedback) { socket.send(feedback); feedback = null; }
         else { socket.send(ping); ping = null; }
         blockedSince = null;
       }
     } catch (_) { fail(); return; }
-    if (ack || imageAcks.size || audioAck || audioReady || touches.length || signals.length || viewport || feedback || ping) {
+    if (ack || imageAcks.size || audioAck || audioReady || touches.length || signals.length || viewport || locationFix || feedback || ping) {
       if (blockedSince === null) blockedSince = now();
       if (now() - blockedSince >= 1500) { fail(); return; }
       if (timer === null) timer = schedule(() => { timer = null; flush(); }, 10);
@@ -275,14 +276,16 @@ export function createControlOutbox(socket, {
       else if (data.type === 'ping') ping = json;
       else if (data.type === 'rtc-feedback') feedback = json;
       else if (data.type === 'viewport') viewport = json;
+      else if (data.type === 'location') locationFix = json;
       else if (data.type === 'touch') {
         const tail = touches[touches.length - 1];
         // Only consecutive moves may be replaced; never cross a down/up/release boundary.
         if (kind === 'move' && tail && tail.kind === 'move') tail.json = json;
         else if (touches.length < 64) touches.push({ kind, json });
         else { fail(); return false; }
-      } else if (['rtc-start', 'rtc-answer', 'rtc-ready', 'rtc-fallback', 'phone-connect', 'image-format'].includes(data.type)) {
+      } else if (['rtc-start', 'rtc-answer', 'rtc-ready', 'rtc-fallback', 'phone-connect', 'image-format', 'location-start', 'location-stop', 'location-clear', 'media-command'].includes(data.type)) {
         if (signals.length >= 8 || json.length > 32768) { fail(); return false; }
+        if (data.type.startsWith('location-')) locationFix = null;
         signals.push(json);
       } else return false;
       flush();
@@ -671,6 +674,8 @@ export function createRtcReceiver(createRenderer, {
 }
 
 import { createBrowserAudio } from './browser-audio.js';
+import { createBrowserLocation } from './browser-location.js';
+import { createBrowserMediaSession } from './browser-media-session.js';
 
 if (typeof document !== 'undefined') {
   const $ = id => document.getElementById(id);
@@ -692,6 +697,15 @@ if (typeof document !== 'undefined') {
   let heartbeat = null, movePending = false, moveGeneration = 0, outbox = null;
   let authGeneration = 0, deviceCredential = null, storageAvailable = false;
   let launchPresentation = null;
+  const locationOption = $('browser-location');
+  locationOption.checked = false; // Never inherit form restoration or grant consent through storage.
+  const browserLocation = createBrowserLocation({ send: data => send(data), onState(enabled, message, key) {
+    locationOption.checked = enabled;
+    $('location-status').textContent = message;
+    $('location-message').textContent = message;
+    $('location-message').hidden = !message || ['web_location_ready', 'web_location_active'].includes(key);
+  } });
+  locationOption.addEventListener('change', () => { void browserLocation.setEnabled(locationOption.checked); });
   const devicePreference = 'wheelplay.browserDevice';
   let pairingToken = null, qrGeneration = 0, qrTimer = null, qrRequest = null;
   let viewportReportTimer = null, lastViewportSignature = '';
@@ -925,6 +939,7 @@ if (typeof document !== 'undefined') {
     }
     return outbox ? outbox.send(data, kind) : false;
   };
+  const browserMedia = createBrowserMediaSession({ send });
   const browserAudio = createBrowserAudio({
     send,
     sendBinary: packet => {
@@ -1049,7 +1064,8 @@ if (typeof document !== 'undefined') {
     clearTimeout(retry); clearInterval(heartbeat);
     if (socket) { const old = socket; socket = null; old.close(); }
     presentation.close(); cleanupRtc(); cleanupImage();
-    browserAudio.close(); $('audio-message').hidden = true;
+    browserMedia.close(); browserAudio.close(); $('audio-message').hidden = true;
+    browserLocation.close();
     $('topbar').hidden = false; $('pairing').hidden = false; $('display').hidden = true;
     syncDisplayZoom();
     $('disconnect').hidden = true; $('connect').disabled = false;
@@ -1061,7 +1077,7 @@ if (typeof document !== 'undefined') {
     $('connect').disabled = true;
     $('status').textContent = paired ? t("web_reconnecting") : t("web_connecting");
     const auth = pairingToken ? `token=${encodeURIComponent(pairingToken)}` : `code=${encodeURIComponent($('code').value)}`;
-    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/stream?${auth}&media=2&images=3`);
+    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/stream?${auth}&media=2&images=3&nowPlaying=1`);
     ws.binaryType = 'arraybuffer';
     const mode = launchMode;
     socket = ws;
@@ -1075,7 +1091,8 @@ if (typeof document !== 'undefined') {
         cancelMove(); pointers.clear(); presentation.close(); ws.close();
       } });
       paired = true; attempts = 0; lastStatus = Date.now();
-      browserAudio.attach();
+      browserMedia.open(); browserAudio.attach();
+      browserLocation.attach();
       cleanupRtc();
       presentation.open();
       webpSupport.then(supported => {
@@ -1131,6 +1148,7 @@ if (typeof document !== 'undefined') {
       if (socket !== ws || ws.readyState !== WebSocket.OPEN) return;
       if (typeof event.data === 'string') {
         const data = JSON.parse(event.data);
+        if (browserMedia.receive(data)) return;
         if (browserAudio.control(data)) return;
         if (data.type === 'rtc-offer' || data.type === 'rtc-stop') {
           if (data.type === 'rtc-stop') rtcRequested = false;
@@ -1201,7 +1219,8 @@ if (typeof document !== 'undefined') {
       if (outbox) { outbox.close(); outbox = null; }
       cancelMove();
       socket = null; pointers.clear(); clearInterval(heartbeat); presentation.close(); cleanupRtc(); cleanupImage();
-      browserAudio.close(); $('audio-message').hidden = true;
+      browserMedia.close(); browserAudio.close(); $('audio-message').hidden = true;
+      browserLocation.close();
       if (stopped) return;
       if (!paired || ++attempts > 8) {
         disconnect(); $('status').textContent = t("web_could_not_connect");

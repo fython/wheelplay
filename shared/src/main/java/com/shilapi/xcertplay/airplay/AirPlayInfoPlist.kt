@@ -129,6 +129,7 @@ object AirPlayInfoPlist {
         val opus = 0x70000000
         val aacLc = if (is48) 0x800000 else 0x400000
         val pcmInput = if (microphone) pcmMono else null
+        // Offer PCM alone when Android has no Opus encoder; the phone chooses the wire format.
         val wirelessInput = if (microphone) (if (microphoneOpus) pcmMono or opus else pcmMono) else null
 
         return listOf(

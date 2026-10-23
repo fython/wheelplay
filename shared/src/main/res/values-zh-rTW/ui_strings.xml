@@ -557,4 +557,14 @@
     <string name="web_video_renderer_hint">此瀏覽器不支援直接 Canvas，連線後將使用 JPEG / WebP。</string>
     <string name="web_video_renderer_unavailable">（直接 Canvas 無法使用，已使用 JPEG / WebP）</string>
     <string name="web_video_renderer_failed">（影片中斷，已改用 JPEG / WebP）</string>
+    <string name="web_location_title">將瀏覽器 GPS 定位傳給 CarPlay</string>
+    <string name="web_location_help">每次開啟頁面預設關閉。啟用前檢查定位權限，僅在 HTTPS 連線期間分享定位。瀏覽器定位優先於 Android GPS。</string>
+    <string name="web_location_https">瀏覽器 GPS 需要受信任的 HTTPS 頁面。請透過下方入口開啟 HTTPS 頁面後重試。</string>
+    <string name="web_location_unsupported">此瀏覽器不支援取得定位。</string>
+    <string name="web_location_checking">正在檢查定位權限，請在瀏覽器提示時允許存取位置。</string>
+    <string name="web_location_denied">未取得定位權限，瀏覽器 GPS 已關閉。請在網站設定中允許定位後重新啟用。</string>
+    <string name="web_location_timeout">定位請求逾時，請檢查裝置定位服務後重試。</string>
+    <string name="web_location_unavailable">暫時無法取得定位，請檢查裝置定位服務。</string>
+    <string name="web_location_ready">已取得定位權限，將在連線期間分享瀏覽器 GPS 定位。</string>
+    <string name="web_location_active">正在轉送瀏覽器 GPS 定位。</string>
 </resources>

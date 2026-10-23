@@ -20,7 +20,6 @@ CarPlay and the CarPlay icon are Apple Inc. marks/assets. This asset is not cove
 
 ## Runtime dependencies
 
-- Concentus — pure Java Opus implementation by the Concentus and Opus contributors, BSD-style license. Vendored from `lostromb/concentus` commit `3885c4e46513ef0fc81fca100189e54f1714c6ca` via DiPlay. Full copyright and license notices are in `shared/src/main/java/org/concentus/LICENSE` and the APK asset `concentus-license.txt`.
 
 - AndroidX and Jetpack Compose — Android Open Source Project; Apache License 2.0.
 - Kotlin standard library — JetBrains; Apache License 2.0.

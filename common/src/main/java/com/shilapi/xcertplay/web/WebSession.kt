@@ -161,6 +161,7 @@ internal object WebSession {
             else secureServer?.imageFormat ?: ImageFormat.JPEG
 
     val audio = BrowserAudioBridge()
+    val location = BrowserLocationBridge()
     private val mainHandler = Handler(Looper.getMainLooper())
     private var experienceContext: Context? = null
     private var offlineSubscription: AutoCloseable? = null

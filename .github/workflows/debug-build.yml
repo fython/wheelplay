@@ -9,30 +9,70 @@ on:
       - '**.md'
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  ANDROID_API_LEVEL: '36'
+  ANDROID_BUILD_TOOLS: '36.0.0'
+  ANDROID_NDK_VERSION: '28.2.13676358'
+  ANDROID_CMAKE_VERSION: '3.22.1'
+
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
 
       - name: Set up JDK 25
         uses: actions/setup-java@v4
         with:
           java-version: '25'
           distribution: temurin
-          cache: gradle
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v5
         with:
-          packages: platform-tools
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
 
-      - name: Install Android build tools
-        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358' 'cmake;3.22.1'
+      - name: Locate preinstalled Android SDK
+        id: android-sdk
+        run: |
+          test -d "$ANDROID_HOME/cmdline-tools/latest/bin"
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+          echo "root=$ANDROID_HOME" >> "$GITHUB_OUTPUT"
+
+      - name: Cache required Android toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ steps.android-sdk.outputs.root }}/platforms/android-${{ env.ANDROID_API_LEVEL }}
+            ${{ steps.android-sdk.outputs.root }}/build-tools/${{ env.ANDROID_BUILD_TOOLS }}
+            ${{ steps.android-sdk.outputs.root }}/ndk/${{ env.ANDROID_NDK_VERSION }}
+            ${{ steps.android-sdk.outputs.root }}/cmake/${{ env.ANDROID_CMAKE_VERSION }}
+          key: android-toolchain-v1-ubuntu24-${{ runner.arch }}-api${{ env.ANDROID_API_LEVEL }}-bt${{ env.ANDROID_BUILD_TOOLS }}-ndk${{ env.ANDROID_NDK_VERSION }}-cmake${{ env.ANDROID_CMAKE_VERSION }}
+
+      - name: Verify SDK installation helper
+        run: node --test test/ci-android-toolchain.test.js
+
+      - name: Install missing Android packages
+        run: |
+          bash .github/scripts/install-android-packages.sh \
+            "platforms;android-$ANDROID_API_LEVEL" \
+            "build-tools;$ANDROID_BUILD_TOOLS" \
+            "ndk;$ANDROID_NDK_VERSION" \
+            "cmake;$ANDROID_CMAKE_VERSION"
 
       - name: Build and verify Debug
-        run: ./gradlew --no-daemon :shared:testDebugUnitTest :common:testDebugUnitTest :common:assembleDebugAndroidTest :mobile:lintDebug :mobile:assembleDebug
+        run: ./gradlew --no-daemon --build-cache :shared:testDebugUnitTest :common:testDebugUnitTest :common:assembleDebugAndroidTest :mobile:lintDebug :mobile:assembleDebug
 
       - name: Upload failed unit test reports
         if: failure()
@@ -72,13 +112,33 @@ jobs:
   browser-runtime:
     name: Browser HTTP on Android ${{ matrix.api-level }}
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         api-level: [28, 36]
     steps:
+      - name: Locate emulator cache directories
+        id: emulator-cache
+        run: |
+          echo "sdk=$ANDROID_HOME" >> "$GITHUB_OUTPUT"
+          echo "image-version=$ImageVersion" >> "$GITHUB_OUTPUT"
+
+      # Cache only this API's image and clean AVD. The runner image version also
+      # invalidates snapshots when the preinstalled emulator/host software changes.
+      - name: Restore Android emulator and clean snapshot
+        id: avd-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ${{ steps.emulator-cache.outputs.sdk }}/emulator
+            ${{ steps.emulator-cache.outputs.sdk }}/platforms/android-${{ matrix.api-level }}
+            ${{ steps.emulator-cache.outputs.sdk }}/system-images/android-${{ matrix.api-level }}/google_apis/x86_64
+            ~/.android/avd
+            ~/.android/adb*
+          key: android-avd-v1-ubuntu24-${{ runner.arch }}-${{ steps.emulator-cache.outputs.image-version }}-api${{ matrix.api-level }}-google_apis-x86_64
+
       - name: Download browser runtime test APK
         uses: actions/download-artifact@v4
         with:
@@ -88,12 +148,41 @@ jobs:
       - name: Enable KVM
         run: sudo chmod a+rw /dev/kvm
 
+      - name: Create clean emulator snapshot on cache miss
+        if: steps.avd-cache.outputs.cache-hit != 'true'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          arch: x86_64
+          target: google_apis
+          avd-name: browser-runtime
+          force-avd-creation: false
+          disable-animations: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: echo 'Clean emulator snapshot created.'
+
+      # Save before installing or running tests so later jobs restore a clean device.
+      - name: Save clean emulator snapshot
+        if: steps.avd-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ${{ steps.emulator-cache.outputs.sdk }}/emulator
+            ${{ steps.emulator-cache.outputs.sdk }}/platforms/android-${{ matrix.api-level }}
+            ${{ steps.emulator-cache.outputs.sdk }}/system-images/android-${{ matrix.api-level }}/google_apis/x86_64
+            ~/.android/avd
+            ~/.android/adb*
+          key: ${{ steps.avd-cache.outputs.cache-primary-key }}
+
       - name: Verify localized pages on Android ICU
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ matrix.api-level }}
           arch: x86_64
           target: google_apis
+          avd-name: browser-runtime
+          force-avd-creation: false
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
             adb install -r runtime-tests/common-debug-androidTest.apk

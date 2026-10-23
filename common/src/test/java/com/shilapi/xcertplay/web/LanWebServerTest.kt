@@ -21,6 +21,94 @@ import javax.net.ssl.HttpsURLConnection
 @RunWith(org.robolectric.RobolectricTestRunner::class)
 @org.robolectric.annotation.Config(qualifiers = "zh-rCN", sdk = [29])
 class LanWebServerTest {
+    @Test fun pairedNowPlayingStreamsStateCommandsAndRevocableArtworkOverRealSockets() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        val bytes = byteArrayOf(0xff.toByte(), 0xd8.toByte(), 1, 2, 3)
+        val state = com.shilapi.xcertplay.media.NowPlayingState(connected = true, connectionGeneration = 7,
+            title = "Phone song", status = com.shilapi.xcertplay.media.PhonePlaybackStatus.PLAYING,
+            durationMs = 100000, positionMs = 1000, setElapsedTimeAvailable = true,
+            artwork = com.shilapi.xcertplay.media.MediaArtwork(bytes))
+        val subscribed = CountDownLatch(1)
+        val commands = java.util.concurrent.CopyOnWriteArrayList<com.shilapi.xcertplay.media.MediaCommand>()
+        val seeks = java.util.concurrent.CopyOnWriteArrayList<Triple<Long, Long?, Long?>>()
+        val source = object : com.shilapi.xcertplay.media.CarPlayMediaSource {
+            override fun mediaSnapshot() = state
+            override fun subscribeMediaState(listener: (com.shilapi.xcertplay.media.NowPlayingState) -> Unit): AutoCloseable {
+                listener(state); subscribed.countDown(); return AutoCloseable {}
+            }
+            override fun sendMediaCommand(command: com.shilapi.xcertplay.media.MediaCommand, connectionGeneration: Long?): java.util.concurrent.CompletableFuture<com.shilapi.xcertplay.media.MediaCommandResult> {
+                commands.add(command)
+                return java.util.concurrent.CompletableFuture.completedFuture(com.shilapi.xcertplay.media.MediaCommandResult.SENT)
+            }
+            override fun seekTo(positionMs: Long, connectionGeneration: Long?, trackRevision: Long?): java.util.concurrent.CompletableFuture<com.shilapi.xcertplay.media.MediaCommandResult> {
+                seeks.add(Triple(positionMs, connectionGeneration, trackRevision))
+                return java.util.concurrent.CompletableFuture.completedFuture(com.shilapi.xcertplay.media.MediaCommandResult.SENT)
+            }
+        }
+        val server = LanWebServer(context, "123456", port = 0, mediaBridgeFactory = { send ->
+            BrowserMediaBridge(send, currentSource = { source }, observeSource = { it(); AutoCloseable {} },
+                dispatch = { src, gen, cmd -> src.sendMediaCommand(cmd, gen) },
+                dispatchSeek = { src, gen, track, pos -> src.seekTo(pos, gen, track) })
+        })
+        server.start()
+        val port = server.listeningPort
+        val host = "127.0.0.1:$port"
+        val token = server.pairing.issueToken()!!
+        fun pumpUntil(condition: () -> Boolean) {
+            val until = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
+            while (!condition() && System.nanoTime() < until) {
+                org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(20))
+                Thread.sleep(5)
+            }
+            assertTrue(condition())
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        }
+        try {
+            val missing = URL("http://$host/now-playing/artwork?id=unknown").openConnection() as java.net.HttpURLConnection
+            assertEquals(404, missing.responseCode); missing.disconnect()
+            assertTrue(URL("http://$host/browser-media-session.js").readText().contains("setPositionState"))
+            handshake("", "http://$host", token, host, port, nowPlaying = true).use { client ->
+                assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                pumpUntil { subscribed.count == 0L }
+                var snapshot: org.json.JSONObject
+                do { snapshot = org.json.JSONObject(frame(client).toString(Charsets.UTF_8)) }
+                    while (snapshot.optString("type") != "now-playing" || !snapshot.optBoolean("available"))
+                assertEquals("Phone song", snapshot.getString("title"))
+                val coverUrl = URL("http://$host${snapshot.getString("artworkUrl")}")
+                val cover = coverUrl.openConnection() as java.net.HttpURLConnection
+                assertEquals("image/jpeg", cover.contentType)
+                assertEquals("private, no-store", cover.getHeaderField("Cache-Control"))
+                assertArrayEquals(bytes, cover.inputStream.use { it.readBytes() }); cover.disconnect()
+                text(client, org.json.JSONObject().put("type", "media-command").put("requestId", 1)
+                    .put("sessionId", snapshot.getString("sessionId")).put("connectionGeneration", 7)
+                    .put("action", "pause").toString())
+                pumpUntil { commands.isNotEmpty() }
+                var result: org.json.JSONObject
+                do { result = org.json.JSONObject(frame(client).toString(Charsets.UTF_8)) }
+                    while (result.optString("type") != "media-command-result")
+                assertEquals("sent", result.getString("result"))
+                assertEquals(listOf(com.shilapi.xcertplay.media.MediaCommand.PAUSE), commands)
+                assertTrue(snapshot.getBoolean("canSeek"))
+                text(client, org.json.JSONObject().put("type", "media-command").put("requestId", 2)
+                    .put("sessionId", snapshot.getString("sessionId")).put("connectionGeneration", 7)
+                    .put("trackRevision", snapshot.getLong("trackRevision"))
+                    .put("action", "seekto").put("positionMs", 42000).toString())
+                pumpUntil { seeks.isNotEmpty() }
+                do { result = org.json.JSONObject(frame(client).toString(Charsets.UTF_8)) }
+                    while (result.optString("type") != "media-command-result" || result.optLong("requestId") != 2L)
+                assertEquals("sent", result.getString("result"))
+                assertEquals(listOf(Triple(42000L, 7L, 0L)), seeks)
+                server.pairing.revoke(token)
+                val revoked = coverUrl.openConnection() as java.net.HttpURLConnection
+                assertEquals(404, revoked.responseCode); revoked.disconnect()
+                server.disconnectUnauthorized()
+            }
+        } finally {
+            server.stop()
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        }
+    }
+
     @org.junit.Before fun provisionAuthentication() {
         val identity = com.shilapi.xcertplay.SyntheticMfiIdentity.create()
         com.shilapi.xcertplay.MfiAssetStore(org.robolectric.RuntimeEnvironment.getApplication().noBackupFilesDir)
@@ -316,6 +404,53 @@ class LanWebServerTest {
                 }
             }
         } finally { WebSession.stop() }
+    }
+
+    @Test fun browserGpsRequiresHttpsAndExplicitOptInAndClearsWhenTheViewerDisconnects() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        val provider = WebSession.location.createProvider()
+        provider.start(); WebSession.start(context)
+        val fix = """{"type":"location","latitude":25,"longitude":121,"accuracy":5,"timestamp":1700000000000,"ageMillis":0}"""
+        fun settle(client: Socket) {
+            text(client, """{"type":"ping"}""")
+            while (org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).optString("type") != "status") { }
+        }
+        try {
+            handshake(WebSession.code).use { client ->
+                assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                text(client, """{"type":"location-start"}"""); text(client, fix); settle(client)
+                assertNull(provider.latestNmea())
+            }
+            val detachedBy = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
+            while (WebSession.hasViewer && System.nanoTime() < detachedBy) Thread.sleep(10)
+            assertFalse(WebSession.hasViewer)
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(8)
+            while (WebSession.tls == null && WebSession.tlsError == null && System.nanoTime() < deadline) Thread.sleep(20)
+            val endpoint = WebSession.tls ?: error("HTTPS failed: ${WebSession.tlsError}")
+            val root = CertificateFactory.getInstance("X.509").generateCertificate(endpoint.certificate.inputStream())
+            val store = KeyStore.getInstance(KeyStore.getDefaultType()).apply { load(null); setCertificateEntry("wheelplay", root) }
+            val managers = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply { init(store) }
+            val ssl = SSLContext.getInstance("TLS").apply { init(null, managers.trustManagers, null) }
+            (ssl.socketFactory.createSocket("127.0.0.1", 8443) as SSLSocket).use { client ->
+                client.soTimeout = 3000
+                client.sslParameters = client.sslParameters.apply { endpointIdentificationAlgorithm = "HTTPS" }
+                client.startHandshake()
+                client.outputStream.write(("GET /stream?code=${WebSession.code} HTTP/1.1\r\n" +
+                    "Host: 127.0.0.1:8443\r\nOrigin: https://127.0.0.1:8443\r\n" +
+                    "Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\n" +
+                    "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n").toByteArray())
+                assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                text(client, fix); settle(client); assertNull(provider.latestNmea())
+                text(client, """{"type":"location-start"}"""); text(client, fix); settle(client)
+                assertTrue(provider.latestNmea()!!.contains("2500.0000,N,12100.0000,E"))
+                text(client, """{"type":"location-stop"}"""); settle(client); assertNull(provider.latestNmea())
+                text(client, """{"type":"location-start"}"""); text(client, fix); settle(client)
+                assertNotNull(provider.latestNmea())
+            }
+            val clearedBy = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
+            while (provider.latestNmea() != null && System.nanoTime() < clearedBy) Thread.sleep(10)
+            assertNull(provider.latestNmea())
+        } finally { WebSession.stop(); provider.close() }
     }
 
     @Test fun trustedHttpsViewerCanSupplyNegotiatedMicrophonePcm() {
@@ -733,9 +868,9 @@ class LanWebServerTest {
             headers.split(" ")[1].toInt() to socket.getInputStream().readBytes().toString(Charsets.UTF_8)
         }
 
-    private fun handshake(code: String, origin: String = "http://127.0.0.1:8080", token: String = "", host: String = "127.0.0.1:8080", port: Int = 8080, media: Int = 1, images: Int = 0): Socket = Socket("127.0.0.1", port).apply {
+    private fun handshake(code: String, origin: String = "http://127.0.0.1:8080", token: String = "", host: String = "127.0.0.1:8080", port: Int = 8080, media: Int = 1, images: Int = 0, nowPlaying: Boolean = false): Socket = Socket("127.0.0.1", port).apply {
         soTimeout = 3000
-        getOutputStream().write(("GET /stream?code=$code&token=$token&media=$media&images=$images HTTP/1.1\r\nHost: $host\r\n" +
+        getOutputStream().write(("GET /stream?code=$code&token=$token&media=$media&images=$images&nowPlaying=${if (nowPlaying) 1 else 0} HTTP/1.1\r\nHost: $host\r\n" +
             "Origin: $origin\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
             "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n").toByteArray())
         getOutputStream().flush()
@@ -754,10 +889,13 @@ class LanWebServerTest {
         maskedFrame(socket, 1, message.toByteArray())
     }
     private fun maskedFrame(socket: Socket, opcode: Int, bytes: ByteArray) {
-        check(bytes.size < 126)
+        check(bytes.size <= 65535)
         // RFC6455 client frames are masked; zero mask is sufficient for this protocol fixture.
         socket.getOutputStream().apply {
-            write(byteArrayOf((0x80 or opcode).toByte(), (0x80 or bytes.size).toByte(), 0,0,0,0)); write(bytes); flush()
+            write(0x80 or opcode)
+            if (bytes.size < 126) write(0x80 or bytes.size)
+            else { write(0x80 or 126); write(bytes.size ushr 8); write(bytes.size and 255) }
+            write(byteArrayOf(0,0,0,0)); write(bytes); flush()
         }
     }
 }

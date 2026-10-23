@@ -32,6 +32,12 @@ class CarPlayMediaCoordinator(
     private var generation = 0L
     @Volatile private var closed = false
 
+    private data class Seek(val positionMs: Long, val source: Iap2Session, val generation: Long,
+        val track: Long, val serial: Long, val result: CompletableFuture<MediaCommandResult>)
+    private val seekSerial = java.util.concurrent.atomic.AtomicLong()
+    private var queuedSeek: Seek? = null
+    private var seekWorkerScheduled = false
+
     fun snapshot(): NowPlayingState = state
     fun subscribe(listener: (NowPlayingState) -> Unit): AutoCloseable {
         synchronized(lock) {
@@ -188,15 +194,65 @@ class CarPlayMediaCoordinator(
         return result
     }
 
-    fun seekTo(positionMs: Long): CompletableFuture<MediaCommandResult> {
-        // R32 confirms the parameter width and capability, but omits its outbound time unit.
-        // Never send a guessed encoding or expose ACTION_SEEK_TO until a capture verifies it.
-        return CompletableFuture.completedFuture(if (!state.available) MediaCommandResult.UNAVAILABLE else MediaCommandResult.UNSUPPORTED)
+    fun seekTo(positionMs: Long, connectionGeneration: Long? = null, trackRevision: Long? = null): CompletableFuture<MediaCommandResult> {
+        synchronized(lock) {
+            fun done(value: MediaCommandResult) = CompletableFuture.completedFuture(value)
+            val current = channel
+            if (closed || current == null || !state.available ||
+                connectionGeneration != null && connectionGeneration != state.connectionGeneration ||
+                trackRevision != null && trackRevision != state.trackRevision) return done(MediaCommandResult.UNAVAILABLE)
+            if (!state.canSeek) return done(MediaCommandResult.UNSUPPORTED)
+            val result = CompletableFuture<MediaCommandResult>()
+            pending.add(result)
+            result.whenComplete { _, _ -> pending.remove(result) }
+            val previous = queuedSeek
+            queuedSeek = Seek(positionMs.coerceIn(0, minOf(state.durationMs!!, 0xffff_ffffL)), current,
+                state.connectionGeneration, state.trackRevision, seekSerial.incrementAndGet(), result)
+            previous?.result?.complete(MediaCommandResult.SUPERSEDED)
+            if (!seekWorkerScheduled) {
+                seekWorkerScheduled = true
+                try { commands.execute(::drainSeeks) }
+                catch (_: java.util.concurrent.RejectedExecutionException) {
+                    seekWorkerScheduled = false; queuedSeek = null
+                    result.complete(MediaCommandResult.UNAVAILABLE)
+                }
+            }
+            return result
+        }
+    }
+
+    private fun drainSeeks() {
+        while (true) {
+            val request = synchronized(lock) {
+                val next = queuedSeek
+                queuedSeek = null
+                if (next == null) seekWorkerScheduled = false
+                next
+            } ?: return
+            // This predicate runs under the link queue lock: only volatile/atomic reads, no coordinator lock.
+            fun current(): Boolean {
+                val snapshot = state
+                return !closed && snapshot.connectionGeneration == request.generation &&
+                    snapshot.trackRevision == request.track && snapshot.canSeek && seekSerial.get() == request.serial
+            }
+            val outcome = try {
+                if (!request.result.isDone && current() &&
+                    request.source.sendIfCurrent(Iap2NowPlayingCodec.setElapsedTime(request.positionMs), ::current))
+                    MediaCommandResult.SENT else MediaCommandResult.UNAVAILABLE
+            } catch (_: Exception) { MediaCommandResult.FAILED }
+            request.result.complete(when {
+                state.connectionGeneration != request.generation || state.trackRevision != request.track -> MediaCommandResult.UNAVAILABLE
+                seekSerial.get() != request.serial -> MediaCommandResult.SUPERSEDED
+                else -> outcome
+            })
+        }
     }
 
     fun disconnected(source: Iap2Session? = null) = synchronized(lock) {
         if (source != null && channel !== source) return@synchronized
         ++generation
+        seekSerial.incrementAndGet()
+        queuedSeek = null
         pending.forEach { it.complete(MediaCommandResult.UNAVAILABLE) }
         channel = null
         artworkBinding = null

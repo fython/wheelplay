@@ -36,7 +36,7 @@ test('Android exports every browser template and literal message key, not just t
     assert.equal(match[1], match[2]); return match[1];
   }));
   const required = [...template.matchAll(/\{\{([a-z0-9_]+)\}\}/g)].map(match => match[1]);
-  for (const name of ['app.js', 'browser-audio.js']) {
+  for (const name of ['app.js', 'browser-audio.js', 'browser-location.js']) {
     const js = readFileSync(new URL(`../common/src/main/assets/web/${name}`, import.meta.url), 'utf8');
     required.push(...[...js.matchAll(/\bt\(['"]([a-z0-9_]+)['"]/g)].map(match => match[1]));
   }

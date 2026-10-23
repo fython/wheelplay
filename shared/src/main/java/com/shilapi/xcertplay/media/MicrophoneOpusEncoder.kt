@@ -15,20 +15,16 @@ internal interface MicrophoneOpusEncoder : Closeable {
 
 internal object MicrophoneOpusEncoders {
     /**
-     * Android's MediaCodec Opus encoder exists only from Android 10 (API 29). Wireless CarPlay sends
-     * calls and Siri as Opus, so older head units fall back to the bundled software encoder.
+     * Use the platform encoder for an already negotiated Opus stream. Devices without one advertise
+     * only PCM input formats; changing the payload codec after negotiation would corrupt the stream.
      */
     fun create(
         bitrate: Int,
         platform: (Int) -> MicrophoneOpusEncoder = { OpusEncoder(it) },
-        software: (Int) -> MicrophoneOpusEncoder = { SoftwareOpusEncoder(it) },
     ): MicrophoneOpusEncoder? {
         val platformEncoder = platform(bitrate)
         if (platformEncoder.available) return platformEncoder
         platformEncoder.close()
-        val softwareEncoder = software(bitrate)
-        if (softwareEncoder.available) return softwareEncoder
-        softwareEncoder.close()
         return null
     }
 }

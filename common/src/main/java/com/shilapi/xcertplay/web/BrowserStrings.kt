@@ -9,6 +9,16 @@ import org.json.JSONObject
 internal object BrowserStrings {
     private val resources =
         mapOf(
+            "web_location_title" to UiR.string.web_location_title,
+            "web_location_help" to UiR.string.web_location_help,
+            "web_location_https" to UiR.string.web_location_https,
+            "web_location_unsupported" to UiR.string.web_location_unsupported,
+            "web_location_checking" to UiR.string.web_location_checking,
+            "web_location_denied" to UiR.string.web_location_denied,
+            "web_location_timeout" to UiR.string.web_location_timeout,
+            "web_location_unavailable" to UiR.string.web_location_unavailable,
+            "web_location_ready" to UiR.string.web_location_ready,
+            "web_location_active" to UiR.string.web_location_active,
             "web_video_recovering" to UiR.string.web_video_recovering,
             "web_video_input_unavailable" to UiR.string.web_video_input_unavailable,
             "web_ignore_browser_zoom" to UiR.string.web_ignore_browser_zoom,

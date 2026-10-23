@@ -85,7 +85,8 @@ class Iap2LinkChannel private constructor(
      * Like [sendControl], but waits for command-queue capacity.  CSM uses this to queue every
      * fragment of one frame without converting link backpressure into a partial CSM write.
      */
-    internal fun sendControlAwaitCapacity(bytes: ByteArray, timeoutMillis: Long): Boolean {
+    internal fun sendControlAwaitCapacity(bytes: ByteArray, timeoutMillis: Long,
+        isCurrent: () -> Boolean = { true }): Boolean {
         require(bytes.size <= Iap2LinkEngine.MAX_PAYLOAD_BYTES) {
             "iAP2 control payload exceeds ${Iap2LinkEngine.MAX_PAYLOAD_BYTES} bytes"
         }
@@ -93,11 +94,11 @@ class Iap2LinkChannel private constructor(
         val copy = bytes.copyOf()
         synchronized(lock) {
             waitFor(timeoutMillis) {
-                terminated || closing || hasCommandCapacityLocked(copy.size)
+                terminated || closing || !isCurrent() || hasCommandCapacityLocked(copy.size)
             }
             throwTerminalFailureLocked()
-            if (terminated || closing) return false
-            return enqueueCommandLocked(copy)
+            if (terminated || closing || !isCurrent()) return false
+            return enqueueCommandLocked(copy, isCurrent = isCurrent)
         }
     }
 

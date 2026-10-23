@@ -4,57 +4,34 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class OpusEncoderSupportTest {
-    @Test fun platformCapabilityDoesNotInitializeTheSoftwareProbe() {
-        assertTrue(OpusEncoderSupport.isAvailable(
-            platformAvailable = { true },
-            software = { error("Software probe must not run") },
-        ))
+    @Test fun platformEncoderAllowsOpusAdvertisement() {
+        assertTrue(OpusEncoderSupport.isAvailable(platformAvailable = { true }))
     }
 
-    @Test fun missingPlatformEncoderKeepsOpusWhenTheBundledEncoderProducesAPacket() {
-        val software = SoftwareOpusEncoder(48_000)
-        assertTrue(OpusEncoderSupport.isAvailable(platformAvailable = { false }, software = { software }))
-        assertFalse("the probe releases its encoder", software.available)
-    }
-
-    @Test fun unreadablePlatformCodecListStillUsesTheBundledEncoder() {
-        assertTrue(OpusEncoderSupport.isAvailable(
-            platformAvailable = { throw IllegalStateException("codec list unavailable") },
-            software = { SoftwareOpusEncoder(48_000) },
-        ))
-    }
-
-    @Test fun unavailableSoftwareInitializationDoesNotAdvertiseAnEncoderOrThrow() {
-        val software = SoftwareOpusEncoder(48_000, complexity = 11)
-        assertFalse(software.available)
-        assertFalse(OpusEncoderSupport.isAvailable(platformAvailable = { false }, software = { software }))
+    @Test fun missingOrUnreadablePlatformCapabilityFallsBackToPcmAdvertisement() {
+        assertFalse(OpusEncoderSupport.isAvailable(platformAvailable = { false }))
         assertFalse(OpusEncoderSupport.isAvailable(
-            platformAvailable = { false }, software = { throw IllegalStateException("initialization failed") },
+            platformAvailable = { throw IllegalStateException("codec list unavailable") },
         ))
     }
 
-    @Test fun encoderThatCannotProduceAPacketIsNotAUsableCapability() {
-        val software = ProbeEncoder { emptyList() }
-        assertFalse(OpusEncoderSupport.isAvailable(platformAvailable = { false }, software = { software }))
-        assertEquals(SoftwareOpusEncoder.FRAME_BYTES, software.frameBytes)
-        assertTrue(software.closed)
+    @Test fun negotiatedOpusUsesThePlatformEncoderAndReleasesUnavailableEncoders() {
+        val platform = FakeEncoder(available = true)
+        assertSame(platform, MicrophoneOpusEncoders.create(48_000, platform = { bitrate ->
+            assertEquals(48_000, bitrate)
+            platform
+        }))
+        assertFalse(platform.closed)
+
+        val missing = FakeEncoder(available = false)
+        assertNull(MicrophoneOpusEncoders.create(48_000, platform = { missing }))
+        assertTrue(missing.closed)
     }
 
-    @Test fun failedEncodingProbeIsContainedAndClosed() {
-        val software = ProbeEncoder { throw IllegalStateException("encode failed") }
-        assertFalse(OpusEncoderSupport.isAvailable(platformAvailable = { false }, software = { software }))
-        assertTrue(software.closed)
-    }
-
-    private class ProbeEncoder(private val encodeFrame: () -> List<ByteArray>) : MicrophoneOpusEncoder {
-        override val implementation = "probe"
-        override val available = true
+    private class FakeEncoder(override val available: Boolean) : MicrophoneOpusEncoder {
+        override val implementation = "fake"
         var closed = false
-        var frameBytes = 0
-        override fun encode(pcm: ByteArray): List<ByteArray> {
-            frameBytes = pcm.size
-            return encodeFrame()
-        }
+        override fun encode(pcm: ByteArray): List<ByteArray> = emptyList()
         override fun close() { closed = true }
     }
 }

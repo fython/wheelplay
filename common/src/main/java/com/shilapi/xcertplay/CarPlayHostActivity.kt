@@ -140,7 +140,9 @@ class CarPlayHostActivity : ComponentActivity() {
             firmwareVersion = "0.1.0",
             hardwareVersion = "1.0",
             carPlayUsbInterfaceNumber = 3,
-            locationInformationEnabled = locationReportingEnabled,
+            // Advertise the channel so a browser can opt in during an existing session.
+            // No fixes are supplied until browser consent or the Android GPS setting enables a source.
+            locationInformationEnabled = true,
         ),
         label = "WheelPlay",
         hostName = "wheelplay-" + DiPlayBootstrap.deviceId(airPlayIdentity).replace(":", "").lowercase(),
@@ -153,7 +155,7 @@ class CarPlayHostActivity : ComponentActivity() {
         manualHotspotBand = manualHotspotBand,
         manualHotspotChannel = manualHotspotChannel,
         manualHotspotSecurity = manualHotspotSecurity,
-        locationReportingEnabled = locationReportingEnabled,
+        locationReportingEnabled = true,
     )
 
     private val vpnConsent =
@@ -2697,8 +2699,10 @@ class CarPlayHostActivity : ComponentActivity() {
         AirPlayDisplaySettings.resolvePhysicalSizeMm(
             currentWidthPixels = size.width,
             currentHeightPixels = size.height,
-            maximumWidthPixels = maxOf(maximumDetectedWidthPixels, size.width),
-            maximumHeightPixels = maxOf(maximumDetectedHeightPixels, size.height),
+            // The browser canvas fills its display at every pixel resolution. Treating it as
+            // a fraction of a previous viewport shrinks the reported screen and enlarges iOS UI.
+            maximumWidthPixels = size.width,
+            maximumHeightPixels = size.height,
             referenceMillimeters = widthPhysicalMm,
             basis = physicalSizeBasis,
         )
@@ -2983,24 +2987,25 @@ class CarPlayHostActivity : ComponentActivity() {
         simulatedManufacturerName = AirPlayPersistence.loadSimulatedManufacturerName(this)
         val config = createRuntimeConfig()
         val airPlayConfig = createAirPlayConfig(size)
-        val locationProvider: Iap2LocationProvider? =
-            if (config.locationReportingEnabled) {
+        val locationProvider: Iap2LocationProvider = WebSession.location.createProvider(
+            if (locationReportingEnabled) {
                 AndroidCarPlayLocationProvider(this)
             } else {
                 null
-            }
+            },
+        )
         appendLog(
             "Starting CarPlay controller at ${size.width}x${size.height} -> ${airPlayConfig.main.widthPixels}x${airPlayConfig.main.heightPixels} " +
                 "(${CarPlayDisplayScale.label(displayScaleTenths)}) physical=${airPlayConfig.main.widthPhysicalMm}x" +
                 "${airPlayConfig.main.heightPhysicalMm}mm video=${if (airPlayConfig.hevc) "HEVC" else "H.264"} decoder=${if (airPlayConfig.hevc && hevcSoftwareDecoderEnabled) "software" else "hardware"} microphone=${airPlayConfig.microphone} " +
-                "location=${if (config.locationReportingEnabled) "enabled" else "disabled"} mfi=${mfiTargetLabel(config.mfiTarget)}",
+                "androidLocation=${if (locationReportingEnabled) "enabled" else "disabled"} browserLocation=opt-in mfi=${mfiTargetLabel(config.mfiTarget)}",
         )
         Log.i(
             TAG,
             "starting controller display=${size.width}x${size.height} negotiated=${airPlayConfig.main.widthPixels}x${airPlayConfig.main.heightPixels} " +
                 "scale=${CarPlayDisplayScale.label(displayScaleTenths)} hevc=${airPlayConfig.hevc} " +
                 "softwareHevc=${airPlayConfig.hevc && hevcSoftwareDecoderEnabled} microphone=${airPlayConfig.microphone} " +
-                "location=${config.locationReportingEnabled} mfi=${config.mfiTarget}",
+                "androidLocation=$locationReportingEnabled browserLocation=opt-in mfi=${config.mfiTarget}",
         )
         val renderer = try {
             createMediaSink(

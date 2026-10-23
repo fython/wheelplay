@@ -532,3 +532,28 @@ run-1 捕获的第 12 个访问单元（索引 11）为：
 1280px 连接页三列、390px 单列，均无横向溢出且 Video 数为 0。测试后 UI 确认恢复 30 fps、HEVC 关闭、原始分辨率、自适应开启和 10 秒容忍时间；新增加的图片格式 WebP / 质量 75 沿用安装后的设置，测试未修改。实际重新协商 H.264 后，触控与直接 Canvas 正常，末次收到 / 解码均为 1038 帧，丢弃为 0，未回退；Video 创建和 play 调用均为 0。随后释放触点，撤销页面观测包装，恢复直接 Canvas 偏好，断开并关闭专用测试浏览器。设备保留最终修复版 APK。
 
 记录、真实码流、设备与构建日志保存至忽略的 `.local/rebase-qa/`；不提交私人画面。目标车机型号及长时间运行仍需单独验证，本轮未操作用户原 Chrome。
+
+## 浏览器 Media Session（2026-10-23）
+
+将 iAP2 Now Playing 状态经已配对 WebSocket 推送到车机网页，再通过 Web Media Session API 发布歌曲、歌手、专辑、封面、播放状态和进度。播放／暂停／切歌回传复用原生媒体桥的音频焦点及暂停逻辑；未启用尚未验证的 seek。协议及兼容性边界见 [MEDIA_SESSION.md](MEDIA_SESSION.md#browser--head-unit-media-session)。
+
+- `npm test`：150 项通过；`npm run check` 通过。覆盖 API 缺失／部分支持、暂停进度、过期状态、旧按键回调、WebSocket 背压与重连清理。
+- Android 定向回归累计覆盖 43 个独立测试：`BrowserMediaBridgeTest` 7 项、`CarPlayMediaSessionBridgeTest` 12 项、`LanWebServerTest` 24 项，均通过。最后补充的命令排队后撤销权限、未完成命令限制及旧 controller 完成回调隔离已单独复测。
+- 真实 HTTP / WebSocket 测试验证状态推送、控制结果、封面读取与撤销配对后返回 404；既有不声明 `nowPlaying=1` 的客户端保持原协议。
+- `npm run test:browser:media`：真实 Chromium 在生产 CSP 下通过元数据、JPEG 封面、控制回传、iPhone 回报后暂停、禁用 seek、断线清理及旧回调隔离，同时保留画面／触控回归。媒体按键回调由测试脚本触发，不代表物理按键验收。
+- `:mobile:lintDebug` 通过：0 错误、18 警告。`git diff --check` 通过。云环境使用可写 Android／Gradle／Robolectric 缓存及会话代理运行检查，未修改仓库工具链设置。
+- 未安装到车机或 iPhone。车机系统媒体卡片、方向盘按键、Web Audio 会话激活，以及具体浏览器在 HTTP／HTTPS 下的支持情况仍需实机验收。
+
+
+## 浏览器与原生 Media Session 进度跳转（2026-10-23）
+
+本节取代此前“seek 未实现／等待协议依据”的当前状态描述。根据 LIVI 的实际发送代码、Nocturne 的协议定义和 MacPlay 的字节编码测试，接通 `seekto → positionMs → iAP2 0x5003 / 参数 0`，按大端 uint32 毫秒发送。具体上游版本和链接见 [绝对跳转说明](MEDIA_SESSION.md#absolute-seeking)。有线／无线 identification 均声明发送该消息。
+
+浏览器和原生 Android 仅在手机允许跳转且时长、位置有效时启用控制。支持绝对拖动与前后跳转；连续拖动合并至最后一个目标，等待中的最终请求不会因前一个控制尚未完成而丢失。请求绑定 controller、连接与曲目，iAP2 队列在接收和发送时复核有效性。暂停时跳转保持暂停，发送成功不冒充手机已更新播放位置。
+
+- `npm test`：154 项通过，含拖动合并、秒／毫秒转换、相对进度推算、边界钳制、无效输入、超时和回调失效。
+- `:shared:testDebugUnitTest --tests '*Iap2*' --tests '*CarPlayMediaCoordinatorTest'`：66 项通过。覆盖 42 秒的完整消息字节、真实 iAP2 链路模拟收包、队列背压下丢弃过期跳转、连接复用、切歌／断线隔离，以及已有协议回归。
+- `:common:testDebugUnitTest` 定向运行 `BrowserMediaBridgeTest`、`CarPlayMediaSessionBridgeTest`、`LanWebServerTest`：46 项通过。真实 HTTP／WebSocket 验证 seek 能力、命令字段和结果；Robolectric 验证暂停跳转、配对撤销、能力变化和最终请求保留。
+- `npm run test:browser:media`：真实 Chromium 在生产 CSP 下通过 seek 能力切换、最后一次拖动位置（42.123 秒 → 42123 毫秒）、暂停状态保持、切歌后的旧 seek 回调隔离，以及既有画面／触控／重连检查。回调由测试脚本触发，未验证车机的实体按键或系统进度条 UI。
+- `:mobile:lintDebug`：0 错误、18 警告；`git diff --check` 通过。
+- 未安装或操作真实车机／iPhone。手机音乐应用是否执行跳转、进度回报及本地／浏览器输出的声音连续性仍需实机验收。本次复用现有 CarPlay 音频链路，未根据猜测注入 AirPlay 缓冲清空命令。

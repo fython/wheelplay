@@ -23,11 +23,15 @@ function image(width, height, codec = 'mjpeg') {
 const images = { jpeg: [image(320, 180), image(180, 320)], webp: [image(320, 180, 'libwebp'), image(180, 320, 'libwebp')] };
 let viewer, connections = 0, acks = 0, paused = false, sequence = 0, format = 'jpeg', jpegFallbacks = 0, webpProbes = 0;
 const pendingImages = new Map();
-const touches = [], errors = [];
+const touches = [], errors = [], mediaCommands = [];
 let media = { type: 'status', mediaProtocol: 3, sessionId: 7, videoEpoch: 1, width: 320, height: 180,
   sourceState: 'ready', inputReady: true, streaming: true, stage: 'Synthetic browser test' };
 const server = http.createServer(async (req, res) => {
   res.setHeader('Content-Security-Policy', csp);
+  if (req.url === '/now-playing/artwork?id=test-cover') {
+    res.setHeader('Content-Type', 'image/jpeg'); res.setHeader('Cache-Control', 'private, no-store');
+    res.end(images.jpeg[0]); return;
+  }
   if (req.url.startsWith('/pair/')) {
     const result = req.url === '/pair/remember' ? { id: 'd'.repeat(32), secret: 's'.repeat(32), name: 'Test' } :
       req.url === '/pair/request' ? { id: 'qr', secret: 'poll', expiresIn: 120 } :
@@ -37,7 +41,7 @@ const server = http.createServer(async (req, res) => {
   if (req.url === '/i18n.js') {
     res.setHeader('Content-Type', 'text/javascript'); res.end(`globalThis.wheelplayMessages=${JSON.stringify(messages)};`); return;
   }
-  const file = { '/': 'index.html', '/app.js': 'app.js', '/text.js': 'text.js', '/browser-audio.js': 'browser-audio.js',
+  const file = { '/': 'index.html', '/app.js': 'app.js', '/text.js': 'text.js', '/browser-audio.js': 'browser-audio.js', '/browser-media-session.js': 'browser-media-session.js', '/browser-location.js': 'browser-location.js',
     '/style.css': 'style.css', '/audio-worklet.js': 'audio-worklet.js' }[req.url];
   if (!file) { res.writeHead(404); res.end(); return; }
   let body = await readFile(new URL(file, root));
@@ -75,6 +79,10 @@ wss.on('connection', ws => {
       if (connections === 1) frame();
     }
     if (message.type === 'touch') touches.push(message);
+    if (message.type === 'media-command') {
+      mediaCommands.push(message);
+      ws.send(JSON.stringify({ type: 'media-command-result', requestId: message.requestId, result: 'sent' }));
+    }
     if (message.type === 'ping' && !paused) {
       ws.send(JSON.stringify(media));
       if (initial && connections === 1) frame();
@@ -135,6 +143,40 @@ try {
   await wait(`!!window.wheelplayStats && !!document.getElementById('connect') && !document.getElementById('connect').disabled`);
   await evaluate(`document.getElementById('code').value='123456';document.getElementById('connect-form').requestSubmit()`);
   await wait(showing);
+  await evaluate(`
+    window.mediaHandlers = {};
+    const originalActionHandler = MediaSession.prototype.setActionHandler;
+    MediaSession.prototype.setActionHandler = function(action, handler) {
+      window.mediaHandlers[action] = handler;
+      return originalActionHandler.call(this, action, handler);
+    };`);
+  const nowPlaying = { type: 'now-playing', sessionId: 'phone-one', revision: 1, connectionGeneration: 7, trackRevision: 1,
+    connected: true, available: true, title: 'Browser test song', artist: 'Test artist', album: 'Test album',
+    status: 'playing', durationMs: 100000, positionMs: 12000, speed: 1, canSeek: false,
+    artworkUrl: '/now-playing/artwork?id=test-cover' };
+  viewer.send(JSON.stringify(nowPlaying));
+  await wait(`navigator.mediaSession.metadata?.title === 'Browser test song' && navigator.mediaSession.playbackState === 'playing'`);
+  assert.equal(await evaluate(`new Promise(resolve => { const image = new Image(); image.onload = () => resolve(image.naturalWidth); image.onerror = () => resolve(0); image.src = navigator.mediaSession.metadata.artwork[0].src; })`), 320);
+  await evaluate(`window.retiredPause = mediaHandlers.pause; mediaHandlers.pause()`);
+  for (let attempt = 0; !mediaCommands.length && attempt < 100; attempt++) await pause(10);
+  assert.equal(mediaCommands[0]?.action, 'pause'); assert.equal(mediaCommands[0]?.connectionGeneration, 7);
+  assert.equal(await evaluate('navigator.mediaSession.playbackState'), 'playing', 'Sending pause is not a phone acknowledgement');
+  viewer.send(JSON.stringify({ ...nowPlaying, revision: 2, status: 'paused', speed: 0 }));
+  await wait(`navigator.mediaSession.playbackState === 'paused'`);
+  assert.equal(await evaluate('mediaHandlers.seekto === null && mediaHandlers.seekforward === null'), true);
+  viewer.send(JSON.stringify({ ...nowPlaying, revision: 3, status: 'paused', speed: 0, canSeek: true }));
+  await wait(`typeof mediaHandlers.seekto === 'function' && typeof mediaHandlers.seekforward === 'function'`);
+  await evaluate(`window.retiredSeek = mediaHandlers.seekto; mediaHandlers.seekto({seekTime: 10, fastSeek: true}); mediaHandlers.seekto({seekTime: 42.123})`);
+  for (let attempt = 0; mediaCommands.length < 2 && attempt < 100; attempt++) await pause(10);
+  assert.equal(mediaCommands.length, 2);
+  assert.equal(mediaCommands[1].action, 'seekto');
+  assert.equal(mediaCommands[1].positionMs, 42123);
+  assert.equal(mediaCommands[1].trackRevision, 1);
+  assert.equal(await evaluate('navigator.mediaSession.playbackState'), 'paused');
+  viewer.send(JSON.stringify({ ...nowPlaying, revision: 4, trackRevision: 2, title: 'New track', artworkUrl: null, durationMs: null, positionMs: null }));
+  await wait(`navigator.mediaSession.metadata?.title === 'New track' && navigator.mediaSession.metadata.artwork.length === 0`);
+  await evaluate(`retiredSeek({seekTime: 60})`);
+  await pause(200); assert.equal(mediaCommands.length, 2, 'Retired seek cannot control the new track');
   await wait(`document.getElementById('status').textContent.includes('WebP')`);
   assert.equal(webpProbes, 1, 'WebP is advertised only after real decoding succeeds');
   await evaluate(`const option=document.getElementById('ignore-browser-zoom');option.checked=true;option.dispatchEvent(new Event('change'))`);
@@ -205,13 +247,17 @@ try {
   viewer.close();
   for (let attempt = 0; connections < 2 && attempt < 100; attempt++) await pause(50);
   assert.equal(connections, 2);
+  assert.equal(await evaluate(`navigator.mediaSession.metadata === null && navigator.mediaSession.playbackState === 'none'`), true);
+  await evaluate('retiredPause()'); await pause(50);
+  assert.equal(mediaCommands.length, 2, 'Retired system controls cannot reach the replacement socket');
   assert.equal(await evaluate(`document.getElementById('waiting').hidden`), false, 'Reconnect must wait for its own frame');
   frame(); await wait(showing);
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ passed: true, connections, imageAcks: acks, webpProbes, jpegFallbacks,
     checks: ['five-touch source', 'read-only source', 'WebP capability probe', 'WebP touch with zoom compensation', 'JPEG fallback after corrupt WebP', 'two-image pipeline with exact ACKs',
       'decode without overlay flashes', 'gap releases touch', 'deadline without status', 'cancelled deadline',
-      'same-size rebuild', 'old frame rejection', 'rotation', 'real socket reconnect'] }, null, 2));
+      'same-size rebuild', 'old frame rejection', 'rotation', 'real socket reconnect', 'native browser Media Session metadata and cover',
+      'media action roundtrip', 'phone-authoritative pause', 'capability-gated seek and final drag position', 'media cleanup and retired callback isolation'] }, null, 2));
 } finally {
   devtools?.close(); browser.kill('SIGTERM');
   for (const client of wss.clients) client.terminate();

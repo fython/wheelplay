@@ -89,7 +89,7 @@ class MicrophoneRecoveryTest {
         }
     }
 
-    @Test fun browserInputStillEncodesOpusAndKeepsTheNegotiatedRtpClock() {
+    @Test fun browserInputUsesEncoderPacketsAndKeepsTheNegotiatedRtpClock() {
         DatagramSocket(0, InetAddress.getLoopbackAddress()).use { receiver ->
             receiver.soTimeout = 3_000
             var reads = 0
@@ -99,16 +99,73 @@ class MicrophoneRecoveryTest {
                 override fun close() = Unit
             }
             val counters = MicrophoneCounters()
+            val encodedPacket = byteArrayOf(0x78, 0x01, 0x02)
+            val encoder = object : MicrophoneOpusEncoder {
+                override val implementation = "test"
+                override val available = true
+                override fun encode(pcm: ByteArray): List<ByteArray> {
+                    assertEquals(1_920, pcm.size)
+                    return listOf(encodedPacket)
+                }
+                override fun close() = Unit
+            }
             MicrophoneUplink(config(receiver.localPort).copy(sampleRate = 48_000,
-                codec = AudioCodecKind.OPUS, opusClockRate = 24_000), input, counters, { SoftwareOpusEncoder(it) }).use { uplink ->
+                codec = AudioCodecKind.OPUS, opusClockRate = 24_000), input, counters, { encoder }).use { uplink ->
                 assertTrue(uplink.start())
                 val packet = DatagramPacket(ByteArray(2_048), 2_048)
                 receiver.receive(packet)
-                assertTrue(packet.length > 36)
+                val bytes = packet.data.copyOf(packet.length)
+                val payload = AirPlayCrypto.chachaOpen(ByteArray(32), AirPlayCrypto.nonce64(0),
+                    bytes.copyOfRange(12, bytes.size - 8), bytes.copyOfRange(4, 12))
+                assertArrayEquals(encodedPacket, payload)
             }
             assertEquals(480, counters.timestamp)
             assertEquals(1, counters.sequence)
             assertTrue("browser microphone never opens a local recorder", Builder.attempts.isEmpty())
+        }
+    }
+
+    @Test fun browserPcmInputSendsNegotiatedPcmWithoutAnOpusEncoder() {
+        DatagramSocket(0, InetAddress.getLoopbackAddress()).use { receiver ->
+            receiver.soTimeout = 2_000
+            var reads = 0
+            val input = object : PcmInput {
+                override fun read(buffer: ByteArray): Int {
+                    if (reads++ > 0) return -1
+                    repeat(320) { index ->
+                        buffer[index * 2] = 0x12
+                        buffer[index * 2 + 1] = 0x34
+                    }
+                    return 640
+                }
+                override fun close() = Unit
+            }
+            val counters = MicrophoneCounters()
+            MicrophoneUplink(config(receiver.localPort), input, counters,
+                { error("PCM must not initialize an Opus encoder") }).use { uplink ->
+                assertTrue(uplink.start())
+                val packet = DatagramPacket(ByteArray(2_048), 2_048)
+                receiver.receive(packet)
+                val bytes = packet.data.copyOf(packet.length)
+                val pcm = AirPlayCrypto.chachaOpen(ByteArray(32), AirPlayCrypto.nonce64(0),
+                    bytes.copyOfRange(12, bytes.size - 8), bytes.copyOfRange(4, 12))
+                assertArrayEquals(ByteArray(640) { if (it % 2 == 0) 0x34 else 0x12 }, pcm)
+            }
+            assertEquals(320, counters.timestamp)
+            assertEquals(1, counters.sequence)
+            assertTrue(Builder.attempts.isEmpty())
+        }
+    }
+
+    @Test fun unavailableEncoderNeverSendsPcmInANegotiatedOpusStream() {
+        DatagramSocket(0, InetAddress.getLoopbackAddress()).use { receiver ->
+            val counters = MicrophoneCounters()
+            MicrophoneUplink(config(receiver.localPort).copy(codec = AudioCodecKind.OPUS),
+                counters = counters, createOpusEncoder = { null }).use { uplink ->
+                assertFalse(uplink.start())
+            }
+            assertEquals(0, counters.sequence)
+            assertTrue(Builder.attempts.isEmpty())
         }
     }
 

@@ -216,6 +216,15 @@ class AirPlayInfoPlistTest {
         assertEquals(0x70004154, telephony(AirPlayInfoPlist.build(
             base.copy(microphone = true, microphoneOpus = true)))["audioInputFormats"])
 
+        val pcmOnly = AirPlayInfoPlist.build(base.copy(microphone = true, microphoneOpus = false))
+        val formats = (pcmOnly["audioFormats"] as List<*>).map { it as Map<*, *> }
+        val inputs = formats.filter { it.containsKey("audioInputFormats") }
+        assertEquals(setOf("compatibility", "default", "telephony", "speechRecognition"),
+            inputs.map { it["audioType"] }.toSet())
+        inputs.forEach { assertEquals(0x4154, it["audioInputFormats"]) }
+        // Output decoding is independent of the microphone encoder capability.
+        assertEquals(0x70004154, telephony(pcmOnly)["audioOutputFormats"])
+
     }
 
     @Test

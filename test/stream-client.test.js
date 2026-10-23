@@ -5,12 +5,11 @@ import vm from 'node:vm';
 import { resourceStrings } from '../scripts/resource-strings.mjs';
 const messages = resourceStrings('values-zh-rCN');
 
-const source = readFileSync(new URL('../common/src/main/assets/web/text.js', import.meta.url), 'utf8').replace(/^import .*text\.js';$/m, '').replaceAll('export function', 'function') + '\n' + readFileSync(new URL('../common/src/main/assets/web/browser-audio.js', import.meta.url), 'utf8')
-  .replace(/^import .*text\.js';$/m, '').replaceAll('export function', 'function') + '\n' +
-  readFileSync(new URL('../common/src/main/assets/web/app.js', import.meta.url), 'utf8')
-    .replace(/^import .*browser-audio\.js';$/m, '').replace(/^import .*text\.js';$/m, '').replaceAll('export function', 'function');
+const source = ['text.js', 'browser-audio.js', 'browser-location.js', 'browser-media-session.js', 'app.js']
+  .map(name => readFileSync(new URL(`../common/src/main/assets/web/${name}`, import.meta.url), 'utf8')
+    .replace(/^import .*;$/gm, '').replaceAll('export function', 'function')).join('\n');
 function fixture({ storedCanvas = null, storedMode = null, processorAvailable = true, storedIgnoreZoom = null, storageDisabled = false, canvasAvailable = true, supportsWebp = false,
-  geometry = null, visual = null,
+  geometry = null, visual = null, mediaSession = null, locationBrowser = null,
   fullscreen = 'supported', codeDenied = false, resume = () => ({ token: 'session-token', name: 'Chrome' }) } = {}) {
   const elements = new Map(), timers = new Map(), raf = new Map(), sockets = [], peers = [], draws = [];
   const preferences = new Map(storedCanvas === null ? [] : [['wheelplay.canvasVideo', storedCanvas]]);
@@ -73,14 +72,15 @@ function fixture({ storedCanvas = null, storedMode = null, processorAvailable = 
     if (fullscreen === 'denied') return Promise.reject(new Error('fullscreen denied'));
     enterFullscreen(); return Promise.resolve();
   };
-  const context = { document, window: { addEventListener() {}, visualViewport,
+  const context = { document, navigator: { ...locationBrowser, mediaSession }, window: { isSecureContext: Boolean(locationBrowser), addEventListener() {}, visualViewport,
     localStorage: {
       getItem(key) { if (storageDisabled) throw new Error('denied'); return preferences.get(key) ?? null; },
       setItem(key, value) { if (storageDisabled) throw new Error('denied'); preferences.set(key, value); },
       removeItem(key) { preferences.delete(key); },
     },
   },
-    location: { host: 'server:8080' }, URL: { createObjectURL: () => 'blob:frame', revokeObjectURL() {} }, Date, WebSocket: Socket,
+    MediaMetadata: class { constructor(value) { Object.assign(this, value); } },
+    location: { host: 'server:8080', protocol: locationBrowser ? 'https:' : 'http:' }, URL: { createObjectURL: () => 'blob:frame', revokeObjectURL() {} }, Date, WebSocket: Socket,
     MediaStreamTrackProcessor: processorAvailable ? class {
       constructor(init) {
         this.init = init; this.pending = [];
@@ -385,7 +385,7 @@ test('interrupted display resumes with fresh authentication after a server resta
   const retry = [...f.timers.values()].find(t => t.delay === 1000);
   assert.ok(retry); await retry.fn();
   assert.equal(f.sockets.length, 2);
-  assert.equal(f.sockets[1].url, 'ws://server:8080/stream?token=fresh-session&media=2&images=3');
+  assert.equal(f.sockets[1].url, 'ws://server:8080/stream?token=fresh-session&media=2&images=3&nowPlaying=1');
 });
 
 test('revocation during an active display stops retries and requires fresh pairing', async () => {
@@ -859,4 +859,46 @@ test('Direct Canvas retries over v3 WebP without Video and only switches after t
   assert.equal(f.stats().presentation.activeMode, 'track-canvas');
   assert.equal(f.stats().presentation.fallbackReason, null);
   assert.equal(f.createdVideos.length, 0);
+});
+
+test('browser GPS option forwards through the authenticated stream and stops on socket loss', async () => {
+  let deliver, clears = 0, queries = 0;
+  const f = fixture({ locationBrowser: {
+    permissions: { async query() { queries++; return { state: 'granted' }; } },
+    geolocation: { watchPosition(success) { deliver = success; return 0; }, clearWatch() { clears++; } },
+  } });
+  const option = f.element('browser-location');
+  assert.equal(option.checked, false); assert.equal(queries, 0);
+  option.checked = true; option.handlers.change(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(option.checked, true); assert.equal(deliver, undefined);
+  const ws = await f.connect(); await new Promise(resolve => setImmediate(resolve));
+  deliver({ timestamp: Date.now(), coords: { latitude: 25, longitude: 121, accuracy: 5 } });
+  const packet = ws.sent.find(m => m.type === 'location');
+  assert.equal(packet.latitude, 25); assert.equal(packet.longitude, 121);
+  assert.ok(ws.sent.findIndex(m => m.type === 'location-start') < ws.sent.indexOf(packet));
+  ws.close(); assert.equal(clears, 1);
+  const count = ws.sent.length;
+  deliver({ timestamp: Date.now(), coords: { latitude: 26, longitude: 121, accuracy: 5 } });
+  assert.equal(ws.sent.length, count);
+});
+
+test('the paired socket publishes phone state to Media Session and clears it before reconnecting', async () => {
+  const handlers = new Map(), positions = [];
+  const session = { setActionHandler: (action, fn) => handlers.set(action, fn), setPositionState: value => positions.push(value) };
+  const f = fixture({ mediaSession: session }), ws = await f.connect();
+  assert.match(ws.url, /nowPlaying=1/);
+  const state = { type: 'now-playing', sessionId: 'phone', revision: 1, connectionGeneration: 3, trackRevision: 4,
+    connected: true, available: true, title: 'Song', artist: 'Artist', status: 'playing', durationMs: 60000, positionMs: 1000, speed: 1 };
+  ws.onmessage({ data: JSON.stringify(state) });
+  assert.equal(session.metadata.title, 'Song'); assert.equal(session.playbackState, 'playing');
+  assert.equal(positions.at(-1).position, 1);
+  const pause = handlers.get('pause'); pause();
+  assert.equal(ws.sent.at(-1).type, 'media-command'); assert.equal(ws.sent.at(-1).connectionGeneration, 3);
+  ws.onmessage({ data: JSON.stringify({ type: 'media-command-result', requestId: 1, result: 'sent' }) });
+  assert.equal(session.playbackState, 'playing');
+  ws.close();
+  assert.equal(session.metadata, null); assert.equal(session.playbackState, 'none');
+  const count = ws.sent.length; pause(); assert.equal(ws.sent.length, count);
+  ws.onmessage({ data: JSON.stringify({ ...state, revision: 2 }) });
+  assert.equal(session.metadata, null);
 });

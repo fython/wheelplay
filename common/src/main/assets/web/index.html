@@ -24,6 +24,8 @@
 <label id="renderer-track-canvas-card" class="renderer-card" for="renderer-track-canvas"><input id="renderer-track-canvas" type="radio" name="video-renderer" value="track-canvas"><span><strong>{{web_video_renderer_direct}}</strong><em>{{web_video_renderer_experimental}}</em><small>{{web_video_renderer_direct_description}}</small></span></label>
 </div><p id="renderer-hint" class="renderer-hint" role="status" hidden>{{web_video_renderer_hint}}</p></fieldset>
 <label class="launch-option" for="ignore-browser-zoom"><input id="ignore-browser-zoom" type="checkbox"><span><strong>{{web_ignore_browser_zoom}}</strong><small>{{web_ignore_browser_zoom_help}}</small></span></label>
+<label class="launch-option" for="browser-location"><input id="browser-location" type="checkbox" autocomplete="off" aria-describedby="location-status"><span><strong>{{web_location_title}}</strong><small>{{web_location_help}}</small></span></label>
+<p id="location-status" class="hint" role="status" aria-live="polite"></p>
 <details class="secure-setup" id="secure-setup"><summary>{{web_browser_microphone_requires_https}}</summary><p>{{web_local_http_pages_cannot_request_microphone_permission_in_the}}</p><code id="tls-fingerprint">{{web_loading}}</code><div class="secure-links"><a href="/certificate.crt" download="wheelplay-certificate.crt">{{web_download_local_certificate}}</a><a id="https-entry" href="#">{{web_open_https_page}}</a></div><p id="tls-error" role="status"></p></details>
 <div id="remembered-device" role="status" hidden><strong id="device-name"></strong><p id="device-status">{{web_pairing_restored_choose_the_options_above_then_tap_start}}</p></div>
 <div class="qr-pairing" id="qr-pairing"><img id="pair-qr" width="240" height="240" alt="{{web_head_unit_pairing_qr_code}}" hidden><div><h2>{{web_scan_to_connect_the_head_unit}}</h2><p id="qr-status" role="status" aria-live="polite">{{web_generating_qr_code}}</p><button id="refresh-qr" type="button">{{web_refresh_qr_code}}</button></div></div>
@@ -39,6 +41,7 @@
 <div id="media-message" role="status" aria-live="polite" hidden></div>
 <canvas id="video-canvas" width="0" height="0" aria-label="{{web_live_carplay_video_canvas}}" hidden></canvas>
 <div id="touch-surface" aria-hidden="true"></div>
+<div id="location-message" hidden role="status" aria-live="polite"></div>
 <div id="audio-message" hidden role="status" aria-live="polite"></div>
 <div id="waiting" role="status"><strong>{{web_head_unit_connected}}</strong><p id="stage">{{web_waiting_for_iphone_video}}</p><button id="phone-connect" class="primary" type="button">{{ui_connect_iphone}}</button><p id="phone-connect-message" class="hint" aria-live="polite">{{web_uses_android_s_current_usb_wireless_connection_settings_for}}</p></div>
 </section>

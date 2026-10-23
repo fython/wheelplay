@@ -7,7 +7,7 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
-/** One Android location sample converted into the fields carried by the NMEA pair. */
+/** One location sample converted into the fields carried by the NMEA pair. */
 data class CarPlayLocationFix(
     val latitudeDegrees: Double,
     val longitudeDegrees: Double,

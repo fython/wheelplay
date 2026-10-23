@@ -557,4 +557,14 @@
     <string name="web_video_renderer_hint">This browser does not support Direct Canvas. JPEG / WebP will be used after connecting.</string>
     <string name="web_video_renderer_unavailable"> (Direct Canvas unavailable; using JPEG / WebP)</string>
     <string name="web_video_renderer_failed"> (video interrupted; using JPEG / WebP)</string>
+    <string name="web_location_title">Send browser GPS to CarPlay</string>
+    <string name="web_location_help">Off by default for each page load. Checks location permission before enabling; shares location only while connected over HTTPS. Browser location takes priority over Android GPS.</string>
+    <string name="web_location_https">Browser GPS requires a trusted HTTPS page. Open the HTTPS page below, then try again.</string>
+    <string name="web_location_unsupported">This browser does not support location access.</string>
+    <string name="web_location_checking">Checking location permission. Allow location access when prompted.</string>
+    <string name="web_location_denied">Location permission is not granted. Browser GPS is off. Allow location in site settings, then enable it again.</string>
+    <string name="web_location_timeout">Location request timed out. Check the device location service and try again.</string>
+    <string name="web_location_unavailable">Location is currently unavailable. Check the device location service.</string>
+    <string name="web_location_ready">Location permission granted. Browser GPS will be shared while connected.</string>
+    <string name="web_location_active">Browser GPS forwarding is active.</string>
 </resources>

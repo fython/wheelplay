@@ -22,6 +22,19 @@ function fixture() {
 }
 const touch = (x, down = true) => ({ type: 'touch', contacts: [{ id: 0, x, y: 0.5, down }] });
 
+test('GPS coalesces under backpressure and disabling clears queued coordinates', () => {
+  const f = fixture();
+  f.outbox.send({ type: 'location-start' });
+  for (let i = 0; i < 100; i++) f.outbox.send({ type: 'location', latitude: i });
+  f.socket.bufferedAmount = 0; f.advance(10);
+  assert.deepEqual(f.sent, [{ type: 'location-start' }, { type: 'location', latitude: 99 }]);
+  f.socket.bufferedAmount = 8192;
+  f.outbox.send({ type: 'location', latitude: 50 });
+  f.outbox.send({ type: 'location-stop' });
+  f.socket.bufferedAmount = 0; f.advance(20);
+  assert.deepEqual(f.sent.at(-1), { type: 'location-stop' }); assert.equal(f.sent.length, 3);
+});
+
 test('congested ACK is sent once after recovery, ahead of touches and heartbeat', () => {
   const f = fixture();
   f.outbox.send({ type: 'ping' });
