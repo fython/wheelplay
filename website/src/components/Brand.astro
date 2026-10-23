@@ -1,13 +1,15 @@
 ---
+import { useTranslations } from "../i18n";
+const { t, local } = useTranslations(Astro.url.pathname);
 interface Props {
   href?: string;
   size?: number;
   label?: boolean;
 }
-const { href = "/", size = 32, label = false } = Astro.props;
+const { href = local("/"), size = 32, label = false } = Astro.props;
 ---
 
-<a class="brand" href={href} aria-label="WheelPlay 首页">
+<a class="brand" href={href} aria-label={t("WheelPlay 首页")}>
   <img src="/assets/app-icon.svg" width={size} height={size} alt="" />
-  WheelPlay{label && <span class="brand-label">开源项目</span>}
+  WheelPlay{label && <span class="brand-label">{t("开源项目")}</span>}
 </a>

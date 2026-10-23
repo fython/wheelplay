@@ -2032,3 +2032,90 @@ h1 > span {
     font-size: 9px;
   }
 }
+
+/* Language links work without JavaScript; translated copy can wrap naturally. */
+.language-switch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 38px;
+  min-height: 36px;
+  padding-inline: 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.language-switch:hover {
+  color: var(--blue);
+  background: var(--blue-soft);
+}
+:lang(en) .hero h1 {
+  font-size: clamp(38px, 6vw, 68px);
+  letter-spacing: -2px;
+}
+:lang(en) .hero-notes {
+  flex-wrap: wrap;
+  justify-content: center;
+}
+:lang(en) .feature-grid h3 {
+  line-height: 1.5;
+}
+:lang(en) .connection-display p {
+  max-width: 90%;
+}
+:lang(en) .music-copy {
+  min-width: 0;
+}
+:lang(en) .music-copy h3 {
+  font-size: clamp(15px, 2vw, 21px);
+}
+@media (max-width: 760px) {
+  :lang(en) .start-intro h2 br,
+  :lang(en) .faq-intro h2 br {
+    display: initial;
+  }
+}
+.not-found .language-switch {
+  vertical-align: top;
+  margin-left: 20px;
+}
+@media (max-width: 480px) {
+  .header-inner {
+    gap: 8px;
+  }
+  .site-header nav {
+    gap: 10px;
+  }
+  .header-actions {
+    gap: 3px;
+  }
+  .language-switch {
+    min-width: 32px;
+    padding-inline: 4px;
+    font-size: 11px;
+  }
+  :lang(en) .hero-actions {
+    flex-wrap: wrap;
+  }
+  :lang(en) .workspace-title {
+    font-size: 8px;
+  }
+  :lang(en) .demo-badge {
+    font-size: 7px;
+    padding-inline: 3px;
+  }
+  :lang(en) .device-step strong {
+    white-space: normal;
+  }
+  :lang(en) .connection-display h3 {
+    font-size: 15px;
+  }
+  :lang(en) .preview-status .mono {
+    font-size: 6px;
+  }
+  :lang(en) .destination-widget strong {
+    font-size: 7px;
+  }
+}

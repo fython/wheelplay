@@ -1,19 +1,23 @@
 ---
+import { useTranslations } from "../i18n";
+const { t, local } = useTranslations(Astro.url.pathname);
 import Brand from "./Brand.astro";
+import LanguageSwitch from "./LanguageSwitch.astro";
 ---
 
 <header class="site-header">
   <div class="header-inner">
-    <Brand href="/" size={32} label />
-    <nav aria-label="主导航">
-      <a href="/#features">功能</a><a href="/docs/">使用文档</a
-      ><a href="/docs/faq/">常见问题</a>
+    <Brand href={local("/")} size={32} label />
+    <nav aria-label={t("主导航")}>
+      <a href={local("/#features")}>{t("功能")}</a><a href={local("/docs/")}>{t("使用文档")}</a
+      ><a href={local("/docs/faq/")}>{t("常见问题")}</a>
     </nav>
     <div class="header-actions">
+      <LanguageSwitch />
       <button
         class="icon-button theme-toggle"
         type="button"
-        aria-label="切换到深色主题"
+        aria-label={t("切换到深色主题")}
         aria-pressed="false"
         hidden
       >

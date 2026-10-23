@@ -1,3 +1,8 @@
+---
+import { useTranslations } from "../i18n";
+const { t, local } = useTranslations(Astro.url.pathname);
+---
+
 <section
   class="faq-section container section"
   id="faq"
@@ -5,78 +10,54 @@
 >
   <div class="faq-intro">
     <p class="eyebrow">GOOD TO KNOW.</p>
-    <h2 id="faq-title">出发之前，<br />你可能想知道。</h2>
-    <a class="text-link" href="/docs/faq/"
-      >阅读完整常见问题 <span aria-hidden="true">→</span></a
+    <h2 id="faq-title">{t("出发之前，")}<br />{t("你可能想知道。")}</h2>
+    <a class="text-link" href={local("/docs/faq/")}
+      >{t("阅读完整常见问题")}<span aria-hidden="true">→</span></a
     >
   </div>
   <div class="faq-list">
     <details open>
-      <summary>
-        我的车机可以使用吗？<span aria-hidden="true">+</span>
+      <summary>{t("我的车机可以使用吗？")}<span aria-hidden="true">+</span>
       </summary>
-      <p>
-        车机浏览器需要支持现代网页与触控，并能通过局域网访问 Android
-        服务设备。不同品牌、系统版本和网络环境的兼容性不同，无法保证所有车型可用。建议先在车辆停稳后验证。
-      </p>
+      <p>{t("车机浏览器需要支持现代网页与触控，并能通过局域网访问 Android 服务设备。不同品牌、系统版本和网络环境的兼容性不同，无法保证所有车型可用。建议先在车辆停稳后验证。")}</p>
     </details>
     <details>
-      <summary>
-        使用 WheelPlay 需要 Root 吗？<span aria-hidden="true">+</span>
+      <summary>{t("使用 WheelPlay 需要 Root 吗？")}<span aria-hidden="true">+</span>
       </summary>
-      <p>
-        普通局域网连接和 Web 服务无需
-        Root。针对限制私有网段访问的浏览器，项目提供实验性的 Tesla
-        兼容模式，包括免 Root VPN 与 Root
-        热点路由两种方案，均需按设备实测。<a
+      <p>{t("普通局域网连接和 Web 服务无需 Root。针对限制私有网段访问的浏览器，项目提供实验性的 Tesla 兼容模式，包括免 Root VPN 与 Root 热点路由两种方案，均需按设备实测。")}<a
           href="https://github.com/fython/wheelplay/blob/main/docs/TESLA_HTTP.md"
-          >查看兼容模式说明 ↗</a
+          >{t("查看兼容模式说明 ↗")}</a
         >
       </p>
     </details>
     <details>
-      <summary>
-        声音和麦克风从哪里走？<span aria-hidden="true">+</span>
+      <summary>{t("声音和麦克风从哪里走？")}<span aria-hidden="true">+</span>
       </summary>
-      <p>
-        默认由 Android
-        处理音频和麦克风，可在设置中启用浏览器路由。浏览器麦克风需要可信的本地
-        HTTPS 证书及相应浏览器能力；不支持时可继续使用 Android 麦克风。<a
+      <p>{t("默认由 Android 处理音频和麦克风，可在设置中启用浏览器路由。浏览器麦克风需要可信的本地 HTTPS 证书及相应浏览器能力；不支持时可继续使用 Android 麦克风。")}<a
           href="https://github.com/fython/wheelplay/blob/main/docs/BROWSER_AUDIO.md"
-          >查看音频配置说明 ↗</a
+          >{t("查看音频配置说明 ↗")}</a
         >
       </p>
     </details>
     <details>
-      <summary>
-        需要服务器或公网连接吗？<span aria-hidden="true">+</span>
+      <summary>{t("需要服务器或公网连接吗？")}<span aria-hidden="true">+</span>
       </summary>
-      <p>
-        CarPlay 串流由 Android
-        在局域网内提供，无需额外云端服务器；导航、音乐等 App
-        的在线内容仍可能需要互联网。服务仅用于可信局域网，请勿暴露到公网。本官网只提供介绍与使用指引，不承载设备连接。
-      </p>
+      <p>{t("CarPlay 串流由 Android 在局域网内提供，无需额外云端服务器；导航、音乐等 App 的在线内容仍可能需要互联网。服务仅用于可信局域网，请勿暴露到公网。本官网只提供介绍与使用指引，不承载设备连接。")}</p>
     </details>
     <details>
-      <summary>
-        为什么安装后需要导入认证资源？<span aria-hidden="true">+</span>
+      <summary>{t("为什么安装后需要导入认证资源？")}<span aria-hidden="true">+</span>
       </summary>
-      <p>
-        公开分发的开源构建默认不包含 CarPlay 认证资源。需要在「设置 →
-        CarPlay 认证资源」导入有效资源，通过校验后才能启动服务。导入在
-        Android 本机完成。<a
+      <p>{t("公开分发的开源构建默认不包含 CarPlay 认证资源。需要在「设置 → CarPlay 认证资源」导入有效资源，通过校验后才能启动服务。导入在 Android 本机完成。")}<a
           href="https://github.com/fython/wheelplay/blob/main/docs/AUTHENTICATION_IMPORT.md"
-          >查看支持的导入方式 ↗</a
+          >{t("查看支持的导入方式 ↗")}</a
         >
       </p>
     </details>
     <details>
-      <summary>它是开源项目吗？<span aria-hidden="true">+</span></summary>
-      <p>
-        是。WheelPlay 基于 DiPlay / xcertplay 开发，项目采用 GPL-3.0
-        许可证并保留上游及第三方声明。你可以阅读源码、提交问题或参与改进；第三方组件与素材遵循各自许可证。<a
+      <summary>{t("它是开源项目吗？")}<span aria-hidden="true">+</span></summary>
+      <p>{t("是。WheelPlay 基于 DiPlay / xcertplay 开发，项目采用 GPL-3.0 许可证并保留上游及第三方声明。你可以阅读源码、提交问题或参与改进；第三方组件与素材遵循各自许可证。")}<a
           href="https://github.com/fython/wheelplay/blob/main/LICENSE"
-          >查看许可证 ↗</a
+          >{t("查看许可证 ↗")}</a
         >
       </p>
     </details>

@@ -1,16 +1,20 @@
 ---
 import BaseLayout from "../layouts/BaseLayout.astro";
 import Brand from "../components/Brand.astro";
+import LanguageSwitch from "../components/LanguageSwitch.astro";
 ---
 
 <BaseLayout title="页面未找到 · WheelPlay" noIndex bodyClass="not-found">
   <main>
     <Brand size={34} />
+    <LanguageSwitch />
     <p class="eyebrow">404 / WRONG TURN</p>
-    <h1>换条路，<br />回到出发点。</h1>
-    <p>这个页面不存在，或已经移动。</p>
-    <a class="button primary" href="/"
+    <h1><span data-error-language="zh-CN">换条路，<br />回到出发点。</span><span data-error-language="en" lang="en">A wrong turn.<br />Let’s head back.</span></h1>
+    <p data-error-language="zh-CN">这个页面不存在，或已经移动。</p>
+    <p data-error-language="en" lang="en">This page does not exist or has moved.</p>
+    <a data-error-language="zh-CN" class="button primary" href="/"
       >返回首页 <span aria-hidden="true">↗</span></a
     >
+    <a data-error-language="en" lang="en" class="button primary" href="/en/">Back to home <span aria-hidden="true">↗</span></a>
   </main>
 </BaseLayout>

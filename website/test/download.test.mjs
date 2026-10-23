@@ -345,3 +345,32 @@ test("cache service failure leaves a usable in-memory redirect", async () => {
   assert.equal((await h.get()).headers.get("Location"), LOCATION);
   assert.equal(h.calls.length, 2);
 });
+
+for (const [name, responses, expected] of [
+  ["missing run", [{ workflow_runs: [] }], "No successful build"],
+  ["missing artifact", [{ workflow_runs: [run()] }, { artifacts: [] }], "missing or expired"],
+  ["API failure", [new Response(null, { status: 503 })], "temporarily unavailable"],
+]) {
+  test(`English ${name} translates a shared cached error without extra API calls`, async () => {
+    const h = harness(responses);
+    const chinese = await h.get();
+    assert.equal(chinese.headers.get("Content-Language"), "zh-CN");
+    assert.match(await chinese.text(), /GitHub 构建列表/);
+    await h.flush();
+    const calls = h.calls.length;
+    const otherIsolate = h.makeHandler();
+    const english = await otherIsolate(
+      new Request("https://wheelplay.example/download?lang=en"), {}, h.ctx, h.cache,
+    );
+    assert.equal(english.status, chinese.status);
+    assert.equal(english.headers.get("Content-Language"), "en");
+    const body = await english.text();
+    assert.ok(body.includes(expected));
+    assert.doesNotMatch(body, /[\u4e00-\u9fff]/);
+    assert.equal(h.calls.length, calls);
+    assert.equal(h.stored.size, 1);
+    const head = await h.get("/download?lang=en", { method: "HEAD" });
+    assert.equal(head.headers.get("Content-Language"), "en");
+    assert.equal(await head.text(), "");
+  });
+}

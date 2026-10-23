@@ -1,0 +1,27 @@
+---
+import { useTranslations } from "../i18n";
+const { t } = useTranslations(Astro.url.pathname);
+import BaseLayout from "../layouts/BaseLayout.astro";
+import SiteHeader from "./SiteHeader.astro";
+import Hero from "./Hero.astro";
+import ExperiencePreview from "./ExperiencePreview.astro";
+import Features from "./Features.astro";
+import GettingStarted from "./GettingStarted.astro";
+import FAQ from "./FAQ.astro";
+import Closing from "./Closing.astro";
+import SiteFooter from "./SiteFooter.astro";
+---
+
+<BaseLayout>
+  <a class="skip-link" href="#main">{t("跳到主要内容")}</a>
+  <SiteHeader />
+  <main id="main">
+    <Hero />
+    <ExperiencePreview />
+    <Features />
+    <GettingStarted />
+    <FAQ />
+    <Closing />
+  </main>
+  <SiteFooter />
+</BaseLayout>

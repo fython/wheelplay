@@ -1,4 +1,5 @@
 type Theme = "light" | "dark";
+const english = document.documentElement.lang === "en";
 
 const themeButton = document.querySelector<HTMLButtonElement>(".theme-toggle");
 const themeColor = document.querySelector<HTMLMetaElement>(
@@ -19,7 +20,9 @@ function applyTheme(theme: Theme) {
   themeButton?.setAttribute("aria-pressed", String(dark));
   themeButton?.setAttribute(
     "aria-label",
-    dark ? "切换到浅色主题" : "切换到深色主题",
+    english
+      ? dark ? "Switch to light theme" : "Switch to dark theme"
+      : dark ? "切换到浅色主题" : "切换到深色主题",
   );
   if (themeColor) themeColor.content = dark ? "#101720" : "#f8fafc";
 }
