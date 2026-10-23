@@ -1,6 +1,12 @@
 package com.shilapi.xcertplay
 
 import android.content.res.Configuration
+import android.content.ComponentName
+import android.content.Intent
+import android.content.pm.*
+import android.os.Bundle
+import com.shilapi.xcertplay.projection.plugin.projectionPlugins
+import moe.feng.wheelplay.plugin.ProjectionPlugin
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.view.View
@@ -80,7 +86,7 @@ class SourceNavigationTest {
             capture(activity, "android-auto")
             buttons(activity).single { it.text == "返回输入源" }.performClick()
             cards(activity)[2].performClick()
-            assertTrue(views(page(activity)).filterIsInstance<TextView>().any { it.text == "暂不可用" })
+            assertTrue(views(page(activity)).filterIsInstance<TextView>().any { it.text == "安装 CarLink 插件" })
             assertFalse(buttons(activity).any { it.text == "停止投影" })
             buttons(activity).single { it.text == "插件输入源" }.performClick()
             assertTrue(views(page(activity)).filterIsInstance<TextView>().any { it.text == "未发现兼容的插件服务。" })
@@ -105,6 +111,88 @@ class SourceNavigationTest {
             assertSame(initialSession, projectionSessions.snapshot())
             assertNull(shadowOf(activity).nextStartedActivity)
         } finally { controller.pause().stop().destroy(); WebSession.stop() }
+    }
+
+    private fun installPlugin(pkg: String, sourceId: String?, api: Int = ProjectionPlugin.API_VERSION) {
+        val context = RuntimeEnvironment.getApplication()
+        val pm = shadowOf(context.packageManager)
+        val app = ApplicationInfo().apply { packageName = pkg; uid = 12345; enabled = true }
+        pm.installPackage(PackageInfo().apply {
+            packageName = pkg; applicationInfo = app; firstInstallTime = 10
+            signingInfo = SigningInfo().also { shadowOf(it).setSignatures(arrayOf(Signature("1234"))) }
+            services = arrayOf(ServiceInfo().apply {
+                name = "$pkg.Source"; packageName = pkg; applicationInfo = app
+                exported = true; enabled = true; nonLocalizedLabel = "ICCOA CarLink $pkg"
+                metaData = Bundle().apply {
+                    putInt(ProjectionPlugin.META_API_VERSION, api)
+                    putString(ProjectionPlugin.META_SOURCE_ID, sourceId)
+                    putString(ProjectionPlugin.META_SETTINGS_ACTIVITY, ".Settings")
+                }
+            })
+            activities = arrayOf(ActivityInfo().apply {
+                name = "$pkg.Settings"; packageName = pkg; applicationInfo = app; exported = true; enabled = true
+            })
+        })
+    }
+
+    private fun discoverPlugins(vararg packages: String) {
+        val context = RuntimeEnvironment.getApplication()
+        shadowOf(context.packageManager).setResolveInfosForIntent(Intent(ProjectionPlugin.ACTION), packages.map { pkg ->
+            ResolveInfo().apply {
+                serviceInfo = context.packageManager.getPackageInfo(pkg,
+                    PackageManager.GET_SERVICES or PackageManager.GET_META_DATA).services!!.single()
+            }
+        })
+    }
+
+    @Test fun iccoaUsesDeclaredIdAndShowsSettingsWithoutAutomaticallyEnablingOrStartingPlugins() {
+        val context = RuntimeEnvironment.getApplication()
+        installPlugin("test.carlink", ProjectionPlugin.SOURCE_ICCOA_CARLINK)
+        installPlugin("test.alternative", ProjectionPlugin.SOURCE_ICCOA_CARLINK)
+        installPlugin("test.unrelated", null) // Its label also says ICCOA; only metadata may associate it.
+        discoverPlugins("test.carlink", "test.alternative", "test.unrelated")
+        val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
+        val activity = controller.get()
+        try {
+            val initialSession = projectionSessions.snapshot()
+            tabs(activity).selectedItemId = 2
+            val summary = views(cards(activity)[2]).filterIsInstance<TextView>().map { it.text.toString() }.joinToString()
+            assertTrue(summary.contains("test.carlink")); assertFalse(summary.contains("test.unrelated"))
+            cards(activity)[2].performClick()
+            val text = views(page(activity)).filterIsInstance<TextView>().map { it.text.toString() }
+            assertFalse(text.contains("安装 CarLink 插件")); assertFalse(text.contains("暂不可用"))
+            assertFalse(text.any { it.contains("test.unrelated") })
+            assertEquals(2, buttons(activity).count { it.text == "启用插件" })
+            assertEquals(2, buttons(activity).count { it.text == "插件设置与权限" })
+            assertTrue(buttons(activity).filter { it.text == "连接插件" }.all { !it.isEnabled })
+            assertSame(initialSession, projectionSessions.snapshot())
+            assertNull(shadowOf(activity).nextStartedActivity)
+            assertTrue(shadowOf(context).boundServiceConnections.isEmpty())
+            val pluginCard = cards(activity).single { card -> views(card).filterIsInstance<TextView>().any { it.text == "test.carlink" } }
+            views(pluginCard).filterIsInstance<Button>().single { it.text == "插件设置与权限" }.performClick()
+            assertEquals(ComponentName("test.carlink", "test.carlink.Settings"), shadowOf(activity).nextStartedActivity.component)
+            views(pluginCard).filterIsInstance<Button>().single { it.text == "启用插件" }.performClick()
+            org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog()
+                .getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick()
+            shadowOf(android.os.Looper.getMainLooper()).idle()
+            assertEquals(1, buttons(activity).count { it.text == "连接插件" && it.isEnabled })
+            assertSame(initialSession, projectionSessions.snapshot())
+            capture(activity, "iccoa-installed")
+            // Returning after an incompatible update replaces the controls with a specific reason.
+            controller.pause()
+            installPlugin("test.carlink", ProjectionPlugin.SOURCE_ICCOA_CARLINK, api = 99)
+            discoverPlugins("test.carlink")
+            controller.resume()
+            assertTrue(views(page(activity)).filterIsInstance<TextView>().any { it.text.toString().contains("插件接口版本不兼容") })
+            assertTrue(buttons(activity).filter { it.text == "连接插件" }.all { !it.isEnabled })
+            // Returning after uninstall restores the install page without leaving stale settings.
+            controller.pause(); discoverPlugins(); controller.resume()
+            assertTrue(views(page(activity)).filterIsInstance<TextView>().any { it.text == "安装 CarLink 插件" })
+            assertFalse(buttons(activity).any { it.text == "插件设置与权限" })
+        } finally {
+            discoverPlugins(); projectionPlugins(context).refresh()
+            controller.pause().stop().destroy(); WebSession.stop()
+        }
     }
 
     @Test fun detailSurvivesRecreationAndBackAndTabReselectionReturnToIndex() {

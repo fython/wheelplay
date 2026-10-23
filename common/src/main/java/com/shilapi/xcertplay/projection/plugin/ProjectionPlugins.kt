@@ -21,6 +21,7 @@ internal data class InstalledProjectionPlugin(
     val settings: ComponentName?,
     val problem: String?,
     val installedAt: Long = 0,
+    val sourceId: String? = null,
 ) {
     val id get() = PREFIX + component.flattenToString()
     val consentKey get() = "$signer@$installedAt"
@@ -34,6 +35,7 @@ internal class ProjectionPluginRegistry(private val context: Context, private va
     private val main = Handler(Looper.getMainLooper())
     private var watching = false
     fun entries() = installed
+    fun entriesForSource(sourceId: String) = installed.filter { it.sourceId == sourceId }
     fun enabled(plugin: InstalledProjectionPlugin) = plugin.signer.isNotEmpty() &&
         preferences.getString(plugin.id, null) == plugin.consentKey
     fun available(plugin: InstalledProjectionPlugin): Boolean = installed.any {
@@ -109,7 +111,8 @@ internal class ProjectionPluginRegistry(private val context: Context, private va
                     }?.let { activity }
                 }
                 InstalledProjectionPlugin(component, service.loadLabel(pm).toString().take(120),
-                    service.applicationInfo.uid, signer, pkg.lastUpdateTime, pkg.longVersionCode, settings, problem, pkg.firstInstallTime)
+                    service.applicationInfo.uid, signer, pkg.lastUpdateTime, pkg.longVersionCode, settings, problem, pkg.firstInstallTime,
+                    service.metaData?.getString(ProjectionPlugin.META_SOURCE_ID))
             }.getOrNull()
         }.distinctBy { it.id }.sortedBy { it.name }
         // An uninstall observed while WheelPlay was stopped must revoke remembered consent too.

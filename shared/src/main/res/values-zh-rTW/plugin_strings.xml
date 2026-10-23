@@ -9,7 +9,7 @@
     <string name="plugin_enable">啟用外掛</string>
     <string name="plugin_disable">停用外掛</string>
     <string name="plugin_enabled">已啟用</string>
-    <string name="plugin_disabled">外掛未啟用或已變更，請在外掛輸入來源中啟用。</string>
+    <string name="plugin_disabled">外掛未啟用或已變更，請啟用後連線。</string>
     <string name="plugin_enable_prompt">將 %1$s（%2$s）啟用為投影輸入來源？選取連線後，它可以提供顯示內容並接收觸控操作。請只啟用信任的外掛。外掛的 Android 權限需單獨管理。</string>
     <string name="plugin_settings">外掛設定與權限</string>
     <string name="plugin_connect">連線外掛</string>
@@ -21,5 +21,7 @@
     <string name="plugin_untrusted">無法驗證外掛簽章憑證。</string>
     <string name="plugin_timeout">外掛未在限定時間內就緒。</string>
     <string name="plugin_cleanup_failed">未確認外掛完成資源釋放，已阻止繼續投影。請在 Android 設定中強制停止外掛，再重新啟動 WheelPlay 後連線。</string>
-    <string name="plugin_iccoa_hint">ICCOA CarLink 將由獨立的外掛 APK 提供支援。請安裝相容的 CarLink 外掛，並在「外掛輸入來源」中啟用。此版本不包含專有 SDK 或 CarLink 外掛。</string>
+    <string name="plugin_iccoa_hint">請安裝相容的 ICCOA CarLink 外掛 APK，然後返回此頁面完成設定、啟用並連線。</string>
+    <string name="plugin_iccoa_missing">安裝 CarLink 外掛</string>
+    <string name="plugin_iccoa_installed">CarLink 外掛：%1$s</string>
 </resources>

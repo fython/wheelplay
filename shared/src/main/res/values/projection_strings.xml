@@ -25,7 +25,7 @@
     <string name="source_carplay">CarPlay (iPhone)</string>
     <string name="source_carplay_summary">Connect an iPhone</string>
     <string name="source_aa_summary">Project Android Auto from this phone or another Android phone</string>
-    <string name="source_iccoa_summary">CarLink phone projection · Currently unavailable</string>
+    <string name="source_iccoa_summary">CarLink phone projection · Plugin required</string>
     <string name="source_diagnostics">Diagnostic sources</string>
     <string name="source_diagnostics_summary">Check video output and touch input</string>
     <string name="source_back">Back to sources</string>

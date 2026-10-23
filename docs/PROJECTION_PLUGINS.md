@@ -49,10 +49,15 @@ adb install -r projection-plugin-sample/build/outputs/apk/debug/projection-plugi
         <action android:name="moe.feng.wheelplay.action.PROJECTION_SOURCE" />
     </intent-filter>
     <meta-data android:name="moe.feng.wheelplay.plugin.API_VERSION" android:value="2" />
+    <meta-data android:name="moe.feng.wheelplay.plugin.SOURCE_ID" android:value="iccoa-carlink" />
     <meta-data android:name="moe.feng.wheelplay.plugin.SETTINGS_ACTIVITY" android:value=".SettingsActivity" />
 </service>
 <activity android:name=".SettingsActivity" android:exported="true" />
 ```
+
+可选元数据 `SOURCE_ID` 用于关联内置输入源页面。ICCOA CarLink 插件声明 `iccoa-carlink`（SDK 常量 `SOURCE_ICCOA_CARLINK`）后，内置 ICCOA 卡片会显示已安装插件，其详情页提供插件设置、启用、连接和会话停止操作；未安装时显示安装引导。安装或从插件设置返回后会重新发现。多个插件声明同一 ID 时逐个列出，由用户选择；不兼容插件显示具体原因。缺省或未知 ID 仍可在通用插件页使用。
+
+该 ID 仅用于界面关联，不替代组件生成的运行时 ID，不授予权限或自动启用，也不按名称或包名猜测匹配。设置入口仍只接受插件同包内可访问的 Activity，浏览页面不会执行插件代码。
 
 建议继承 `ProjectionPluginService`，实现：
 

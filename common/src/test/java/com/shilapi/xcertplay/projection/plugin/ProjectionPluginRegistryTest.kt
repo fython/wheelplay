@@ -19,7 +19,7 @@ class ProjectionPluginRegistryTest {
     private val context get() = RuntimeEnvironment.getApplication()
     private val pm get() = shadowOf(context.packageManager)
     private val component = ComponentName("test.plugin", "test.plugin.Source")
-    private fun install(signature: String = "1234", version: Int = 1, exported: Boolean = true, api: Int = ProjectionPlugin.API_VERSION, installedAt: Long = 10) {
+    private fun install(signature: String = "1234", version: Int = 1, exported: Boolean = true, api: Int = ProjectionPlugin.API_VERSION, installedAt: Long = 10, sourceId: String? = null) {
         val app = ApplicationInfo().apply { packageName = component.packageName; uid = 12345; enabled = true }
         pm.installPackage(PackageInfo().apply {
             packageName = component.packageName; applicationInfo = app; lastUpdateTime = version.toLong()
@@ -28,7 +28,7 @@ class ProjectionPluginRegistryTest {
             services = arrayOf(ServiceInfo().apply {
                 name = component.className; packageName = component.packageName; applicationInfo = app
                 this.exported = exported; enabled = true
-                metaData = Bundle().apply { putInt(ProjectionPlugin.META_API_VERSION, api) }
+                metaData = Bundle().apply { putInt(ProjectionPlugin.META_API_VERSION, api); putString(ProjectionPlugin.META_SOURCE_ID, sourceId) }
             })
         })
         val service = context.packageManager.getPackageInfo(component.packageName, PackageManager.GET_SERVICES or PackageManager.GET_META_DATA).services!!.single()
@@ -52,6 +52,19 @@ class ProjectionPluginRegistryTest {
         assertFalse(registry.enabled(registry.entries().single()))
         assertTrue(runtime.sources().single().probe() is SourceAvailability.Unavailable)
     }
+    @Test fun sourceAssociationIsOptionalAndDoesNotChangeRuntimeIdentityOrGrantConsent() {
+        val registry = ProjectionPluginRegistry(context, ProjectionRuntime())
+        install(); registry.refresh()
+        val id = registry.entries().single().id
+        assertTrue(registry.entriesForSource(ProjectionPlugin.SOURCE_ICCOA_CARLINK).isEmpty())
+        install(sourceId = "ICCOA CarLink"); registry.refresh()
+        assertTrue(registry.entriesForSource(ProjectionPlugin.SOURCE_ICCOA_CARLINK).isEmpty())
+        install(sourceId = ProjectionPlugin.SOURCE_ICCOA_CARLINK); registry.refresh()
+        val entry = registry.entriesForSource(ProjectionPlugin.SOURCE_ICCOA_CARLINK).single()
+        assertEquals(id, entry.id)
+        assertFalse(registry.enabled(entry)); assertFalse(registry.available(entry))
+    }
+
     @Test fun uninstalledSourceIsRemovedAndReinstallRequiresEnableAgain() {
         install(); val runtime = ProjectionRuntime(); val registry = ProjectionPluginRegistry(context, runtime)
         registry.refresh(); registry.setEnabled(registry.entries().single(), true)

@@ -25,7 +25,7 @@
     <string name="source_carplay">CarPlay (iPhone)</string>
     <string name="source_carplay_summary">連接 iPhone 使用 CarPlay</string>
     <string name="source_aa_summary">使用本機或另一台 Android 手機投影</string>
-    <string name="source_iccoa_summary">CarLink 手機互聯 · 暫不可用</string>
+    <string name="source_iccoa_summary">CarLink 手機互聯 · 需安裝外掛</string>
     <string name="source_diagnostics">診斷輸入源</string>
     <string name="source_diagnostics_summary">檢查畫面輸出與觸控</string>
     <string name="source_back">返回輸入源</string>

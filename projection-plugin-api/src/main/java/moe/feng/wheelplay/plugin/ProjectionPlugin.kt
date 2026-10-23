@@ -7,6 +7,9 @@ object ProjectionPlugin {
     const val API_VERSION = 2
     const val ACTION = "moe.feng.wheelplay.action.PROJECTION_SOURCE"
     const val META_API_VERSION = "moe.feng.wheelplay.plugin.API_VERSION"
+    /** Optional UI association; never replaces the component-derived runtime identity or consent. */
+    const val META_SOURCE_ID = "moe.feng.wheelplay.plugin.SOURCE_ID"
+    const val SOURCE_ICCOA_CARLINK = "iccoa-carlink"
     const val META_SETTINGS_ACTIVITY = "moe.feng.wheelplay.plugin.SETTINGS_ACTIVITY"
     const val CONNECTING = 0
     const val READY = 1
