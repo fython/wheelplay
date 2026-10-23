@@ -268,15 +268,15 @@ class ServerNavigationTest : ComposeSettingsTest() {
                     .filterIsInstance<com.google.android.material.card.MaterialCardView>()
                     .forEach { card ->
                         val body = card.getChildAt(0) as android.widget.LinearLayout
-                        val heading = body.getChildAt(0) as android.widget.LinearLayout
+                        val heading = if (card.isClickable) body else body.getChildAt(0) as android.widget.LinearLayout
                         val icon = heading.getChildAt(0)
-                        val title = heading.getChildAt(1) as android.widget.TextView
+                        val title = heading.getChildAt(1)
                         val offset =
                             kotlin.math.abs(
                                 (icon.top * 2 + icon.height) - (title.top * 2 + title.height)
                             )
                         assertTrue(
-                            "Card icon and title must share a vertical center: ${title.text}, offset=$offset",
+                            "Card icon and title block must share a vertical center, offset=$offset",
                             offset <= 2,
                         )
                     }
@@ -380,7 +380,7 @@ class ServerNavigationTest : ComposeSettingsTest() {
                 val labels =
                     views(nav).filterIsInstance<android.widget.TextView>().filter {
                         it.visibility == View.VISIBLE &&
-                            it.text.toString() in listOf("启动", "iPhone", "设置")
+                            it.text.toString() in listOf("启动", "输入源", "设置")
                     }
                 assertEquals(3, labels.size)
                 val baselines =

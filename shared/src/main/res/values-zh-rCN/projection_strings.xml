@@ -21,4 +21,17 @@
     <string name="aa_local_unavailable">本机未安装 Android Auto，或已将其停用。请在受支持的设备上安装或启用 Android Auto，完成首次配置后返回 WheelPlay。部分版本的设置按钮会打开系统应用详情页。</string>
     <string name="aa_local_server_unavailable">无法连接本机 Android Auto。请打开“首次设置与连接帮助”，在 Android Auto 中启动车机服务器后重试。</string>
     <string name="aa_local_settings_unavailable">无法打开 Android Auto 设置。请在系统设置中搜索 Android Auto，并按照引导完成设置。</string>
+    <string name="source_tab">输入源</string>
+    <string name="source_carplay">CarPlay (iPhone)</string>
+    <string name="source_carplay_summary">连接 iPhone 使用 CarPlay</string>
+    <string name="source_aa_summary">使用本机或另一台 Android 手机投影</string>
+    <string name="source_iccoa_summary">CarLink 手机互联 · 暂不可用</string>
+    <string name="source_diagnostics">诊断输入源</string>
+    <string name="source_diagnostics_summary">检查画面输出与触控</string>
+    <string name="source_back">返回输入源</string>
+    <string name="source_unavailable">暂不可用</string>
+    <string name="aa_usb_hint">使用数据线将另一台 Android 手机接到本设备的 USB 接口，并按提示允许 USB 访问。</string>
+    <string name="aa_usb_connect">通过 USB 连接 Android Auto</string>
+    <string name="aa_remote_title">另一台手机 · 车机服务器</string>
+    <string name="aa_remote_connect">设置地址并连接</string>
 </resources>

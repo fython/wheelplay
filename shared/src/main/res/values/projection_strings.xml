@@ -21,4 +21,17 @@
     <string name="aa_local_unavailable">Android Auto is not installed or is disabled on this phone. Install or enable it on a supported device, finish its initial setup, then return to WheelPlay. Settings may open the system app details page on some versions.</string>
     <string name="aa_local_server_unavailable">Could not connect to local Android Auto. Open Setup and connection help, start the head unit server in Android Auto, then try again.</string>
     <string name="aa_local_settings_unavailable">Could not open Android Auto settings. Find Android Auto in system Settings and follow the setup instructions.</string>
+    <string name="source_tab">Sources</string>
+    <string name="source_carplay">CarPlay (iPhone)</string>
+    <string name="source_carplay_summary">Connect an iPhone</string>
+    <string name="source_aa_summary">Project Android Auto from this phone or another Android phone</string>
+    <string name="source_iccoa_summary">CarLink phone projection · Currently unavailable</string>
+    <string name="source_diagnostics">Diagnostic sources</string>
+    <string name="source_diagnostics_summary">Check video output and touch input</string>
+    <string name="source_back">Back to sources</string>
+    <string name="source_unavailable">Currently unavailable</string>
+    <string name="aa_usb_hint">Connect another Android phone to this device with a USB data cable, then allow USB access when prompted.</string>
+    <string name="aa_usb_connect">Connect Android Auto over USB</string>
+    <string name="aa_remote_title">Another phone · Head Unit Server</string>
+    <string name="aa_remote_connect">Set address and connect</string>
 </resources>

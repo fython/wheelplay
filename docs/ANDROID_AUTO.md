@@ -4,9 +4,9 @@
 
 ## 连接
 
-手机首页 → 投影输入源 → 选择投影输入源：
+底部“输入源” → Android Auto 大卡片 → 选择连接方式。输入源首页只展示入口；CarPlay (iPhone) 排第一，Android Auto 排第二，ICCOA 和诊断源各有独立二级页面。进入页面不会切换当前会话，点击连接才会切源。
 
-- **Android Auto · 本机**：手机首页有独立快捷卡片，也可从输入源列表选择。首次引导提供 Android Auto 设置跳转：完成 AA 首次配置，连续点击版本信息开启开发者模式，再从菜单选择“启动车机服务器”（Start head unit server）。返回 WheelPlay 后点击连接；之后保持服务器运行即可一键连接，无需填写 IP 或插线。固定连接 `127.0.0.1:5277`，不修改远程 TCP 地址。手机重启后可能需要重新开启服务器；连接被拒绝时会提示操作，并在下次点击时重新显示引导。未安装/停用 AA 时拒绝切源，保留现有会话。服务是否运行在实际连接时确认，点击连接仍会按正常流程切换当前源。
+- **Android Auto · 本机**：在 Android Auto 二级页面中提供本机连接和首次设置入口。首次引导提供 Android Auto 设置跳转：完成 AA 首次配置，连续点击版本信息开启开发者模式，再从菜单选择“启动车机服务器”（Start head unit server）。返回 WheelPlay 后点击连接；之后保持服务器运行即可一键连接，无需填写 IP 或插线。固定连接 `127.0.0.1:5277`，不修改远程 TCP 地址。手机重启后可能需要重新开启服务器；连接被拒绝时会提示操作，并在下次点击时重新显示引导。未安装/停用 AA 时拒绝切源，保留现有会话。服务是否运行在实际连接时确认，点击连接仍会按正常流程切换当前源。
 - **Android Auto · USB**：用数据线将 Android Auto 手机接到 WheelPlay 宿主的 USB Host/OTG 端口。只连接一台候选手机，确认系统 USB 权限弹窗。宿主发送 AOA GET_PROTOCOL / SEND_STRING / START，等待手机重新枚举，再申请新设备权限并使用 bulk IN/OUT 通道。两个 Android 设备必须能分别承担 USB host 和 accessory 角色。不会自动接管 iPhone 或开启 Android Auto 无线热点。
 - **Android Auto · Head Unit Server (TCP)**：在手机 Android Auto 开发者设置启动 Head Unit Server，填写宿主能访问的 IPv4 地址，端口固定为 5277。同设备实验可填 `127.0.0.1`；跨设备必须确认服务实际监听可访问地址。只监听 loopback 的手机需要另行建立端口转发，连接同一 Wi-Fi 本身并不足够。此入口不是 Bluetooth/Wi-Fi 自动发现与无线配对。
 - 浏览器使用原有 WheelPlay 地址和配对流程。切换源后需重新连接浏览器。
