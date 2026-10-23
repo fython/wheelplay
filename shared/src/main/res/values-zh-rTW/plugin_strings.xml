@@ -1,0 +1,23 @@
+<resources>
+    <string name="plugin_sources">外掛輸入來源</string>
+    <string name="plugin_summary">透過已安裝的外掛應用程式新增輸入來源</string>
+    <string name="plugin_install_hint">透過 Android 安裝相容的外掛 APK，然後重新整理清單。連線前請開啟外掛設定，完成設定與授權。目前外掛介面提供畫面與觸控，暫不提供音訊和麥克風路由。</string>
+    <string name="plugin_none">未找到相容的外掛服務。</string>
+    <string name="plugin_refresh">重新整理已安裝外掛</string>
+    <string name="plugin_enable">啟用外掛</string>
+    <string name="plugin_disable">停用外掛</string>
+    <string name="plugin_enabled">已啟用</string>
+    <string name="plugin_disabled">外掛未啟用或已變更，請在外掛輸入來源中啟用。</string>
+    <string name="plugin_enable_prompt">將 %1$s（%2$s）啟用為投影輸入來源？選取連線後，它可以提供顯示內容並接收觸控操作。請只啟用信任的外掛。外掛的 Android 權限需單獨管理。</string>
+    <string name="plugin_settings">外掛設定與權限</string>
+    <string name="plugin_connect">連線外掛</string>
+    <string name="plugin_connecting">正在連線外掛…</string>
+    <string name="plugin_connected">外掛已連線</string>
+    <string name="plugin_disconnected">外掛連線已中斷</string>
+    <string name="plugin_unavailable">外掛服務或設定無法使用，請重新整理清單或檢查 Android 應用程式設定。</string>
+    <string name="plugin_incompatible">外掛介面版本不相容，請更新 WheelPlay 或外掛。</string>
+    <string name="plugin_untrusted">無法驗證外掛簽章憑證。</string>
+    <string name="plugin_timeout">外掛未在限定時間內就緒。</string>
+    <string name="plugin_cleanup_failed">未確認外掛完成資源釋放，已阻止繼續投影。請在 Android 設定中強制停止外掛，再重新啟動 WheelPlay 後連線。</string>
+    <string name="plugin_iccoa_hint">ICCOA CarLink 將由獨立的外掛 APK 提供支援。請安裝相容的 CarLink 外掛，並在「外掛輸入來源」中啟用。此版本不包含專有 SDK 或 CarLink 外掛。</string>
+</resources>

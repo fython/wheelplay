@@ -1,0 +1,17 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:label="WheelPlay plugin sample" android:allowBackup="false" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <service android:name=".SampleProjectionService" android:exported="true" android:label="Surface plugin demo">
+            <intent-filter>
+                <action android:name="moe.feng.wheelplay.action.PROJECTION_SOURCE" />
+            </intent-filter>
+            <meta-data android:name="moe.feng.wheelplay.plugin.API_VERSION" android:value="1" />
+            <meta-data android:name="moe.feng.wheelplay.plugin.SETTINGS_ACTIVITY" android:value=".SampleSettingsActivity" />
+        </service>
+        <activity android:name=".SampleSettingsActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

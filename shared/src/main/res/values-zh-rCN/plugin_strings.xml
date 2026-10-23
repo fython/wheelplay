@@ -1,0 +1,23 @@
+<resources>
+    <string name="plugin_sources">插件输入源</string>
+    <string name="plugin_summary">通过已安装的插件应用添加输入源</string>
+    <string name="plugin_install_hint">通过 Android 安装兼容的插件 APK，然后刷新列表。连接前请打开插件设置，完成配置与授权。当前插件接口提供画面与触控，暂不提供音频和麦克风路由。</string>
+    <string name="plugin_none">未发现兼容的插件服务。</string>
+    <string name="plugin_refresh">刷新已安装插件</string>
+    <string name="plugin_enable">启用插件</string>
+    <string name="plugin_disable">停用插件</string>
+    <string name="plugin_enabled">已启用</string>
+    <string name="plugin_disabled">插件未启用或已变更，请在插件输入源中启用。</string>
+    <string name="plugin_enable_prompt">将 %1$s（%2$s）启用为投影输入源？选中连接后，它可以提供显示内容并接收触控操作。请只启用信任的插件。插件的 Android 权限需单独管理。</string>
+    <string name="plugin_settings">插件设置与权限</string>
+    <string name="plugin_connect">连接插件</string>
+    <string name="plugin_connecting">正在连接插件…</string>
+    <string name="plugin_connected">插件已连接</string>
+    <string name="plugin_disconnected">插件连接已断开</string>
+    <string name="plugin_unavailable">插件服务或设置不可用，请刷新列表或检查 Android 应用设置。</string>
+    <string name="plugin_incompatible">插件接口版本不兼容，请更新 WheelPlay 或插件。</string>
+    <string name="plugin_untrusted">无法验证插件签名证书。</string>
+    <string name="plugin_timeout">插件未在限定时间内就绪。</string>
+    <string name="plugin_cleanup_failed">未确认插件完成资源释放，已阻止继续投影。请在 Android 设置中强行停止插件，再重启 WheelPlay 后连接。</string>
+    <string name="plugin_iccoa_hint">ICCOA CarLink 将由独立的插件 APK 提供支持。请安装兼容的 CarLink 插件，并在“插件输入源”中启用。本版本不包含专有 SDK 或 CarLink 插件。</string>
+</resources>

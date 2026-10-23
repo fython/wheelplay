@@ -2,6 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <queries>
+        <intent>
+            <action android:name="moe.feng.wheelplay.action.PROJECTION_SOURCE" />
+        </intent>
         <package android:name="com.google.android.projection.gearhead" />
     </queries>
 

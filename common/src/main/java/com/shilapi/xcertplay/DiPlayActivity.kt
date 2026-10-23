@@ -3,6 +3,7 @@
 package com.shilapi.xcertplay
 
 import com.shilapi.xcertplay.projection.projectionSessions
+import com.shilapi.xcertplay.projection.plugin.projectionPlugins
 import com.shilapi.xcertplay.projection.registerProjectionSources
 import com.shilapi.xcertplay.projection.androidauto.LocalAndroidAuto
 import com.shilapi.xcertplay.projection.vnc.VncSource
@@ -58,7 +59,7 @@ class DiPlayActivity : AppCompatActivity() {
     private val ui by lazy { ServerUi(this) }
     private val handler = Handler(Looper.getMainLooper())
     private var page = "service"
-    private val sourceDetailPages = setOf("source-carplay", "source-android-auto", "source-iccoa", "source-vnc", "source-diagnostics")
+    private val sourceDetailPages = setOf("source-carplay", "source-android-auto", "source-iccoa", "source-vnc", "source-diagnostics", "source-plugins")
     private val sourceStatuses = mutableMapOf<String, TextView>()
     private val sourceStopButtons = mutableMapOf<String, Button>()
     private val settingsModel by lazy { ViewModelProvider(this)[SettingsViewModel::class.java] }
@@ -273,7 +274,7 @@ class DiPlayActivity : AppCompatActivity() {
         createShell()
     }
     override fun onResume() {
-        super.onResume(); refreshAuthentication(); render(); ServerWindow.showSystemBars(window); handler.removeCallbacks(tick); handler.post(tick)
+        super.onResume(); projectionPlugins(this).refresh(); refreshAuthentication(); render(); ServerWindow.showSystemBars(window); handler.removeCallbacks(tick); handler.post(tick)
         WebSession.setPhoneConnectHandler {
             if (setupError != null) setupError!!
             else {
@@ -339,6 +340,7 @@ class DiPlayActivity : AppCompatActivity() {
         shell.put("source-iccoa", ui.content(::iccoaSource))
         shell.put("source-vnc", ui.content(::vncSource))
         shell.put("source-diagnostics", ui.content(::diagnosticSources))
+        shell.put("source-plugins", ui.content(::pluginSources))
         refreshStatus()
     }
 
@@ -547,7 +549,43 @@ class DiPlayActivity : AppCompatActivity() {
         ui.sourceCard(content, "Android Auto", getString(UiR.string.source_aa_summary), R.drawable.ic_server_launch) { navigate("source-android-auto") }
         ui.sourceCard(content, "ICCOA CarLink", getString(UiR.string.source_iccoa_summary), R.drawable.ic_server_wifi) { navigate("source-iccoa") }
         ui.sourceCard(content, "VNC", getString(UiR.string.vnc_summary), R.drawable.ic_server_server) { navigate("source-vnc") }
+        ui.sourceCard(content, getString(UiR.string.plugin_sources), getString(UiR.string.plugin_summary), R.drawable.ic_server_launch) { navigate("source-plugins") }
         ui.sourceCard(content, getString(UiR.string.source_diagnostics), getString(UiR.string.source_diagnostics_summary), R.drawable.ic_server_server) { navigate("source-diagnostics") }
+    }
+
+    private fun pluginSources(content: LinearLayout) {
+        sourceHeading(content, getString(UiR.string.plugin_sources))
+        val plugins = projectionPlugins(this)
+        content.addView(label(getString(UiR.string.plugin_install_hint), 15, MUTED))
+        content.addView(button(getString(UiR.string.plugin_refresh), false) {
+            plugins.refresh(); refreshPhone()
+        }, matchButton(12))
+        sourceSessionControls(content, "plugin")
+        if (plugins.entries().isEmpty()) content.addView(label(getString(UiR.string.plugin_none), 16, MUTED))
+        plugins.entries().forEach { plugin ->
+            ui.card(content, plugin.name, R.drawable.ic_server_launch) { body ->
+                body.addView(label(plugin.component.packageName, 13, MUTED))
+                val enabled = plugins.enabled(plugin)
+                body.addView(label(plugin.problem ?: getString(if (enabled) UiR.string.plugin_enabled else UiR.string.plugin_disabled), 15, MUTED))
+                if (plugin.problem == null || enabled) body.addView(button(getString(if (enabled) UiR.string.plugin_disable else UiR.string.plugin_enable), false) {
+                    if (enabled) { plugins.setEnabled(plugin, false); refreshPhone() }
+                    else android.app.AlertDialog.Builder(this)
+                        .setTitle(getString(UiR.string.plugin_enable))
+                        .setMessage(getString(UiR.string.plugin_enable_prompt, plugin.name, plugin.component.packageName))
+                        .setPositiveButton(android.R.string.ok) { _, _ ->
+                            runCatching { plugins.setEnabled(plugin, true) }.onFailure { toast(getString(UiR.string.plugin_unavailable)) }
+                            refreshPhone()
+                        }.setNegativeButton(android.R.string.cancel, null).show()
+                }, matchButton(12))
+                if (plugin.settings != null) body.addView(button(getString(UiR.string.plugin_settings), false) {
+                    runCatching { startActivity(Intent().setComponent(plugin.settings)) }
+                        .onFailure { toast(getString(UiR.string.plugin_unavailable)) }
+                }, matchButton(12))
+                body.addView(button(getString(UiR.string.plugin_connect), true) { startProjectionSource(plugin.id) }.apply {
+                    isEnabled = enabled && plugin.problem == null
+                }, matchButton(12))
+            }
+        }
     }
 
     private fun sourceHeading(content: LinearLayout, title: String) {
@@ -608,7 +646,8 @@ class DiPlayActivity : AppCompatActivity() {
     private fun iccoaSource(content: LinearLayout) {
         sourceHeading(content, "ICCOA CarLink")
         ui.card(content, getString(UiR.string.source_unavailable), R.drawable.ic_server_phone) { body ->
-            body.addView(label(getString(UiR.string.iccoa_sdk_unavailable), 16, MUTED))
+            body.addView(label(getString(UiR.string.plugin_iccoa_hint), 16, MUTED))
+            body.addView(button(getString(UiR.string.plugin_sources), false) { navigate("source-plugins") }, matchButton(12))
         }
     }
 

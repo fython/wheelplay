@@ -19,6 +19,14 @@ class ProjectionRuntime {
         require(provider.descriptor.id !in providers) { "Duplicate projection source" }
         providers[provider.descriptor.id] = provider
     }
+    /** Replace a discovery namespace. Existing sessions retain their original provider/resources until stopped. */
+    fun replaceProviders(prefix: String, discovered: List<ProjectionSourceProvider>) = synchronized(lock) {
+        require(prefix.isNotBlank())
+        require(discovered.all { it.descriptor.id.startsWith(prefix) })
+        require(discovered.map { it.descriptor.id }.distinct().size == discovered.size)
+        providers.keys.removeAll { it.startsWith(prefix) }
+        discovered.forEach { providers[it.descriptor.id] = it }
+    }
     fun sources(): List<ProjectionSourceProvider> = synchronized(lock) { providers.values.toList() }
     fun snapshot(): ProjectionSession? = current
     fun hasSession(): Boolean = synchronized(lock) { current != null || opening != null || stopping != null || quarantined }
