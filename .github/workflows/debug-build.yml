@@ -4,9 +4,13 @@ on:
   push:
     paths-ignore:
       - '**.md'
+      - 'website/**'
+      - '.github/workflows/website.yml'
   pull_request:
     paths-ignore:
       - '**.md'
+      - 'website/**'
+      - '.github/workflows/website.yml'
   workflow_dispatch:
 
 concurrency:

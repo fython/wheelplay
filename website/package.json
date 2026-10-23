@@ -1,0 +1,14 @@
+{
+  "name": "wheelplay-website",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/serve.mjs",
+    "check": "node --check public/app.js && node --check scripts/build.mjs && node --check scripts/serve.mjs"
+  }
+}

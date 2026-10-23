@@ -6,6 +6,10 @@ WheelPlay is an Android-hosted CarPlay server for local networks. It streams you
 
 Install the app on an Android device and open the displayed address in your car's browser. No browser-side client installation or additional server is required.
 
+## Product website
+
+The product website lives in [`website/`](website/README.md), separately from the Android-hosted LAN client. With Node.js 22+, run `npm run site:dev` to preview or `npm run site:build` to generate `website/dist/`. No npm dependencies are required. See the [website guide](website/README.md) for Cloudflare Pages and Workers deployment.
+
 ## Features
 
 - **Browser display and touch control**: CarPlay streaming, touch input, and fullscreen display.
