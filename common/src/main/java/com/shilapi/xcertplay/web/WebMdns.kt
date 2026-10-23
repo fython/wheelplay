@@ -4,6 +4,12 @@ import android.content.Context
 import android.net.wifi.WifiManager
 import android.util.Log
 import java.net.InetAddress
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.Executors
+import java.util.concurrent.Future
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.jmdns.JmDNS
 import javax.jmdns.ServiceInfo
 
@@ -23,7 +29,7 @@ internal class WebMdns(
             override fun close() = dns.close()
         }
     },
-    startWorker: Boolean = true,
+    autoRefresh: Boolean = true,
 ) : AutoCloseable {
     internal interface Responder : AutoCloseable {
         fun register(port: Int)
@@ -31,18 +37,35 @@ internal class WebMdns(
 
     private data class Publication(val responder: Responder, val needsMulticast: Boolean)
 
-    @Volatile private var active = true
+    private val active = AtomicBoolean(true)
+    // Each lifecycle owns its worker, responders and lock. Retiring workers never touch a successor.
+    private val worker = Executors.newSingleThreadScheduledExecutor { task ->
+        Thread(task, "wheelplay-web-mdns").apply { isDaemon = true }
+    }
     private val instances = mutableMapOf<String, Publication>()
     private var multicastLock: WifiManager.MulticastLock? = null
-    private val worker = if (startWorker) Thread({
-        while (active) {
-            runCatching { refresh() }.onFailure { Log.w("WebMdns", "mDNS refresh failed", it) }
-            try { Thread.sleep(10_000) } catch (_: InterruptedException) { break }
-        }
-    }, "wheelplay-web-mdns").apply { isDaemon = true; start() } else null
+    private val periodicRefresh = if (autoRefresh) worker.scheduleWithFixedDelay(
+        { refreshOnWorker() }, 0, 10, TimeUnit.SECONDS,
+    ) else null
 
-    @Synchronized internal fun refresh() {
-        if (!active) return
+    /** Queue a refresh; callers never register or close a responder themselves. */
+    internal fun refresh(): Future<*> {
+        if (!active.get()) return CompletableFuture.completedFuture(Unit)
+        return try {
+            worker.submit { refreshOnWorker() }
+        } catch (_: RejectedExecutionException) {
+            // close() may shut down the worker between the active check and submission.
+            CompletableFuture.completedFuture(Unit)
+        }
+    }
+
+    private fun refreshOnWorker() {
+        if (!active.get()) return
+        runCatching { updatePublications() }
+            .onFailure { Log.w("WebMdns", "mDNS refresh failed", it) }
+    }
+
+    private fun updatePublications() {
         val hostname = WebListenSettings.mdnsHostname(context)
         val port = WebSession.httpPort
         val addresses = discover().filter {
@@ -55,6 +78,7 @@ internal class WebMdns(
         }
         releaseUnusedMulticastLock()
         for ((key, entry) in addresses) {
+            if (!active.get()) break
             val identity = "$key/$hostname/$port"
             if (identity in instances) continue
             val needsMulticast = entry.kind in setOf(LanAddresses.Kind.WIFI, LanAddresses.Kind.HOTSPOT)
@@ -63,12 +87,14 @@ internal class WebMdns(
                 if (needsMulticast) acquireMulticastLock()
                 val dns = createResponder(InetAddress.getByName(entry.address), hostname.removeSuffix(".local"))
                 try {
-                    dns.register(port)
-                    instances[identity] = Publication(dns, needsMulticast)
+                    // Creation/registration may finish after close() invalidated this lifecycle.
+                    if (active.get()) dns.register(port)
                 } catch (error: Exception) {
                     runCatching { dns.close() }
                     throw error
                 }
+                if (active.get()) instances[identity] = Publication(dns, needsMulticast)
+                else runCatching { dns.close() }
             }.onFailure { Log.w("WebMdns", "mDNS publication failed on $key", it) }
             releaseUnusedMulticastLock()
         }
@@ -96,12 +122,22 @@ internal class WebMdns(
             .onFailure { Log.w("WebMdns", "mDNS multicast lock release failed", it) }
     }
 
-    @Synchronized override fun close() {
-        active = false
-        worker?.interrupt()
+    /** Invalidate immediately, then let the owner finish in-flight work and clean up off-thread. */
+    override fun close() {
+        if (!active.compareAndSet(true, false)) return
+        periodicRefresh?.cancel(false)
+        worker.execute { closeOnWorker() }
+        worker.shutdown()
+    }
+
+    private fun closeOnWorker() {
         // Keep multicast reception enabled until responders finish their goodbye/close.
         instances.values.forEach { runCatching { it.responder.close() } }
         instances.clear()
         releaseUnusedMulticastLock()
     }
+
+    /** Tests can await cleanup without making service stop or hostname changes wait for it. */
+    internal fun awaitClosed(timeout: Long, unit: TimeUnit): Boolean =
+        worker.awaitTermination(timeout, unit)
 }
