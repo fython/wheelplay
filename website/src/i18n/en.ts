@@ -4,7 +4,6 @@ export const en = {
   "第三方声明 ↗": "Third-party notices ↗",
   "开源于 GPL-3.0 · Built for the road ahead.": "Open source under GPL-3.0 · Built for the road ahead.",
   "CarPlay 是 Apple Inc. 的商标。WheelPlay 是独立开源项目，与 Apple 或车厂无隶属关系。": "CarPlay is a trademark of Apple Inc. WheelPlay is an independent open-source project, unaffiliated with Apple or vehicle manufacturers.",
-  "为你的车机，打开一种新可能": "A new possibility for your car display",
   "让 CarPlay，": "Your CarPlay,",
   "在浏览器里就位。": "in your browser.",
   "一部 Android，一块车机屏幕。": "One Android device. One car display.",
