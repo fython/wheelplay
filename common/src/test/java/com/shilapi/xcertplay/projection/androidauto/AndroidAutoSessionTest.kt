@@ -25,12 +25,19 @@ class AndroidAutoSessionTest {
         val control = Executors.newSingleThreadExecutor()
         val ready = CountDownLatch(1)
         val frame = CountDownLatch(1)
+        val recoveredFrame = CountDownLatch(1)
+        val frameCount = java.util.concurrent.atomic.AtomicInteger()
+        val recoveryRequest = java.util.concurrent.atomic.AtomicReference<() -> Unit>()
         val outputClosed = CountDownLatch(1)
         val output = object : ProjectionVideoOutput {
             override val surface: Surface get() = error("encoded")
-            override fun configure(codec: VideoCodec, codecData: ByteArray, requestKeyframe: () -> Unit): Long = 1
+            override fun configure(codec: VideoCodec, codecData: ByteArray, requestKeyframe: () -> Unit): Long {
+                recoveryRequest.set(requestKeyframe); return 1
+            }
             override fun frame(formatRevision: Long, frameData: CompressedVideoFrame, ptsUs: Long): Boolean {
-                assertEquals(42L, ptsUs); assertEquals(1L, formatRevision); frame.countDown(); return true
+                assertEquals(42L, ptsUs); assertEquals(1L, formatRevision); frame.countDown()
+                if (frameCount.incrementAndGet() == 2) recoveredFrame.countDown()
+                return true
             }
             override fun framebuffer(snapshot: ProjectionFramebuffer.Snapshot) = false
             override fun close() { outputClosed.countDown() }
@@ -111,6 +118,24 @@ class AndroidAutoSessionTest {
                 assertEquals(3L, AapProto.number(lostFocus.copyOfRange(2, lostFocus.size), 1))
                 send(2, 0x8007, AapProto.build { number(2, 1) })
                 assertEquals(0x8008, AapFraming.type(receive().second))
+                // Ignore gain-only nudges. The receiver must release/regain focus without any inbound traffic.
+                recoveryRequest.get().invoke()
+                org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(3))
+                while (true) {
+                    val focus = receive().second
+                    assertEquals(0x8008, AapFraming.type(focus))
+                    if (AapProto.number(focus.copyOfRange(2, focus.size), 1) == 2L) break
+                }
+                // A focus cycle may stop/restart the media sink; it must not end the AAP session.
+                send(2, 0x8002, byteArrayOf())
+                org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofMillis(500))
+                val regain = receive().second
+                assertEquals(0x8008, AapFraming.type(regain))
+                assertEquals(1L, AapProto.number(regain.copyOfRange(2, regain.size), 1))
+                send(2, 0x8001, AapProto.build { number(1, 10); number(2, 0) })
+                send(2, 0, ByteBuffer.allocate(16).putLong(42).put(byteArrayOf(0, 0, 0, 1, 0x65, 1, 2, 3)).array())
+                assertEquals(0x8004, AapFraming.type(receive().second))
+                assertTrue("Recovery IDR did not reach video output", recoveredFrame.await(5, TimeUnit.SECONDS))
                 send(0, 15, AapProto.build { number(1, 1) })
                 assertEquals(16, AapFraming.type(receive().second))
             }

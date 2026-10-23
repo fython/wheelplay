@@ -12,7 +12,7 @@ internal class AapVideo(private val output: ProjectionVideoOutput, private val k
     private var pps: ByteArray? = null
     private var config: ByteArray? = null
     private var revision = 0L
-    fun accept(unit: AapMediaAssembler.AccessUnit) {
+    fun accept(unit: AapMediaAssembler.AccessUnit): Boolean {
         val nals = annexB(unit.data)
         nals.forEach { nal -> when (nal[0].toInt() and 31) { 7 -> sps = nal; 8 -> pps = nal } }
         val s = sps; val p = pps
@@ -20,7 +20,8 @@ internal class AapVideo(private val output: ProjectionVideoOutput, private val k
             val next = avcC(s, p)
             if (config?.contentEquals(next) != true) { revision = output.configure(VideoCodec.H264, next, keyframe); config = next }
         }
-        if (revision != 0L && nals.any { it[0].toInt() and 31 in 1..5 }) output.frame(revision, HeapVideoFrame(unit.data), unit.ptsUs)
+        return revision != 0L && nals.any { it[0].toInt() and 31 in 1..5 } &&
+            output.frame(revision, HeapVideoFrame(unit.data), unit.ptsUs)
     }
     companion object {
         fun annexB(data: ByteArray): List<ByteArray> {

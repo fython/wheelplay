@@ -50,11 +50,20 @@ internal class AapUsbConnection(private val context: Context, private val device
         if (!manager.hasPermission(device)) {
             val action = context.packageName + ".AA_USB." + UUID.randomUUID()
             val wait = CountDownLatch(1); permissionWait = wait
-            val receiver = object : BroadcastReceiver() { override fun onReceive(c: Context, i: Intent) { if (i.action == action) wait.countDown() } }
-            ContextCompat.registerReceiver(context, receiver, IntentFilter(action), ContextCompat.RECEIVER_NOT_EXPORTED)
-            val pending = PendingIntent.getBroadcast(context, 0, Intent(action).setPackage(context.packageName), PendingIntent.FLAG_IMMUTABLE)
-            try { manager.requestPermission(device, pending); check(wait.await(45, TimeUnit.SECONDS)) { "USB permission timed out" } }
-            finally { context.unregisterReceiver(receiver); pending.cancel(); permissionWait = null }
+            try {
+                // close() either sees this latch, or this check observes the earlier close.
+                checkOpen()
+                val receiver = object : BroadcastReceiver() { override fun onReceive(c: Context, i: Intent) { if (i.action == action) wait.countDown() } }
+                ContextCompat.registerReceiver(context, receiver, IntentFilter(action), ContextCompat.RECEIVER_NOT_EXPORTED)
+                try {
+                    val pending = PendingIntent.getBroadcast(context, 0, Intent(action).setPackage(context.packageName), PendingIntent.FLAG_IMMUTABLE)
+                    try {
+                        checkOpen()
+                        manager.requestPermission(device, pending)
+                        check(wait.await(45, TimeUnit.SECONDS)) { "USB permission timed out" }
+                    } finally { pending.cancel() }
+                } finally { context.unregisterReceiver(receiver) }
+            } finally { permissionWait = null }
             checkOpen(); check(manager.hasPermission(device)) { "USB permission denied" }
         }
         return checkNotNull(manager.openDevice(device)) { "Cannot open USB phone" }.also {

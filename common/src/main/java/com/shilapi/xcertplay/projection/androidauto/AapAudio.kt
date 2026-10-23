@@ -47,9 +47,13 @@ internal class AapAudio(context: Context, private val sendMic: (ByteArray) -> Bo
                         .setAudioFormat(AudioFormat.Builder().setSampleRate(rate).setChannelMask(mask).setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
                         .setBufferSizeInBytes(maxOf(minimum, rate / 5 * if (channel == 6) 4 else 2)).build().apply { play() }
                 }
-                // Never let a slow audio device block the protocol reader. Dropped PCM has no prediction dependency.
-                track.setVolume(if (focusState == 4) 0.2f else 1f)
-                track.write(bytes, 0, bytes.size, AudioTrack.WRITE_NON_BLOCKING)
+                // Retry partial writes on this worker only; the protocol reader remains independent.
+                AapPcmWriter.write(bytes.size,
+                    active = { !closed.get() && focusState != 3 && focusState != 5 && !stoppingChannels.contains(channel) },
+                    write = { offset, length ->
+                        track.setVolume(if (focusState == 4) 0.2f else 1f)
+                        track.write(bytes, offset, length, AudioTrack.WRITE_NON_BLOCKING)
+                    })
             }
         } catch (error: Throwable) { if (!closed.get()) failed(error) }
         finally { tracks.values.forEach { it.release() }; tracks.clear() }
