@@ -34,4 +34,12 @@
     <string name="aa_usb_connect">Connect Android Auto over USB</string>
     <string name="aa_remote_title">Another phone · Head Unit Server</string>
     <string name="aa_remote_connect">Set address and connect</string>
+    <string name="home_projection_headline">Use projection in your head unit browser</string>
+    <string name="home_source_title">Projection source</string>
+    <string name="home_choose_source">Choose input source</string>
+    <string name="home_switch_source">Switch source: %1$s</string>
+    <string name="home_source_settings">Input source settings</string>
+    <string name="home_configure_connect">Set up and connect</string>
+    <string name="home_active_source">Current projection: %1$s\n%2$s</string>
+    <string name="home_stop_source">Stop projection: %1$s</string>
 </resources>

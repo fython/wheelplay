@@ -132,6 +132,10 @@ class DiPlayActivity : AppCompatActivity() {
     private var webViewer: TextView? = null
     private var webStage: TextView? = null
     private var sessionConnectButton: Button? = null
+    private var homeSourceButton: Button? = null
+    private var homeStopButton: Button? = null
+    private var homeAudioHint: TextView? = null
+    private data class HomeSource(val id: String, val name: String, val page: String)
     private var setupError: String? = null
     private var status: TextView? = null
     private var connectButton: com.google.android.material.button.MaterialButton? = null
@@ -293,7 +297,7 @@ class DiPlayActivity : AppCompatActivity() {
             if (setupError == null && !DiPlayBootstrap.importing && selectedPrivateKey == null &&
                 intent.action != Intent.ACTION_SEND && intent.action != Intent.ACTION_VIEW &&
                 !projectionSessions.hasSession() &&
-                DiPlayPreferences.autoConnect(this) && intent.getStringExtra("page") == null) {
+                selectedHomeSource().id == "carplay" && DiPlayPreferences.autoConnect(this) && intent.getStringExtra("page") == null) {
                 handler.post { connect(AirPlayPersistence.loadWirelessEnabled(this)) }
             }
         }
@@ -450,7 +454,7 @@ class DiPlayActivity : AppCompatActivity() {
 
     private fun service(content: LinearLayout) {
         content.addView(label(getString(R.string.app_name), 21, TEXT, true).apply { setPadding(0, 0, 0, dp(24)) })
-        content.addView(label(getString(UiR.string.ui_use_carplay_in_your_head_unit_browser), 28, TEXT, true))
+        content.addView(label(getString(UiR.string.home_projection_headline), 28, TEXT, true))
         content.addView(space(24))
         ui.card(content, getString(UiR.string.ui_head_unit_access), R.drawable.ic_server_server) { body ->
             body.addView(label(getString(UiR.string.ui_local_network_address), 14, MUTED))
@@ -487,20 +491,103 @@ class DiPlayActivity : AppCompatActivity() {
             webViewer = label(getString(UiR.string.ui_waiting_for_head_unit_browser), 16, MUTED)
             body.addView(webViewer)
         }
-        ui.card(content, getString(UiR.string.ui_iphone_session), R.drawable.ic_server_phone) { body ->
-            webStage = label(getString(UiR.string.ui_waiting_to_connect_to_iphone), 16, TEXT)
+        ui.card(content, getString(UiR.string.home_source_title), R.drawable.ic_server_phone) { body ->
+            homeSourceButton = button("", false) { chooseHomeSource() }
+            body.addView(homeSourceButton, ui.secondaryButtonLayout())
+            webStage = label("", 16, TEXT).apply { setPadding(0, dp(12), 0, 0) }
             body.addView(webStage)
             sessionConnectButton = button(getString(UiR.string.ui_connect), false, R.drawable.ic_server_phone) {
-                if (!CarPlayBackgroundSession.hasSession()) connect(true)
-            }.apply { visibility = View.GONE }
+                val source = selectedHomeSource()
+                when (source.id) {
+                    "carplay" -> connect(AirPlayPersistence.loadWirelessEnabled(this))
+                    "android-auto" -> navigate(source.page)
+                    "vnc" -> configureVnc()
+                    else -> startProjectionSource(source.id)
+                }
+            }
             body.addView(sessionConnectButton, ui.secondaryButtonLayout(12))
-            body.addView(button(getString(UiR.string.ui_manage_iphone_connection), false) { navigate("source-carplay") }, ui.secondaryButtonLayout(16))
+            homeStopButton = button("", false) {
+                homeStopButton?.isEnabled = false
+                val active = projectionSessions.snapshot()
+                if (active != null) projectionSessions.stop(active).whenComplete { _, failure -> runOnUiThread {
+                    if (failure != null) toast(getString(UiR.string.projection_failed, failure.cause?.message ?: failure.message.orEmpty()))
+                    refreshStatus(); refreshService()
+                } } else CarPlayBackgroundSession.stop { runOnUiThread { refreshStatus(); refreshService() } }
+            }
+            body.addView(homeStopButton, ui.secondaryButtonLayout(12))
+            body.addView(button(getString(UiR.string.home_source_settings), false) {
+                navigate(selectedHomeSource().page)
+            }, ui.secondaryButtonLayout(16))
         }
-        content.addView(label(getString(UiR.string.ui_audio_and_microphone_use_this_device_by_default_enable), 14, MUTED))
+        homeAudioHint = label(getString(UiR.string.ui_audio_and_microphone_use_this_device_by_default_enable), 14, MUTED)
+        content.addView(homeAudioHint)
         content.addView(button(getString(UiR.string.ui_stop_service), false) {
             startService(Intent(this, DiPlaySessionService::class.java).setAction(DiPlaySessionService.ACTION_STOP))
             finishAndRemoveTask()
         }, ui.secondaryButtonLayout(24))
+    }
+
+    private fun homeSources(): List<HomeSource> = listOf(
+        HomeSource("carplay", getString(UiR.string.source_carplay), "source-carplay"),
+        HomeSource("android-auto", "Android Auto", "source-android-auto"),
+        HomeSource("vnc", "VNC", "source-vnc"),
+    ) + projectionPlugins(this).let { registry ->
+        registry.entries().filter { registry.available(it) }.map { plugin ->
+            HomeSource(plugin.id, plugin.name,
+                if (plugin.sourceId == ProjectionPlugin.SOURCE_ICCOA_CARLINK) "source-iccoa" else "source-plugins")
+        }
+    }
+
+    private fun selectedHomeSource(): HomeSource {
+        val sources = homeSources()
+        val saved = DiPlayPreferences.homeSource(this)
+        return sources.find { it.id == saved } ?: sources.first().also {
+            DiPlayPreferences.saveHomeSource(this, it.id)
+        }
+    }
+
+    private fun chooseHomeSource() {
+        projectionPlugins(this).refresh()
+        val selected = selectedHomeSource()
+        val sources = homeSources()
+        android.app.AlertDialog.Builder(this).setTitle(getString(UiR.string.home_choose_source))
+            .setSingleChoiceItems(sources.map { it.name }.toTypedArray(), sources.indexOf(selected)) { dialog, index ->
+                // Selecting a target never starts or interrupts a projection session.
+                DiPlayPreferences.saveHomeSource(this, sources[index].id)
+                dialog.dismiss(); refreshService()
+            }.setNegativeButton(android.R.string.cancel, null).show()
+    }
+
+    private fun refreshHomeSource() {
+        val source = selectedHomeSource()
+        val active = projectionSessions.snapshot()
+        val carPlayRunning = CarPlayBackgroundSession.hasSession()
+        val activeName = active?.descriptor?.displayName ?: if (carPlayRunning) getString(UiR.string.source_carplay) else null
+        val selectedActive = (source.id == "carplay" && carPlayRunning) || active?.let {
+            it.descriptor.id == source.id || (source.id in setOf("android-auto", "vnc") && belongsToSource(it.descriptor.id, source.id))
+        } == true
+        homeSourceButton?.text = getString(UiR.string.home_switch_source, source.name)
+        webStage?.text = when {
+            active != null -> getString(UiR.string.home_active_source, active.descriptor.displayName,
+                active.statusText ?: getString(UiR.string.projection_active, active.descriptor.displayName))
+            carPlayRunning -> getString(UiR.string.home_active_source, getString(UiR.string.source_carplay), WebSession.stage(this))
+            source.id == "carplay" -> setupError ?: when {
+                DiPlayPreferences.phoneAddress(this) != null -> getString(UiR.string.status_selected_phone, DiPlayPreferences.phoneName(this))
+                else -> getString(UiR.string.ui_waiting_to_connect_to_iphone)
+            }
+            else -> getString(UiR.string.projection_waiting)
+        }
+        sessionConnectButton?.apply {
+            text = getString(if (source.id in setOf("android-auto", "vnc")) UiR.string.home_configure_connect else UiR.string.ui_connect)
+            visibility = if (selectedActive || (source.id == "carplay" && DiPlayPreferences.phoneAddress(this@DiPlayActivity) == null)) View.GONE else View.VISIBLE
+            isEnabled = source.id != "carplay" || (setupError == null && !DiPlayBootstrap.importing)
+        }
+        homeStopButton?.apply {
+            visibility = if (activeName != null) View.VISIBLE else View.GONE
+            text = getString(UiR.string.home_stop_source, activeName.orEmpty())
+            isEnabled = activeName != null
+        }
+        homeAudioHint?.visibility = if (source.id == "carplay") View.VISIBLE else View.GONE
     }
 
     private fun refreshService() {
@@ -527,7 +614,7 @@ class DiPlayActivity : AppCompatActivity() {
         val viewerConnected = WebSession.hasViewer
         webPairingControls?.visibility = if (viewerConnected) View.GONE else View.VISIBLE
         webViewer?.text = if (viewerConnected) getString(UiR.string.ui_head_unit_browser_connected) else getString(UiR.string.ui_waiting_for_head_unit_browser)
-        webStage?.text = WebSession.stage(this)
+        refreshHomeSource()
     }
 
     private fun openLocalBrowserExperience() {
@@ -818,6 +905,12 @@ class DiPlayActivity : AppCompatActivity() {
     }
 
     private fun startProjectionSource(id: String) {
+        val homeId = when {
+            belongsToSource(id, "android-auto") -> "android-auto"
+            belongsToSource(id, "vnc") -> "vnc"
+            else -> id
+        }
+        if (homeSources().any { it.id == homeId }) DiPlayPreferences.saveHomeSource(this, homeId)
         registerProjectionSources(this)
         startWebServiceIfReady()
         projectionSessions.switchTo(id).whenComplete { _, failure -> runOnUiThread {
@@ -975,6 +1068,8 @@ class DiPlayActivity : AppCompatActivity() {
     }
 
     private fun connect(wireless: Boolean) {
+        DiPlayPreferences.saveHomeSource(this, "carplay")
+        refreshHomeSource()
         refreshAuthentication()
         if (setupError != null) { toast(setupError!!); return }
         if (wireless && carHotspotOff()) { carHotspotOffDialog(); return }
@@ -1115,9 +1210,7 @@ class DiPlayActivity : AppCompatActivity() {
             lastRunning = running
         }
         connectButton?.isEnabled = setupError == null && !DiPlayBootstrap.importing
-        sessionConnectButton?.visibility = if (!running && !CarPlayBackgroundSession.active &&
-            DiPlayPreferences.phoneAddress(this) != null) View.VISIBLE else View.GONE
-        sessionConnectButton?.isEnabled = setupError == null && !DiPlayBootstrap.importing
+        refreshHomeSource()
     }
     private fun reportFileName() = "WheelPlay-${SimpleDateFormat("yyyyMMdd-HHmmss-SSS", Locale.US).format(Date())}.txt"
 
