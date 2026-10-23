@@ -1,0 +1,16 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import Brand from "../components/Brand.astro";
+---
+
+<BaseLayout title="页面未找到 · WheelPlay" noIndex bodyClass="not-found">
+  <main>
+    <Brand size={34} />
+    <p class="eyebrow">404 / WRONG TURN</p>
+    <h1>换条路，<br />回到出发点。</h1>
+    <p>这个页面不存在，或已经移动。</p>
+    <a class="button primary" href="/"
+      >返回首页 <span aria-hidden="true">↗</span></a
+    >
+  </main>
+</BaseLayout>

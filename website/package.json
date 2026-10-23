@@ -1,0 +1,24 @@
+{
+  "name": "wheelplay-website",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.23.4"
+  },
+  "scripts": {
+    "build": "astro build",
+    "dev": "astro dev",
+    "preview": "astro preview",
+    "check": "astro check",
+    "test:build": "node --test test/build.test.mjs",
+    "test:worker": "node --experimental-strip-types --test test/download.test.mjs"
+  },
+  "dependencies": {
+    "astro": "7.4.2"
+  },
+  "devDependencies": {
+    "@astrojs/check": "0.9.12",
+    "typescript": "6.0.3"
+  }
+}
