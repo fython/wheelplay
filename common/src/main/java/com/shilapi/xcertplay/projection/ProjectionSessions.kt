@@ -6,8 +6,8 @@ internal val projectionSessions = ProjectionRuntime()
 @Synchronized internal fun registerProjectionSources(context: android.content.Context) {
     if (projectionSessions.sources().isNotEmpty()) return
     val app = context.applicationContext
-    listOf(true, false).forEach { usb ->
-        projectionSessions.register(com.shilapi.xcertplay.projection.androidauto.AndroidAutoSource(app, usb) {
+    com.shilapi.xcertplay.projection.androidauto.AndroidAutoMode.entries.forEach { mode ->
+        projectionSessions.register(com.shilapi.xcertplay.projection.androidauto.AndroidAutoSource(app, mode) {
             BrowserProjectionVideo(app, 1280, 720, VideoIngressKind.ENCODED)
         })
     }

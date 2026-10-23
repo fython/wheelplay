@@ -12,4 +12,13 @@
     <string name="aa_tcp_hint">在手機 Android Auto 開發者設定中啟動 Head Unit Server，輸入宿主可存取的手機位址（TCP 5277）。音訊由宿主播放；麥克風使用 Android 設定，不支援瀏覽器麥克風。</string>
     <string name="aa_invalid_address">請輸入有效的手機 IPv4 位址。</string>
     <string name="iccoa_sdk_unavailable">ICCOA CarLink 需要專有 SDK。MiAuto 公開倉庫及本安裝套件均不包含該執行庫，目前無法接入 CarLink 協議。</string>
+    <string name="aa_local_title">Android Auto · 本機</string>
+    <string name="aa_local_summary">將本機 Android Auto 投影到車機瀏覽器。首次需要開啟車機伺服器，聲音由本機播放；此功能仍為實驗性。</string>
+    <string name="aa_local_connect">連接本機 Android Auto</string>
+    <string name="aa_local_help">首次設定與連線說明</string>
+    <string name="aa_local_settings">開啟 Android Auto 設定</string>
+    <string name="aa_local_setup">1. 開啟 Android Auto 設定，完成首次使用設定。\n2. 連續點選版本資訊（通常為 10 次），確認開啟開發人員模式。\n3. 在選單中選擇「啟動車機伺服器」（Start head unit server）。\n4. 返回 WheelPlay，點選「連接本機 Android Auto」。\n\n保持車機伺服器執行，下次即可一鍵連線；手機重新啟動後可能需要重新開啟。無需填寫位址或連接傳輸線。聲音由本機播放，麥克風遵循 Android 麥克風設定。同機相容性仍需實機驗證。</string>
+    <string name="aa_local_unavailable">本機未安裝 Android Auto，或已將其停用。請在支援的裝置上安裝或啟用 Android Auto，完成首次設定後返回 WheelPlay。部分版本的設定按鈕會開啟系統應用程式詳細資料頁面。</string>
+    <string name="aa_local_server_unavailable">無法連接本機 Android Auto。請開啟「首次設定與連線說明」，在 Android Auto 中啟動車機伺服器後重試。</string>
+    <string name="aa_local_settings_unavailable">無法開啟 Android Auto 設定。請在系統設定中搜尋 Android Auto，並按照說明完成設定。</string>
 </resources>

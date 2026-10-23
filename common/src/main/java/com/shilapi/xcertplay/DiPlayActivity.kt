@@ -4,6 +4,7 @@ package com.shilapi.xcertplay
 
 import com.shilapi.xcertplay.projection.projectionSessions
 import com.shilapi.xcertplay.projection.registerProjectionSources
+import com.shilapi.xcertplay.projection.androidauto.LocalAndroidAuto
 
 import com.shilapi.xcertplay.shared.R as UiR
 import com.shilapi.xcertplay.i18n.*
@@ -63,6 +64,10 @@ class DiPlayActivity : AppCompatActivity() {
     private var webInterface: TextView? = null
     private var webBusy = false
     private var awaitingTeslaVpnConsent = false
+    private var localAndroidAutoDialog: android.app.AlertDialog? = null
+    private val localAndroidAutoSettings = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        if (!isFinishing && !isDestroyed) showLocalAndroidAutoSetup()
+    }
     private val teslaVpnConsent = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val requested = awaitingTeslaVpnConsent
         awaitingTeslaVpnConsent = false
@@ -282,7 +287,7 @@ class DiPlayActivity : AppCompatActivity() {
         }
     }
     override fun onPause() { WebSession.setPhoneConnectHandler(null); handler.removeCallbacks(tick); super.onPause() }
-    override fun onDestroy() { settingsDialogs.cancel(); pendingPemCertificate?.fill(0); pendingPemCertificate = null; super.onDestroy() }
+    override fun onDestroy() { localAndroidAutoDialog?.dismiss(); settingsDialogs.cancel(); pendingPemCertificate?.fill(0); pendingPemCertificate = null; super.onDestroy() }
 
     private fun normalizedPage(value: String) = when (value) {
         "home", "wireless-recovery" -> "phone"
@@ -523,6 +528,11 @@ class DiPlayActivity : AppCompatActivity() {
 
     private fun home(content: LinearLayout) {
         content.addView(label(getString(UiR.string.projection_sources), 30, TEXT, true))
+        ui.card(content, getString(UiR.string.aa_local_title), R.drawable.ic_server_phone) { body ->
+            body.addView(label(getString(UiR.string.aa_local_summary), 15, MUTED))
+            body.addView(button(getString(UiR.string.aa_local_connect), false) { connectLocalAndroidAuto() }, matchButton(12))
+            body.addView(button(getString(UiR.string.aa_local_help), false) { showLocalAndroidAutoSetup() }, ui.secondaryButtonLayout(12))
+        }
         ui.card(content, getString(UiR.string.projection_sources), R.drawable.ic_server_phone) { body ->
             body.addView(label(getString(UiR.string.projection_demo_hint), 15, MUTED))
             body.addView(button(getString(UiR.string.projection_choose_demo), false) { chooseProjectionSource() }, matchButton(12))
@@ -568,7 +578,8 @@ class DiPlayActivity : AppCompatActivity() {
         android.app.AlertDialog.Builder(this).setTitle(getString(UiR.string.projection_choose_demo))
             .setItems(sources.map { it.descriptor.displayName }.toTypedArray()) { _, index ->
                 val id = sources[index].descriptor.id
-                if (id == "android-auto-tcp") {
+                if (id == LocalAndroidAuto.SOURCE_ID) connectLocalAndroidAuto()
+                else if (id == "android-auto-tcp") {
                     val host = android.widget.EditText(this).apply {
                         setSingleLine(true)
                         hint = "192.168.1.2"
@@ -589,6 +600,49 @@ class DiPlayActivity : AppCompatActivity() {
                         }.setNegativeButton(android.R.string.cancel, null).show()
                 } else startProjectionSource(id)
             }.setNegativeButton(android.R.string.cancel, null).show()
+    }
+
+    private fun connectLocalAndroidAuto() {
+        projectionSessions.snapshot()?.takeIf { it.descriptor.id == LocalAndroidAuto.SOURCE_ID }?.let {
+            toast(it.statusText ?: getString(UiR.string.projection_active, it.descriptor.displayName))
+            return
+        }
+        if (!LocalAndroidAuto.isInstalledAndEnabled(this) ||
+            !getSharedPreferences("projection", 0).getBoolean(LocalAndroidAuto.SETUP_SEEN, false)) {
+            showLocalAndroidAutoSetup()
+            return
+        }
+        registerProjectionSources(this)
+        startProjectionSource(LocalAndroidAuto.SOURCE_ID)
+    }
+
+    private fun showLocalAndroidAutoSetup() {
+        localAndroidAutoDialog?.dismiss()
+        val available = LocalAndroidAuto.isInstalledAndEnabled(this)
+        val builder = android.app.AlertDialog.Builder(this)
+            .setTitle(getString(UiR.string.aa_local_title))
+            .setMessage(getString(if (available) UiR.string.aa_local_setup else UiR.string.aa_local_unavailable))
+            .setNeutralButton(UiR.string.aa_local_settings) { _, _ -> openLocalAndroidAutoSettings() }
+            .setNegativeButton(android.R.string.cancel, null)
+        if (available) builder.setPositiveButton(UiR.string.aa_local_connect) { _, _ ->
+            getSharedPreferences("projection", 0).edit().putBoolean(LocalAndroidAuto.SETUP_SEEN, true).apply()
+            connectLocalAndroidAuto()
+        }
+        localAndroidAutoDialog = builder.show()
+    }
+
+    private fun openLocalAndroidAutoSettings() {
+        for (intent in LocalAndroidAuto.settingsIntents()) {
+            try {
+                localAndroidAutoSettings.launch(intent)
+                return
+            } catch (_: android.content.ActivityNotFoundException) {
+                // AA versions expose different settings entry points.
+            } catch (_: SecurityException) {
+                // Fall back when an AA activity is not exported.
+            }
+        }
+        toast(getString(UiR.string.aa_local_settings_unavailable))
     }
 
     private fun startProjectionSource(id: String) {

@@ -12,4 +12,13 @@
     <string name="aa_tcp_hint">Enable Android Auto developer mode and start its Head Unit Server. Enter the phone address reachable from this host (TCP 5277). Audio plays on the host. Microphone uses the Android setting; browser microphone is unavailable.</string>
     <string name="aa_invalid_address">Enter a valid phone IPv4 address.</string>
     <string name="iccoa_sdk_unavailable">ICCOA CarLink needs the proprietary SDK. It is not included in the public MiAuto repository or this build; CarLink protocol integration is unavailable.</string>
+    <string name="aa_local_title">Android Auto · This phone</string>
+    <string name="aa_local_summary">Use Android Auto on this phone in the car browser. First enable its head unit server. Audio plays on this phone; this feature is experimental.</string>
+    <string name="aa_local_connect">Connect this phone</string>
+    <string name="aa_local_help">Setup and connection help</string>
+    <string name="aa_local_settings">Open Android Auto settings</string>
+    <string name="aa_local_setup">1. Open Android Auto settings and complete any initial setup.\n2. Tap the version information repeatedly (usually 10 times), then confirm developer mode.\n3. Open the menu and select Start head unit server.\n4. Return to WheelPlay and tap Connect this phone.\n\nKeep the server running for one-tap connections next time. After a restart, you may need to start it again. No address or cable is needed. Audio plays on this phone; microphone follows the Android microphone setting. Same-phone compatibility still needs device testing.</string>
+    <string name="aa_local_unavailable">Android Auto is not installed or is disabled on this phone. Install or enable it on a supported device, finish its initial setup, then return to WheelPlay. Settings may open the system app details page on some versions.</string>
+    <string name="aa_local_server_unavailable">Could not connect to local Android Auto. Open Setup and connection help, start the head unit server in Android Auto, then try again.</string>
+    <string name="aa_local_settings_unavailable">Could not open Android Auto settings. Find Android Auto in system Settings and follow the setup instructions.</string>
 </resources>

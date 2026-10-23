@@ -13,22 +13,40 @@ import java.io.DataInputStream
 import java.nio.ByteBuffer
 import java.util.concurrent.*
 import java.util.concurrent.atomic.AtomicBoolean
+import com.shilapi.xcertplay.shared.R as UiR
 
-internal class AndroidAutoSource(private val context: Context, private val usb: Boolean,
+internal enum class AndroidAutoMode { LOCAL, USB, TCP }
+
+internal class AndroidAutoSource(private val context: Context, private val mode: AndroidAutoMode,
     private val outputFactory: () -> ProjectionVideoOutput) : ProjectionSourceProvider {
-    override val descriptor = SourceDescriptor(if (usb) "android-auto-usb" else "android-auto-tcp", if (usb) "Android Auto · USB" else "Android Auto · Head Unit Server (TCP)")
-    override val resources = setOf(ProjectionResource.DISPLAY, ProjectionResource.MICROPHONE,
-        if (usb) ProjectionResource.USB else ProjectionResource.WIRELESS)
+    override val descriptor = when (mode) {
+        AndroidAutoMode.LOCAL -> SourceDescriptor(LocalAndroidAuto.SOURCE_ID, context.getString(UiR.string.aa_local_title))
+        AndroidAutoMode.USB -> SourceDescriptor("android-auto-usb", "Android Auto · USB")
+        AndroidAutoMode.TCP -> SourceDescriptor("android-auto-tcp", "Android Auto · Head Unit Server (TCP)")
+    }
+    override val resources = buildSet {
+        add(ProjectionResource.DISPLAY); add(ProjectionResource.MICROPHONE)
+        if (mode == AndroidAutoMode.USB) add(ProjectionResource.USB)
+        if (mode == AndroidAutoMode.TCP) add(ProjectionResource.WIRELESS)
+    }
     override fun probe(): SourceAvailability {
-        if (usb && AapUsbConnection.candidates(context).size != 1) return SourceAvailability.Unavailable("Connect exactly one Android phone by USB")
-        if (!usb && context.getSharedPreferences("projection", 0).getString("aa_host", "").isNullOrBlank())
+        if (mode == AndroidAutoMode.LOCAL && !LocalAndroidAuto.isInstalledAndEnabled(context))
+            return SourceAvailability.Unavailable(context.getString(UiR.string.aa_local_unavailable))
+        if (mode == AndroidAutoMode.USB && AapUsbConnection.candidates(context).size != 1) return SourceAvailability.Unavailable("Connect exactly one Android phone by USB")
+        if (mode == AndroidAutoMode.TCP && context.getSharedPreferences("projection", 0).getString("aa_host", "").isNullOrBlank())
             return SourceAvailability.Unavailable("Configure the phone's Head Unit Server address first")
         return SourceAvailability.Ready
     }
+    internal fun tcpEndpoint(): Pair<String, Int> {
+        check(mode != AndroidAutoMode.USB)
+        if (mode == AndroidAutoMode.LOCAL) return "127.0.0.1" to 5277
+        val prefs = context.getSharedPreferences("projection", 0)
+        return prefs.getString("aa_host", "")!! to prefs.getInt("aa_port", 5277)
+    }
     override fun open(): CompletableFuture<ProjectionSession> = try {
-        val connection = if (usb) AapUsbConnection(context, AapUsbConnection.candidates(context).single()) else {
-            val prefs = context.getSharedPreferences("projection", 0)
-            AapTcpConnection(prefs.getString("aa_host", "")!!, prefs.getInt("aa_port", 5277))
+        val connection = if (mode == AndroidAutoMode.USB) AapUsbConnection(context, AapUsbConnection.candidates(context).single()) else {
+            val (host, port) = tcpEndpoint()
+            AapTcpConnection(host, port)
         }
         val microphone = context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED &&
             AirPlayPersistence.loadMicrophoneSource(context) == CarPlayMicrophoneSource.ANDROID
@@ -76,8 +94,10 @@ internal class AndroidAutoSession(private val context: Context, override val des
     private fun state(value: String) { statusText = value; projectionSessions.changed(this) }
     private fun run() {
         var failure: Throwable? = null
+        var connected = false
         try {
             connection.connect()
+            connected = true
             state("Android Auto: negotiating")
             val input = DataInputStream(connection.input)
             val tls = AapTls()
@@ -144,7 +164,10 @@ internal class AndroidAutoSession(private val context: Context, override val des
         } catch (error: Throwable) {
             if (!stopping.get()) {
                 failure = error
-                state("Android Auto: ${error.message ?: error.javaClass.simpleName}")
+                if (!connected && descriptor.id == LocalAndroidAuto.SOURCE_ID) {
+                    context.getSharedPreferences("projection", 0).edit().remove(LocalAndroidAuto.SETUP_SEEN).apply()
+                    state(context.getString(UiR.string.aa_local_server_unavailable))
+                } else state("Android Auto: ${error.message ?: error.javaClass.simpleName}")
                 Handler(Looper.getMainLooper()).post { android.widget.Toast.makeText(context, statusText, android.widget.Toast.LENGTH_LONG).show() }
             }
         } finally {

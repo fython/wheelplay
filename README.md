@@ -8,7 +8,7 @@ Install the app on an Android device and open the displayed address in your car'
 
 ## Features
 
-- **Multiple-source framework**: A single active projection session routes video, touch and media controls independently of CarPlay. Three diagnostic sources exercise H.264, Surface and framebuffer output; Experimental Android Auto USB AOA and explicit Head Unit Server TCP support is available; ICCOA is blocked on its proprietary SDK. See the [Android Auto setup and limitations](docs/ANDROID_AUTO.md). See the [implementation and device test guide](docs/PROJECTION_IMPLEMENTATION.md).
+- **Multiple-source framework**: A single active projection session routes video, touch and media controls independently of CarPlay. Three diagnostic sources exercise H.264, Surface and framebuffer output; Experimental Android Auto USB AOA and explicit Head Unit Server TCP support is available, including a guided same-phone shortcut; ICCOA is blocked on its proprietary SDK. See the [Android Auto setup and limitations](docs/ANDROID_AUTO.md). See the [implementation and device test guide](docs/PROJECTION_IMPLEMENTATION.md).
 - **Browser display and touch control**: CarPlay streaming, touch input, and fullscreen display.
 - **Selectable streaming modes**: Choose WebRTC video passthrough (H.264 / HEVC) or image compatibility mode in settings, with JPEG / WebP format and image quality from 1 to 100. Image streaming retains JPEG compatibility fallback and overlaps up to two frames while audio and touch keep their existing routes.
 - **Optional browser audio**: After pairing, the browser can play CarPlay audio. The browser microphone can provide CarPlay voice input through a trusted HTTPS page; Android handles audio and microphone input by default.
