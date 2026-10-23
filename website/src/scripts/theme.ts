@@ -18,12 +18,11 @@ function applyTheme(theme: Theme) {
   document.documentElement.dataset.theme = theme;
   const dark = theme === "dark";
   themeButton?.setAttribute("aria-pressed", String(dark));
-  themeButton?.setAttribute(
-    "aria-label",
-    english
-      ? dark ? "Switch to light theme" : "Switch to dark theme"
-      : dark ? "切换到浅色主题" : "切换到深色主题",
-  );
+  const label = english
+    ? dark ? "Switch to light theme" : "Switch to dark theme"
+    : dark ? "切换到浅色主题" : "切换到深色主题";
+  themeButton?.setAttribute("aria-label", label);
+  themeButton?.setAttribute("title", label);
   if (themeColor) themeColor.content = dark ? "#101720" : "#f8fafc";
 }
 

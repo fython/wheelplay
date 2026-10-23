@@ -4,12 +4,6 @@ const { t, local } = useTranslations(Astro.url.pathname);
 ---
 
 <section class="hero container" aria-labelledby="hero-title">
-  <a class="announcement" href="#start"
-    ><span class="status-dot"></span>{t("为你的车机，打开一种新可能")}<span
-      aria-hidden="true"
-      >↗</span
-    ></a
-  >
   <h1 id="hero-title">{t("让 CarPlay，")}<br /><span>{t("在浏览器里就位。")}</span></h1>
   <p class="hero-description">{t("一部 Android，一块车机屏幕。")}<br />{t("把 iPhone 的熟悉体验，带到你的每一次出发。")}</p>
   <div class="hero-actions">

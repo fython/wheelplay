@@ -194,6 +194,7 @@ h3 {
 }
 .site-header nav {
   display: flex;
+  white-space: nowrap;
   gap: 32px;
   color: var(--muted);
   font-size: 13px;
@@ -208,23 +209,60 @@ h3 {
   align-items: center;
   gap: 22px;
 }
-.icon-button {
-  width: 36px;
-  height: 36px;
+.theme-toggle {
+  --theme-cell: 28px;
+  --theme-gap: 4px;
+  position: relative;
+  isolation: isolate;
+  flex-shrink: 0;
+  height: 44px;
+  padding: 6px;
   display: grid;
+  grid-template-columns: repeat(2, var(--theme-cell));
+  gap: var(--theme-gap);
   place-items: center;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  background: none;
-  color: var(--muted);
-}
-.icon-button:hover {
+  border: 1px solid var(--line);
+  border-radius: 999px;
   background: var(--soft);
-  border-color: var(--line);
+  color: var(--faint);
+  transition: border-color 0.18s, background-color 0.18s;
 }
-.icon-button svg {
-  width: 19px;
-  height: 19px;
+.theme-toggle::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: 50%;
+  left: 6px;
+  width: var(--theme-cell);
+  height: var(--theme-cell);
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: 0 1px 3px #17263d14;
+  transform: translateY(-50%);
+  transition: transform 0.2s ease, background-color 0.2s;
+}
+.theme-toggle[aria-pressed="true"]::before {
+  transform: translate(calc(var(--theme-cell) + var(--theme-gap)), -50%);
+  background: var(--blue-soft);
+  border-color: color-mix(in srgb, var(--blue) 30%, var(--line));
+}
+.theme-toggle:hover {
+  border-color: color-mix(in srgb, var(--blue) 45%, var(--line));
+}
+.theme-toggle svg {
+  width: 16px;
+  height: 16px;
+  transition: color 0.18s;
+}
+.theme-toggle[aria-pressed="false"] .theme-sun,
+.theme-toggle[aria-pressed="true"] .theme-moon {
+  color: var(--blue);
+}
+@media (max-width: 359px) {
+  .site-header nav a:last-child {
+    display: none;
+  }
 }
 .github-link {
   display: flex;
@@ -245,22 +283,6 @@ h3 {
   padding-top: 65px;
   padding-bottom: 42px;
 }
-.announcement {
-  display: inline-flex;
-  gap: 9px;
-  align-items: center;
-  font-size: 11px;
-  font-weight: 500;
-  background: var(--blue-soft);
-  border: 1px solid color-mix(in srgb, var(--blue) 15%, transparent);
-  color: var(--blue);
-  padding: 5px 12px;
-  border-radius: 20px;
-  margin-bottom: 23px;
-}
-.announcement > span:last-child {
-  margin-left: 4px;
-}
 .status-dot {
   display: inline-block;
   width: 6px;
@@ -268,9 +290,6 @@ h3 {
   border-radius: 50%;
   background: var(--green);
   flex-shrink: 0;
-}
-.announcement .status-dot {
-  background: var(--blue);
 }
 h1 {
   font-size: clamp(40px, 4.4vw, 62px);
@@ -1572,17 +1591,20 @@ h1 > span {
   .github-link {
     display: none;
   }
-  .icon-button {
-    width: 32px;
-    height: 36px;
+  .theme-toggle {
+    --theme-cell: 22px;
+    --theme-gap: 2px;
+    padding-inline: 4px;
+  }
+  .theme-toggle::before {
+    left: 4px;
+  }
+  .theme-toggle svg {
+    width: 14px;
+    height: 14px;
   }
   .hero {
     padding-top: 39px;
-  }
-  .announcement {
-    font-size: 10px;
-    margin-bottom: 23px;
-    padding: 4px 10px;
   }
   h1 {
     font-size: 41px;

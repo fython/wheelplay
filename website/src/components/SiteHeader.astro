@@ -15,17 +15,33 @@ import LanguageSwitch from "./LanguageSwitch.astro";
     <div class="header-actions">
       <LanguageSwitch />
       <button
-        class="icon-button theme-toggle"
+        class="theme-toggle"
         type="button"
         aria-label={t("切换到深色主题")}
+        title={t("切换到深色主题")}
         aria-pressed="false"
         hidden
       >
         <svg
+          class="theme-sun"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
-          stroke-width="1.6"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" />
+        </svg>
+        <svg
+          class="theme-moon"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
           aria-hidden="true"
         >
           <path d="M20.5 13a8.5 8.5 0 0 1-9.5-9.5A8.5 8.5 0 1 0 20.5 13Z" />
