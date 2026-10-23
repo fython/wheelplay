@@ -36,8 +36,9 @@ data class NowPlayingState(
         (!title.isNullOrBlank() || !appName.isNullOrBlank() || !appBundleId.isNullOrBlank())
     val playing: Boolean get() = status == PhonePlaybackStatus.PLAYING
     val speed: Float get() = if (playing) reportedSpeed ?: 1f else 0f
-    // Outbound units and the audio continuity boundary still require a verified capture.
-    val canSeek: Boolean get() = false
+    // Require a finite timeline and an explicit capability from the current phone.
+    val canSeek: Boolean get() = available && setElapsedTimeAvailable &&
+        (durationMs ?: 0) > 0 && positionMs != null
     fun positionAt(nowMs: Long): Long? = positionMs?.let {
         val position = it + ((nowMs - positionAtMs).coerceAtLeast(0) * speed).toLong()
         if ((durationMs ?: 0) > 0) position.coerceIn(0, durationMs!!) else position.coerceAtLeast(0)

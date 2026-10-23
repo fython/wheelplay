@@ -15,6 +15,7 @@ class CarPlayMediaCoordinatorTest {
         private val engine = Iap2LinkEngine()
         private val incoming = java.util.ArrayDeque<ByteArray>()
         val replies = java.util.concurrent.LinkedBlockingQueue<ByteArray>()
+        val controls = java.util.concurrent.LinkedBlockingQueue<ByteArray>()
         private var closed = false
         init { engine.start(false, 0); drain() }
         private fun drain() {
@@ -22,6 +23,7 @@ class CarPlayMediaCoordinatorTest {
             while (true) {
                 val event = engine.pollEvent() ?: break
                 if (event is Iap2LinkEngine.Event.FileTransfer) replies.add(event.bytes)
+                if (event is Iap2LinkEngine.Event.Control) controls.add(event.bytes)
             }
         }
         override fun send(data: ByteArray) = synchronized(lock) {
@@ -332,6 +334,83 @@ class CarPlayMediaCoordinatorTest {
             assertEquals(MediaCommandResult.UNAVAILABLE, inFlight.get(1, TimeUnit.SECONDS))
             assertEquals(MediaCommandResult.UNAVAILABLE, queued.get(1, TimeUnit.SECONDS))
             assertFalse(coordinator.snapshot().available)
+        } finally { release.countDown(); coordinator.close(); source.close() }
+    }
+
+    private fun seekable() = Iap2Messages.buildRaw(0x5001) {
+        group(0) { u64(0, 1); string(1, "Song"); u32(4, 100000) }
+        group(1) { u8(0, 2); u32(1, 1000); u8(13, 1) }
+    }
+    private fun seekPosition(peer: ArtworkPeer): Long {
+        val bytes = peer.controls.poll(2, TimeUnit.SECONDS) ?: error("Seek never reached the phone")
+        val frame = com.shilapi.xcertplay.iap2.wire.Iap2CsmFramer().offer(bytes).single()
+        assertEquals(0x5003, frame.messageId)
+        return com.shilapi.xcertplay.iap2.body.Iap2BodyReader.of(frame).u32(0)
+    }
+
+    @Test fun seekReachesReadyPhoneInMillisecondsClampsAndKeepsReportedPauseAndPosition() {
+        val coordinator = CarPlayMediaCoordinator({ { true } }, { 100L })
+        val peer = ArtworkPeer(); val source = Iap2Session.openTunnel(peer)
+        try {
+            assertTrue(source.awaitReady(2000))
+            coordinator.bind(source); coordinator.receive(source, seekable())
+            val state = coordinator.snapshot()
+            for ((input, expected) in listOf(42000L to 42000L, -1L to 0L, Long.MAX_VALUE to 100000L)) {
+                assertEquals(MediaCommandResult.SENT, coordinator.seekTo(input, state.connectionGeneration, state.trackRevision).get(2, TimeUnit.SECONDS))
+                assertEquals(expected, seekPosition(peer))
+            }
+            assertEquals(PhonePlaybackStatus.PAUSED, coordinator.snapshot().status)
+            assertEquals(1000L, coordinator.snapshot().positionMs)
+            coordinator.receive(source, Iap2Messages.buildRaw(0x5001) { group(1) { u32(1, 42000) } })
+            assertEquals(42000L, coordinator.snapshot().positionMs)
+            coordinator.receive(source, Iap2Messages.buildRaw(0x5001) { group(1) { u8(13, 0) } })
+            assertEquals(MediaCommandResult.UNSUPPORTED, coordinator.seekTo(1000).get())
+            coordinator.disconnected()
+            assertEquals(MediaCommandResult.UNAVAILABLE, coordinator.seekTo(1000).get())
+            assertNull(peer.controls.poll(100, TimeUnit.MILLISECONDS))
+        } finally { coordinator.close(); source.close() }
+    }
+
+    @Test fun queuedSeeksCoalesceAndCannotCrossTrackOrReusedLinkBoundaries() {
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val coordinator = CarPlayMediaCoordinator({ { entered.countDown(); release.await(); true } }, { 100L })
+        val peer = ArtworkPeer(); val source = Iap2Session.openTunnel(peer)
+        try {
+            assertTrue(source.awaitReady(2000))
+            coordinator.bind(source); coordinator.receive(source, seekable())
+            coordinator.send(MediaCommand.PAUSE); assertTrue(entered.await(1, TimeUnit.SECONDS))
+            val old = coordinator.seekTo(10000)
+            val final = coordinator.seekTo(42000)
+            assertEquals(MediaCommandResult.SUPERSEDED, old.get(1, TimeUnit.SECONDS))
+            release.countDown()
+            assertEquals(MediaCommandResult.SENT, final.get(2, TimeUnit.SECONDS))
+            assertEquals(42000L, seekPosition(peer))
+            val state = coordinator.snapshot()
+            coordinator.receive(source, Iap2Messages.buildRaw(0x5001) { group(0) { u64(0, 2) } })
+            assertEquals(MediaCommandResult.UNAVAILABLE, coordinator.seekTo(2000, state.connectionGeneration, state.trackRevision).get())
+            coordinator.disconnected(); coordinator.bind(source); coordinator.receive(source, seekable())
+            assertEquals(MediaCommandResult.UNAVAILABLE, coordinator.seekTo(3000, state.connectionGeneration).get())
+            assertNull(peer.controls.poll(100, TimeUnit.MILLISECONDS))
+        } finally { release.countDown(); coordinator.close(); source.close() }
+    }
+
+    @Test fun disconnectCompletesQueuedSeekBeforeBlockedTransportAndNeverReplaysIt() {
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val coordinator = CarPlayMediaCoordinator({ { entered.countDown(); release.await(); true } }, { 100L })
+        val peer = ArtworkPeer(); val source = Iap2Session.openTunnel(peer)
+        try {
+            assertTrue(source.awaitReady(2000))
+            coordinator.bind(source); coordinator.receive(source, seekable())
+            coordinator.send(MediaCommand.PAUSE); assertTrue(entered.await(1, TimeUnit.SECONDS))
+            val seek = coordinator.seekTo(42000)
+            coordinator.disconnected()
+            assertEquals(MediaCommandResult.UNAVAILABLE, seek.get(1, TimeUnit.SECONDS))
+            coordinator.bind(source); coordinator.receive(source, seekable())
+            release.countDown()
+            coordinator.send(MediaCommand.PAUSE).get(1, TimeUnit.SECONDS)
+            assertNull(peer.controls.poll(100, TimeUnit.MILLISECONDS))
         } finally { release.countDown(); coordinator.close(); source.close() }
     }
 

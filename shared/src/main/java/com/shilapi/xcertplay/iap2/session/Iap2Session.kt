@@ -47,6 +47,12 @@ class Iap2Session private constructor(
         }
     }
 
+    /** Queues an atomic control frame only while its connection/track/request is current. */
+    fun sendIfCurrent(frame: Iap2Frame, isCurrent: () -> Boolean): Boolean =
+        channel.sendIfCurrent(frame, isCurrent).also { queued ->
+            if (queued) emitFrameTrace(Iap2TraceDirection.TX, frame)
+        }
+
     fun send(
         endpoint: Iap2Endpoint,
         timeoutMillis: Long = DEFAULT_SEND_TIMEOUT_MILLIS,

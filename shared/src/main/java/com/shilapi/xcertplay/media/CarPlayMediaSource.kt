@@ -6,7 +6,7 @@ interface CarPlayMediaSource {
     fun mediaSnapshot(): NowPlayingState
     fun subscribeMediaState(listener: (NowPlayingState) -> Unit): AutoCloseable
     fun sendMediaCommand(command: MediaCommand, connectionGeneration: Long? = null): CompletableFuture<MediaCommandResult>
-    fun seekTo(positionMs: Long): CompletableFuture<MediaCommandResult>
+    fun seekTo(positionMs: Long, connectionGeneration: Long? = null, trackRevision: Long? = null): CompletableFuture<MediaCommandResult>
 }
 
 interface MediaOutputControl {
