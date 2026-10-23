@@ -259,11 +259,26 @@ try {
   status({ sourceState: 'recovering', inputReady: false }); await pause(100);
   status({ sourceState: 'ready', inputReady: true }); await wait(showing); await pause(2100);
   assert.equal(await evaluate(showing), true, 'Cancelled deadline must not hide recovered picture');
+  status({ pointerInput: true, keyboardInput: true, maxTouchContacts: 1 });
+  await pause(100);
+  await command('Input.dispatchMouseEvent', { type: 'mousePressed', x: 100, y: 100, button: 'left', buttons: 1, clickCount: 1 });
+  await pause(100);
+  assert.equal(desktopInputs.at(-1).buttons, 1);
   status({ videoEpoch: 2 });
   await wait(`document.getElementById('touch-surface').classList.contains('stale')`);
   frame(1); await pause(100);
   assert.equal(await evaluate(showing), false, 'Old epoch cannot restore touch');
   frame(2); await wait(showing);
+  const inputsAfterResize = desktopInputs.length;
+  await command('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 130, y: 110, button: 'left', buttons: 1 });
+  await command('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 130, y: 110, button: 'left', buttons: 0, clickCount: 1 });
+  await pause(100);
+  assert.equal(desktopInputs.length, inputsAfterResize, 'Old physical drag must not enter the new epoch');
+  await command('Input.dispatchMouseEvent', { type: 'mousePressed', x: 100, y: 100, button: 'left', buttons: 1, clickCount: 1 });
+  await command('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 100, y: 100, button: 'left', buttons: 0, clickCount: 1 });
+  await pause(100);
+  assert.deepEqual(desktopInputs.slice(inputsAfterResize).map(e => [e.buttons,e.videoEpoch]), [[1,2],[0,2]],
+    'A fresh press must work after the cancelled drag is released');
   status({ videoEpoch: 3, width: 180, height: 320 }); frame(3);
   await wait(`(${showing}) && [...document.querySelectorAll('#screen,#screen-next,#screen-third')].find(image=>!image.hidden)?.naturalWidth === 180`);
   assert.equal(await evaluate(`[...document.querySelectorAll('#screen,#screen-next,#screen-third')].find(image=>!image.hidden).naturalWidth`), 180);
@@ -279,7 +294,7 @@ try {
   console.log(JSON.stringify({ passed: true, connections, imageAcks: acks, webpProbes, jpegFallbacks,
     checks: ['five-touch source', 'read-only source', 'WebP capability probe', 'WebP touch with zoom compensation', 'JPEG fallback after corrupt WebP', 'two-image pipeline with exact ACKs',
       'decode without overlay flashes', 'gap releases touch', 'deadline without status', 'cancelled deadline',
-      'same-size rebuild', 'old frame rejection', 'rotation', 'real socket reconnect', 'native browser Media Session metadata and cover',
+      'same-size rebuild', 'cancelled mouse drag cannot cross video epochs', 'old frame rejection', 'rotation', 'real socket reconnect', 'native browser Media Session metadata and cover',
       'media action roundtrip', 'desktop right drag, scroll and versioned keyboard', 'desktop blur releases modifiers', 'phone-authoritative pause', 'capability-gated seek and final drag position', 'media cleanup and retired callback isolation'] }, null, 2));
 } finally {
   devtools?.close(); browser.kill('SIGTERM');

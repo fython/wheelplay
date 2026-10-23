@@ -1,33 +1,43 @@
 // Desktop events share the versioned control lease with touch; no remote clipboard or IME capture.
 export function createDesktopInput({ send, pointerEnabled, keyboardEnabled, interactive, point }) {
   const keys = new Map();
-  let buttons = 0;
+  let buttons = 0, mouseGesture = null;
   const emit = (event, kind) => send({ type: 'input', ...event }, kind);
   function release(transmit = true) {
     const held = buttons !== 0 || keys.size !== 0;
-    buttons = 0; keys.clear();
+    buttons = 0; mouseGesture = null; keys.clear();
     if (transmit && held) emit({ kind: 'release' });
   }
   function bind(surface) {
     surface.tabIndex = 0;
-    const mouse = (event, boundary = false) => {
+    const ownsMouse = event => mouseGesture?.surface === surface && mouseGesture.id === event.pointerId;
+    const mouse = (event, phase = 'move') => {
       if (!pointerEnabled() || !interactive() || event.pointerType !== 'mouse') return;
-      const position = point(event, surface, buttons !== 0);
+      const owned = ownsMouse(event), next = event.buttons & 7;
+      if (mouseGesture && !owned) return;
+      // Only a down accepted in this session can start a drag. After cancellation, ignore
+      // held-button moves and the old up; an unpressed hover still works immediately.
+      if (phase !== 'down' && !owned && (phase !== 'move' || event.buttons !== 0)) return;
+      if (phase === 'down' && next === 0) return;
+      const position = point(event, surface, owned);
       if (!position) return;
       event.preventDefault();
-      const next = event.buttons & 7;
+      if (phase === 'down') {
+        mouseGesture = { surface, id: event.pointerId };
+        surface.setPointerCapture(event.pointerId);
+      }
       const changed = next !== buttons; buttons = next;
-      emit({ kind: 'pointer', ...position, buttons }, boundary || changed ? 'boundary' : 'move');
+      emit({ kind: 'pointer', ...position, buttons }, phase !== 'move' || changed ? 'boundary' : 'move');
+      if (next === 0) mouseGesture = null;
     };
     surface.addEventListener('pointerdown', event => {
       if (interactive() && keyboardEnabled()) surface.focus({ preventScroll: true });
-      if (!pointerEnabled() || !interactive() || event.pointerType !== 'mouse') return;
-      surface.setPointerCapture(event.pointerId); mouse(event, true);
+      mouse(event, 'down');
     });
     surface.addEventListener('pointermove', event => mouse(event));
-    surface.addEventListener('pointerup', event => mouse(event, true));
-    surface.addEventListener('pointercancel', () => release());
-    surface.addEventListener('lostpointercapture', () => { if (buttons) release(); });
+    surface.addEventListener('pointerup', event => mouse(event, 'up'));
+    surface.addEventListener('pointercancel', event => { if (ownsMouse(event)) release(); });
+    surface.addEventListener('lostpointercapture', event => { if (ownsMouse(event)) release(); });
     surface.addEventListener('wheel', event => {
       if (!pointerEnabled() || !interactive()) return;
       const position = point(event, surface, false); if (!position) return;
