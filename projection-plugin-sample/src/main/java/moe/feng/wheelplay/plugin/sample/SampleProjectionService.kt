@@ -11,6 +11,7 @@ import java.util.concurrent.TimeUnit
 
 /** Runs in a separate APK/UID. It has no dependency on WheelPlay's host or browser modules. */
 class SampleProjectionService : ProjectionPluginService() {
+    override val terminateProcessAfterStop = true
     private var worker: ScheduledExecutorService? = null
     @Volatile private var contacts = emptyList<PluginContact>()
     @Volatile private var night = false

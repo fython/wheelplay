@@ -19,7 +19,7 @@ class ProjectionPluginRegistryTest {
     private val context get() = RuntimeEnvironment.getApplication()
     private val pm get() = shadowOf(context.packageManager)
     private val component = ComponentName("test.plugin", "test.plugin.Source")
-    private fun install(signature: String = "1234", version: Int = 1, exported: Boolean = true, api: Int = 1, installedAt: Long = 10) {
+    private fun install(signature: String = "1234", version: Int = 1, exported: Boolean = true, api: Int = ProjectionPlugin.API_VERSION, installedAt: Long = 10) {
         val app = ApplicationInfo().apply { packageName = component.packageName; uid = 12345; enabled = true }
         pm.installPackage(PackageInfo().apply {
             packageName = component.packageName; applicationInfo = app; lastUpdateTime = version.toLong()
@@ -63,7 +63,7 @@ class ProjectionPluginRegistryTest {
     }
     @Test fun incompatibleAndPrivateServicesCannotBeEnabled() {
         val registry = ProjectionPluginRegistry(context, ProjectionRuntime())
-        for ((exported, api) in listOf(false to 1, true to 99)) {
+        for ((exported, api) in listOf(false to ProjectionPlugin.API_VERSION, true to 99, true to 1)) {
             install(exported = exported, api = api); registry.refresh()
             val entry = registry.entries().single()
             assertNotNull(entry.problem)

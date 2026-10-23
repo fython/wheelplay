@@ -128,7 +128,7 @@ internal class RemotePluginProvider(
     private val registry: ProjectionPluginRegistry, private val runtime: ProjectionRuntime,
 ) : ProjectionSourceProvider {
     override val descriptor = SourceDescriptor(plugin.id, plugin.name)
-    // V1 is deliberately conservative for SDKs which own USB, Wi-Fi and microphone internally.
+    // Reserve resources conservatively for SDKs which own USB, Wi-Fi and microphone internally.
     override val resources = ProjectionResource.entries.toSet()
     override fun probe(): SourceAvailability = when {
         plugin.problem != null -> SourceAvailability.Unavailable(plugin.problem)

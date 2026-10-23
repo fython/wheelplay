@@ -37,6 +37,9 @@ class RemotePluginSessionTest {
         var info = PluginVideoInfo(640, 360, 5, true).toBundle()
         @Volatile var starts = 0
         @Volatile var stops = 0
+        var deathRecipient: IBinder.DeathRecipient? = null
+        override fun linkToDeath(recipient: IBinder.DeathRecipient, flags: Int) { deathRecipient = recipient }
+        override fun unlinkToDeath(recipient: IBinder.DeathRecipient, flags: Int): Boolean { deathRecipient = null; return true }
         val touches = LinkedBlockingQueue<IntArray>()
         override fun connect(token: String, apiVersion: Int, host: IProjectionHost) {
             this.host = host; this.token = token; host.onInfo(token, info)
@@ -136,5 +139,32 @@ class RemotePluginSessionTest {
         val stopped = runtime.stop(session); shadowOf(Looper.getMainLooper()).idle()
         assertFalse(stopped.isDone); proceed.countDown(); until { stopped.isDone }
         stopped.join(); assertTrue(output.closed); assertEquals(0, peer.starts); assertNull(runtime.snapshot())
+    }
+    @Test fun dedicatedProcessAcknowledgementMustBeFollowedByBinderDeath() {
+        val peer = Peer().apply { info = PluginVideoInfo(640, 360, processExitRequired = true).toBundle() }
+        val context = Binding(peer); val runtime = ProjectionRuntime(); val output = Output()
+        val session = RemotePluginSession(context, plugin, runtime, { true }, { _, _ -> output })
+        runtime.adopt(session, setOf(ProjectionResource.WIRELESS)); session.activate(); until { session.inputReady }
+        val stopped = runtime.stop(session); until { peer.stops == 1 }
+        peer.acknowledge(); until { context.unbinds == 1 }
+        assertFalse(stopped.isDone); assertFalse(output.closed)
+        context.connection.onServiceDisconnected(component)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertFalse(stopped.isDone); assertFalse(session.inputReady)
+        assertEquals(setOf(ProjectionResource.WIRELESS), runtime.resources())
+        peer.deathRecipient!!.binderDied()
+        until { stopped.isDone }; stopped.join()
+        assertTrue(output.closed); assertNull(runtime.snapshot()); assertEquals(1, context.unbinds)
+    }
+    @Test fun processThatAcknowledgesButDoesNotExitIsQuarantined() {
+        val peer = Peer().apply { info = PluginVideoInfo(640, 360, processExitRequired = true).toBundle() }
+        val context = Binding(peer); val runtime = ProjectionRuntime(); val output = Output()
+        val session = RemotePluginSession(context, plugin, runtime, { true }, { _, _ -> output }, stopTimeoutMs = 100)
+        runtime.adopt(session, setOf(ProjectionResource.DISPLAY)); session.activate(); until { session.inputReady }
+        val stopped = runtime.stop(session); until { peer.stops == 1 }
+        peer.acknowledge(); until { context.unbinds == 1 }
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(101))
+        until { stopped.isDone }
+        assertTrue(stopped.isCompletedExceptionally); assertSame(session, runtime.snapshot()); assertTrue(output.closed)
     }
 }

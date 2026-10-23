@@ -17,6 +17,9 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class PluginSurfaceIntegrationTest {
     @Test fun independentApkDrawsReceivesTouchesAndAcknowledgesCleanup() {
+        repeat(2) { runSession() }
+    }
+    private fun runSession() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val component = ComponentName("moe.feng.wheelplay.plugin.sample", "moe.feng.wheelplay.plugin.sample.SampleProjectionService")
         val service = context.packageManager.queryIntentServices(Intent(ProjectionPlugin.ACTION), 0)
@@ -26,6 +29,7 @@ class PluginSurfaceIntegrationTest {
         val info = CompletableFuture<PluginVideoInfo>()
         val ready = CountDownLatch(1)
         val stopped = CompletableFuture<Boolean>()
+        val exited = CountDownLatch(1)
         val token = UUID.randomUUID().toString()
         val host = object : IProjectionHost.Stub() {
             override fun onInfo(id: String, bundle: Bundle) {
@@ -38,7 +42,10 @@ class PluginSurfaceIntegrationTest {
             override fun onStopped(id: String, clean: Boolean, message: String) { if (id == token) stopped.complete(clean) }
         }
         val connection = object : ServiceConnection {
-            override fun onServiceConnected(name: ComponentName, binder: IBinder) { connected.complete(IProjectionPlugin.Stub.asInterface(binder)) }
+            override fun onServiceConnected(name: ComponentName, binder: IBinder) {
+                binder.linkToDeath({ exited.countDown() }, 0)
+                connected.complete(IProjectionPlugin.Stub.asInterface(binder))
+            }
             override fun onServiceDisconnected(name: ComponentName) { stopped.complete(false) }
         }
         val worker = HandlerThread("plugin-integration-images").apply { start() }
@@ -52,6 +59,7 @@ class PluginSurfaceIntegrationTest {
             remote = connected.get(10, TimeUnit.SECONDS)
             remote.connect(token, ProjectionPlugin.API_VERSION, host)
             val video = info.get(10, TimeUnit.SECONDS)
+            assertTrue(video.processExitRequired)
             reader = ImageReader.newInstance(video.width, video.height, PixelFormat.RGBA_8888, 3).apply {
                 setOnImageAvailableListener({ source ->
                     source.acquireLatestImage()?.use { image ->
@@ -82,6 +90,8 @@ class PluginSurfaceIntegrationTest {
             awaitColor { it.second == 0x101420 }
             remote.stop(token)
             assertTrue(stopped.get(10, TimeUnit.SECONDS))
+            context.unbindService(connection); bound = false
+            assertTrue("Dedicated plugin process did not exit", exited.await(10, TimeUnit.SECONDS))
         } finally {
             if (!stopped.isDone) {
                 runCatching { remote?.stop(token); stopped.get(5, TimeUnit.SECONDS) }

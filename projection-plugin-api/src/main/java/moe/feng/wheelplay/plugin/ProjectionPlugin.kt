@@ -2,9 +2,9 @@ package moe.feng.wheelplay.plugin
 
 import android.os.Bundle
 
-/** Version 1: one Surface source per exported service, normalized touch snapshots, optional night mode. */
+/** Version 2 adds an acknowledged, dedicated-process shutdown barrier. */
 object ProjectionPlugin {
-    const val API_VERSION = 1
+    const val API_VERSION = 2
     const val ACTION = "moe.feng.wheelplay.action.PROJECTION_SOURCE"
     const val META_API_VERSION = "moe.feng.wheelplay.plugin.API_VERSION"
     const val META_SETTINGS_ACTIVITY = "moe.feng.wheelplay.plugin.SETTINGS_ACTIVITY"
@@ -18,6 +18,7 @@ data class PluginVideoInfo(
     val height: Int,
     val maxTouchContacts: Int = 0,
     val nightMode: Boolean = false,
+    val processExitRequired: Boolean = false,
 ) {
     init {
         require(width in 1..4096 && height in 1..4096 && width.toLong() * height <= 8_388_608)
@@ -27,12 +28,13 @@ data class PluginVideoInfo(
         putInt("apiVersion", ProjectionPlugin.API_VERSION)
         putInt("width", width); putInt("height", height)
         putInt("maxTouchContacts", maxTouchContacts); putBoolean("nightMode", nightMode)
+        putBoolean("processExitRequired", processExitRequired)
     }
     companion object {
         fun fromBundle(bundle: Bundle): PluginVideoInfo {
             require(bundle.getInt("apiVersion") == ProjectionPlugin.API_VERSION) { "Unsupported plugin API" }
             return PluginVideoInfo(bundle.getInt("width"), bundle.getInt("height"),
-                bundle.getInt("maxTouchContacts"), bundle.getBoolean("nightMode"))
+                bundle.getInt("maxTouchContacts"), bundle.getBoolean("nightMode"), bundle.getBoolean("processExitRequired"))
         }
     }
 }

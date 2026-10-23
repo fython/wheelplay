@@ -18,7 +18,7 @@ internal class RemotePluginSession(
     private val stillAllowed: () -> Boolean,
     private val outputFactory: (Int, Int) -> ProjectionVideoOutput,
     private val connectTimeoutMs: Long = 15_000,
-    private val stopTimeoutMs: Long = 5_000,
+    private val stopTimeoutMs: Long = 15_000,
     private val startupTimeoutMs: Long = 60_000,
 ) : ProjectionSession {
     override val descriptor = SourceDescriptor(plugin.id, plugin.name)
@@ -44,10 +44,14 @@ internal class RemotePluginSession(
     private var startSent = false
     private var closing = false
     private var stopSent = false
+    private var processExitRequired = false
+    private var awaitingProcessExit = false
     private var output: CompletableFuture<ProjectionVideoOutput>? = null
     private val deadline = Runnable { fail(context.getString(UiR.string.plugin_timeout)) }
     private val stopDeadline = Runnable { finish(false, context.getString(UiR.string.plugin_cleanup_failed)) }
-    private val death = IBinder.DeathRecipient { main.post { lostConnection() } }
+    private val death = IBinder.DeathRecipient { main.post {
+        if (awaitingProcessExit) finish(true, statusText.orEmpty()) else lostConnection()
+    } }
 
     private fun notifyStatus(message: String) {
         statusText = message.take(512)
@@ -64,6 +68,7 @@ internal class RemotePluginSession(
                 check(stillAllowed()) { context.getString(UiR.string.plugin_disabled) }
                 val video = PluginVideoInfo.fromBundle(info)
                 infoReceived = true
+                processExitRequired = video.processExitRequired
                 main.removeCallbacks(deadline)
                 main.postDelayed(deadline, startupTimeoutMs)
                 capabilities = ProjectionCapabilities(setOf(VideoIngressKind.SURFACE), video.maxTouchContacts, video.nightMode)
@@ -96,10 +101,29 @@ internal class RemotePluginSession(
                 else -> fail("Invalid plugin state")
             }
         }
-        override fun onStopped(token: String, clean: Boolean, message: String) = callback(token) { finish(clean, message) }
+        override fun onStopped(token: String, clean: Boolean, message: String) = callback(token) {
+            if (awaitingProcessExit) return@callback
+            if (!clean || !processExitRequired) { finish(clean, message); return@callback }
+            awaitingProcessExit = true
+            synchronized(admission) { stopping = true; ready = false }
+            notifyStatus(context.getString(UiR.string.plugin_waiting_for_exit))
+            main.removeCallbacks(deadline)
+            if (!stopSent) main.postDelayed(stopDeadline, stopTimeoutMs)
+            stopSent = true
+            io.shutdownNow()
+            // Keep the death recipient and runtime lease until this exact Binder dies.
+            // onServiceDisconnected alone is not proof that the SDK process exited.
+            if (bound) {
+                runCatching { context.unbindService(connection) }.onFailure {
+                    finish(false, it.message ?: "Cannot unbind plugin")
+                }
+                bound = false
+            }
+            if (remoteBinder?.isBinderAlive == false) finish(true, message)
+        }
     }
 
-    private val connection = object : ServiceConnection {
+    private val connection: ServiceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, service: IBinder) {
             if (closing || stopping || !bound) return
             if (!stillAllowed()) { fail(context.getString(UiR.string.plugin_disabled)); return }
@@ -165,6 +189,7 @@ internal class RemotePluginSession(
     }
     private fun beginStop() {
         if (closing || completion.isDone || stopSent) return
+        notifyStatus(context.getString(UiR.string.plugin_stopping))
         main.removeCallbacks(deadline)
         if (!startSent) { finish(true, statusText.orEmpty()); return }
         if (remote == null) { finish(false, context.getString(UiR.string.plugin_cleanup_failed)); return }
@@ -176,7 +201,7 @@ internal class RemotePluginSession(
         main.postDelayed(stopDeadline, stopTimeoutMs)
     }
     private fun lostConnection() {
-        if (!closing) finish(!startSent, context.getString(UiR.string.plugin_disconnected))
+        if (!closing && !awaitingProcessExit) finish(!startSent, context.getString(UiR.string.plugin_disconnected))
     }
     private fun finish(clean: Boolean, message: String) {
         if (closing) return

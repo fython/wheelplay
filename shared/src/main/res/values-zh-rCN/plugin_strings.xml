@@ -1,4 +1,6 @@
 <resources>
+    <string name="plugin_stopping">正在释放插件资源…</string>
+    <string name="plugin_waiting_for_exit">正在等待插件进程退出…</string>
     <string name="plugin_sources">插件输入源</string>
     <string name="plugin_summary">通过已安装的插件应用添加输入源</string>
     <string name="plugin_install_hint">通过 Android 安装兼容的插件 APK，然后刷新列表。连接前请打开插件设置，完成配置与授权。当前插件接口提供画面与触控，暂不提供音频和麦克风路由。</string>
