@@ -17,6 +17,7 @@ const sections = headings.filter(({ depth }) => depth === 2);
 const pages = [
   { href: local("/docs/"), label: t("使用指南") },
   { href: local("/docs/sources/"), label: t("输入源与兼容性") },
+  { href: local("/docs/tesla/"), label: t("Tesla 兼容模式（实验）") },
   { href: local("/docs/faq/"), label: t("常见问题") },
 ];
 const currentPath = Astro.url.pathname.replace(/\/$/, "");

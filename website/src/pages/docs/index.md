@@ -71,7 +71,7 @@ WheelPlay 安装在 Android 宿主上，通过局域网向车机浏览器提供�
 - 确认 Android 应用中的服务已启动；使用 CarPlay 时，确认认证资源已经通过校验。
 - Android Auto 本机／TCP 连接需先启动车机服务器；VNC 需确认远端服务端的地址、端口及认证方式受支持。
 - 确认车机与 Android 能通过局域网互相访问，并使用应用显示的地址。
-- 浏览器限制私有网段访问时，可查看[实验性兼容模式](https://github.com/fython/wheelplay/blob/main/docs/TESLA_HTTP.md)。
+- 浏览器限制私有网段访问时，可查看[实验性兼容模式](/docs/tesla/)。
 - 更多兼容性、权限和下载问题见[常见问题](/docs/faq/)。
 
 服务仅用于可信网络，请勿将其暴露到公网。VNC 应运行在可信局域网或 VPN 中，浏览器入口的 HTTPS 不会加密 VNC 链路。导航、音乐等 App 的在线内容仍可能需要互联网。

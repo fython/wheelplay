@@ -26,7 +26,7 @@ VNC 不支持 TLS／VeNCrypt，请使用可信局域网或 VPN；浏览器入口
 
 普通局域网连接和 Web 服务无需 Root。
 
-针对限制私有网段访问的浏览器，应用提供实验性的 Tesla 兼容模式。免 Root VPN 方案需要 Android VPN 授权，Root 热点路由方案需要 Root。两种方案均需根据设备实测，详见[兼容模式说明](https://github.com/fython/wheelplay/blob/main/docs/TESLA_HTTP.md)。
+针对限制私有网段访问的浏览器，应用提供实验性的 Tesla 兼容模式。免 Root VPN 方案需要 Android VPN 授权，Root 热点路由方案需要 Root。两种方案均需根据设备实测，详见[兼容模式说明](/docs/tesla/)。
 
 ## 为什么安装后需要导入认证资源？
 

@@ -3,7 +3,7 @@ import { localeFromPath, localizePath } from "../i18n";
 
 const locale = localeFromPath(Astro.url.pathname);
 const target = locale === "en" ? "zh-CN" : "en";
-const knownPath = ["/", "/en/", "/docs/", "/en/docs/", "/docs/faq/", "/en/docs/faq/", "/docs/sources/", "/en/docs/sources/"].includes(Astro.url.pathname);
+const knownPath = ["/", "/en/", "/docs/", "/en/docs/", "/docs/faq/", "/en/docs/faq/", "/docs/sources/", "/en/docs/sources/", "/docs/tesla/", "/en/docs/tesla/"].includes(Astro.url.pathname);
 const href = localizePath(knownPath ? Astro.url.pathname : "/", target);
 ---
 

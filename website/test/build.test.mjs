@@ -4,7 +4,7 @@ import test from "node:test";
 
 const dist = new URL("../dist/", import.meta.url);
 
-for (const page of ["index.html", "404.html", "docs/index.html", "docs/faq/index.html", "en/index.html", "en/docs/index.html", "en/docs/faq/index.html", "docs/sources/index.html", "en/docs/sources/index.html"]) {
+for (const page of ["index.html", "404.html", "docs/index.html", "docs/faq/index.html", "en/index.html", "en/docs/index.html", "en/docs/faq/index.html", "docs/sources/index.html", "en/docs/sources/index.html", "docs/tesla/index.html", "en/docs/tesla/index.html"]) {
   test(`${page} ships external assets compatible with the Cloudflare CSP`, async () => {
     const html = await readFile(new URL(page, dist), "utf8");
     assert.doesNotMatch(
@@ -58,6 +58,7 @@ for (const page of ["index.html", "404.html", "docs/index.html", "docs/faq/index
       assert.ok(html.includes(`href="${prefix}/docs/"`));
       assert.ok(html.includes(`href="${prefix}/docs/faq/"`));
       assert.ok(html.includes(`href="${prefix}/docs/sources/"`));
+      assert.ok(html.includes(`href="${prefix}/docs/tesla/"`));
     }
     if (page !== "404.html") {
       const english = page.startsWith("en/");

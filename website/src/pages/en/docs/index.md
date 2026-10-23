@@ -71,7 +71,7 @@ Browser microphone input requires a trusted local HTTPS certificate and the nece
 - Confirm that the service is running in the Android app. For CarPlay, also confirm that authentication assets passed validation.
 - Start the Head Unit Server before same-phone / TCP Android Auto connections. For VNC, check the server address, port, and supported authentication method.
 - Confirm that the car and Android can reach each other on the local network, and use the address shown in the app.
-- If your browser restricts access to private network addresses, see the [experimental compatibility mode](https://github.com/fython/wheelplay/blob/main/docs/TESLA_HTTP.md).
+- If your browser restricts access to private network addresses, see the [experimental compatibility mode](/en/docs/tesla/).
 - Read the [FAQ](/en/docs/faq/) for more on compatibility, permissions, and downloads.
 
 Use trusted networks and do not expose the service to the public Internet. VNC should run over a trusted local network or VPN; HTTPS on the browser interface does not encrypt the VNC connection. Online navigation and music may still require Internet access.

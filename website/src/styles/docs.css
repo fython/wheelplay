@@ -112,6 +112,9 @@
   overflow-x: auto;
   border-collapse: collapse;
 }
+.docs-content table code {
+  white-space: nowrap;
+}
 .docs-content :is(th, td) {
   border: 1px solid var(--line);
   padding: 10px 14px;
