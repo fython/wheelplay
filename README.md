@@ -6,6 +6,10 @@ WheelPlay is an Android-hosted CarPlay server for local networks. It streams you
 
 Install the app on an Android device and open the displayed address in your car's browser. No browser-side client installation or additional server is required.
 
+## Product website
+
+The Astro product website lives in [`website/`](website/README.md), separately from the Android-hosted LAN client. With Node.js 24 LTS, run `npm ci --prefix website`, then `npm run site:dev` for live development or `npm run site:build` to generate `website/dist/`. See the [website guide](website/README.md) for Cloudflare Pages and Workers deployment.
+
 ## Features
 
 - **Multiple-source framework**: A single active projection session routes video, touch and media controls independently of CarPlay. Three diagnostic sources exercise H.264, Surface and framebuffer output; Experimental Android Auto USB AOA and explicit Head Unit Server TCP support is available, including a guided same-phone shortcut; ICCOA is blocked on its proprietary SDK. See the [Android Auto setup and limitations](docs/ANDROID_AUTO.md). See the [implementation and device test guide](docs/PROJECTION_IMPLEMENTATION.md).

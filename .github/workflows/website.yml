@@ -1,0 +1,43 @@
+name: Website
+
+on:
+  push:
+    paths:
+      - 'website/**'
+      - 'docs/assets/app-icon.svg'
+      - 'docs/licenses/Material-Symbols-Apache-2.0.txt'
+      - '.github/workflows/website.yml'
+  pull_request:
+    paths:
+      - 'website/**'
+      - 'docs/assets/app-icon.svg'
+      - 'docs/licenses/Material-Symbols-Apache-2.0.txt'
+      - '.github/workflows/website.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+      - run: npm ci
+      - run: npm run check
+      - run: npm run build
+      - run: npm run test:build
+      - run: npm run test:worker
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheelplay-website
+          path: website/dist/
+          if-no-files-found: error

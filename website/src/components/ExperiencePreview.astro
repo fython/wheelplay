@@ -1,0 +1,347 @@
+<section
+  class="demo-section container"
+  aria-label="WheelPlay 工作方式交互示意"
+>
+  <div class="workspace">
+    <div class="workspace-bar">
+      <div class="window-dots" aria-hidden="true">
+        <i></i><i></i><i></i>
+      </div>
+      <span class="workspace-title"
+        >WheelPlay <span>/</span> 浏览器里的驾驶搭档</span
+      ><span class="demo-badge">交互示意</span>
+    </div>
+    <div class="workspace-body">
+      <aside class="source-panel" aria-label="设备连接说明">
+        <div class="panel-heading">
+          <span class="small-icon"
+            ><svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              aria-hidden="true"
+            >
+              <path d="M5 4v10h14m-5-5 5 5-5 5" /></svg></span
+          ><span>连接你的世界</span><span class="mono">01 — 03</span>
+        </div>
+        <div class="device-flow">
+          <div class="device-step">
+            <span class="device-icon"
+              ><svg viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="6" y="2" width="12" height="20" rx="3" />
+                <path d="M10 5h4m-3 14h2" /></svg
+            ></span>
+            <div>
+              <strong>iPhone</strong>
+              <p>你的 CarPlay，原样带来</p>
+            </div>
+            <span class="step-number">01</span>
+          </div>
+          <div class="flow-line"><span>USB 或无线连接</span></div>
+          <div class="device-step active">
+            <img
+              class="device-icon app-icon"
+              src="/assets/app-icon.svg"
+              width="40"
+              height="40"
+              alt=""
+            />
+            <div>
+              <strong>Android + WheelPlay</strong>
+              <p>小小的连接中枢</p>
+            </div>
+            <span class="step-number">02</span>
+          </div>
+          <div class="flow-line"><span>同一局域网</span></div>
+          <div class="device-step">
+            <span class="device-icon"
+              ><svg viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="2" y="4" width="20" height="14" rx="2" />
+                <path d="M8 22h8m-4-4v4" /></svg
+            ></span>
+            <div>
+              <strong>车机浏览器</strong>
+              <p>打开网页，即可显示与触控</p>
+            </div>
+            <span class="step-number">03</span>
+          </div>
+        </div>
+        <div class="local-note">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Z" />
+            <path d="m8 12 3 3 5-6" />
+          </svg>
+          <div>
+            <strong>连接留在局域网</strong>
+            <p>串流无需额外部署云端服务器。</p>
+          </div>
+        </div>
+      </aside>
+      <div class="preview-panel">
+        <div class="preview-toolbar">
+          <div
+            class="preview-tabs"
+            role="tablist"
+            aria-label="切换体验示意"
+          >
+            <button
+              id="tab-navigation"
+              type="button"
+              role="tab"
+              aria-selected="true"
+              aria-controls="panel-navigation"
+              data-view="navigation"
+            >
+              导航视图</button
+            ><button
+              id="tab-music"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="panel-music"
+              tabindex="-1"
+              data-view="music"
+            >
+              音乐视图</button
+            ><button
+              id="tab-connection"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="panel-connection"
+              tabindex="-1"
+              data-view="connection"
+            >
+              连接流程
+            </button>
+          </div>
+          <span class="preview-label"
+            ><span class="status-dot"></span>体验预览</span
+          >
+        </div>
+        <div class="display-shell">
+          <div
+            class="car-display"
+            id="panel-navigation"
+            role="tabpanel"
+            aria-labelledby="tab-navigation"
+            tabindex="0"
+          >
+            <div class="car-sidebar" aria-hidden="true">
+              <span class="car-time">09:41</span
+              ><span class="signal">▂▄▆</span
+              ><span class="dock-icon map-icon">↗</span
+              ><span class="dock-icon music-icon">♫</span
+              ><span class="dock-icon phone-icon"
+                ><svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                >
+                  <path
+                    d="m5 3 4 4-2 3c1 3 4 6 7 7l3-2 4 4-2 2C10 22 2 14 3 5Z"
+                  /></svg></span
+              ><span class="dock-home">▦</span>
+            </div>
+            <div class="map-surface">
+              <svg
+                class="map-art"
+                viewBox="0 0 640 360"
+                preserveAspectRatio="xMidYMid slice"
+                aria-hidden="true"
+              >
+                <rect width="640" height="360" fill="#e9ede7" />
+                <path
+                  d="M440-20c-95 95 80 164 18 246s-9 125 45 154h167V-20Z"
+                  fill="#b6d8de"
+                />
+                <path
+                  d="m0 20 130 27 20 85-138-25Zm184 1 173 8 28 74-190 13ZM29 164l100-4 20 133-121 19Zm171 10 170-12 22 150-159 5Z"
+                  fill="#d7dfd2"
+                />
+                <g fill="none" stroke="#fff" stroke-width="16">
+                  <path
+                    d="m-20 136 660-37M167-20l44 400M-10 331l650-49M388-20l41 400"
+                  />
+                  <path d="m0 21 640 180" stroke-width="10" />
+                </g>
+                <g fill="none" stroke="#c7cfca" stroke-width="1">
+                  <path
+                    d="m-20 136 660-37M167-20l44 400M-10 331l650-49M388-20l41 400"
+                  />
+                </g>
+                <path
+                  d="m284 360-8-74-73 5-20-166 178-10"
+                  fill="none"
+                  stroke="#fff"
+                  stroke-width="16"
+                  stroke-linejoin="round"
+                />
+                <path
+                  d="m284 360-8-74-73 5-20-166 178-10"
+                  fill="none"
+                  stroke="#5087f2"
+                  stroke-width="9"
+                  stroke-linejoin="round"
+                />
+                <circle
+                  cx="361"
+                  cy="115"
+                  r="9"
+                  fill="#5087f2"
+                  stroke="#fff"
+                  stroke-width="4"
+                />
+                <g fill="#8b988e" font-size="11" font-family="sans-serif">
+                  <text x="248" y="194">城市公园</text>
+                  <text x="480" y="259">滨江绿道</text>
+                  <text x="62" y="246" transform="rotate(-5 62 246)">
+                    梧桐路
+                  </text>
+                </g>
+                <g transform="translate(202 245)">
+                  <circle r="24" fill="#5087f2" opacity=".15" />
+                  <circle r="16" fill="white" />
+                  <path d="m0-12 10 21-10-4-10 4Z" fill="#3273e8" />
+                </g>
+              </svg>
+              <div class="turn-card">
+                <span
+                  ><svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M6 21V10a3 3 0 0 1 3-3h11m-6-6 6 6-6 6"
+                    /></svg
+                ></span>
+                <div>
+                  <strong>前方 300 米</strong
+                  ><span>右转，驶入新的旅程</span>
+                </div>
+              </div>
+              <div class="arrival-card">
+                <strong>12 <small>分钟</small></strong
+                ><span>6.8 公里 · 一路向前</span
+                ><span class="route-symbol" aria-hidden="true">↗</span>
+              </div>
+            </div>
+            <div class="dashboard-widgets">
+              <div class="mini-music">
+                <div class="album-art" aria-hidden="true">
+                  <span></span>
+                </div>
+                <strong>On the road</strong><span>你的随行歌单</span>
+                <div class="music-controls" aria-hidden="true">
+                  ‹ <span>Ⅱ</span> ›
+                </div>
+              </div>
+              <div class="destination-widget">
+                <span class="home-symbol" aria-hidden="true">⌂</span>
+                <div>
+                  <strong>下一站，回家</strong
+                  ><span>熟悉的路，熟悉的体验</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div
+            class="car-display music-display"
+            id="panel-music"
+            role="tabpanel"
+            aria-labelledby="tab-music"
+            tabindex="0"
+            hidden
+          >
+            <div class="music-art-large album-art" aria-hidden="true">
+              <span></span>
+              <div>THE<br />OPEN<br />ROAD.</div>
+            </div>
+            <div class="music-copy">
+              <span class="eyebrow">YOUR EVERYDAY SOUNDTRACK</span>
+              <h3>让喜欢的音乐，<br />陪你多走一程。</h3>
+              <p>
+                在 CarPlay 中使用你的音乐 App。<br />默认由 Android
+                输出音频，也可切换到浏览器。
+              </p>
+              <div class="illustrated-track">
+                <span>On the road</span><span>示意歌单 · 不播放音频</span>
+              </div>
+              <div class="track-progress" aria-hidden="true">
+                <span></span>
+              </div>
+              <div class="music-controls" aria-hidden="true">
+                ‹ <span>Ⅱ</span> ›
+              </div>
+            </div>
+          </div>
+          <div
+            class="car-display connection-display"
+            id="panel-connection"
+            role="tabpanel"
+            aria-labelledby="tab-connection"
+            tabindex="0"
+            hidden
+          >
+            <span class="connection-symbol"
+              ><svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+                aria-hidden="true"
+              >
+                <path
+                  d="M3 8a14 14 0 0 1 18 0M6 12a9 9 0 0 1 12 0M9 16a4 4 0 0 1 6 0"
+                />
+                <circle cx="12" cy="20" r=".8" /></svg
+            ></span>
+            <h3>第一次配对，<br />下一次更从容。</h3>
+            <p>
+              用 WheelPlay 扫描车机网页二维码，<br />或在车机输入配对码。确认后，启动显示。
+            </p>
+            <div
+              class="pair-code"
+              aria-label="示例配对码，不可用于实际连接"
+            >
+              <span>1</span><span>2</span><span>3</span><span>4</span
+              ><span>5</span><span>6</span>
+            </div>
+            <span class="connection-footnote"
+              >示例配对码 · 已记住的浏览器可恢复配对</span
+            >
+          </div>
+        </div>
+        <div class="preview-status">
+          <span><span class="status-dot"></span>浏览器显示与触控</span
+          ><span class="mono" id="preview-mode"
+            >NAVIGATION / PREVIEW</span
+          >
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="demo-caption">
+    <span
+      ><svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.6"
+        aria-hidden="true"
+      >
+        <path d="M5 4v10h14m-5-5 5 5-5 5" /></svg
+    ></span>
+    上方为交互示意，并非真实 CarPlay 截图或在线连接入口；实际界面由 iPhone
+    与所用 App 决定。
+  </p>
+</section>
+
+<script>
+  import "../scripts/preview-tabs";
+</script>

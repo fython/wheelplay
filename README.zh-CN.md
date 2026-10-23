@@ -6,6 +6,10 @@ WheelPlay 是一款 Android 局域网 CarPlay 服务端应用，可将 iPhone �
 
 应用安装在 Android 设备上，车机通过浏览器访问即可使用，无需安装客户端或部署额外服务器。
 
+## 项目官网
+
+Astro 官网位于 [`website/`](website/README.md)，与 Android 内置的局域网浏览器客户端独立。推荐 Node.js 24 LTS，在仓库根目录先运行 `npm ci --prefix website` 安装官网依赖，再运行 `npm run site:dev` 开发预览，或运行 `npm run site:build` 生成 `website/dist/`。Cloudflare Pages 和 Workers 部署配置见[官网说明](website/README.md)。
+
 ## 功能
 
 - **多输入源与实验性 Android Auto**：支持 CarPlay、三类诊断源，以及 Android Auto USB AOA／显式 Head Unit Server TCP 接入，提供带首次设置引导的本机快捷入口。AA 使用 720p H.264、浏览器触控和宿主音频／麦克风，仍需真机验收；ICCOA 因缺少专有 SDK 暂不可用。详见 [Android Auto 使用与限制](docs/ANDROID_AUTO.md)。
