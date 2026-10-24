@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
-  "name": "wheelplay-website",
+  "name": "wheelplay",
   "main": "./worker/index.ts",
   "compatibility_date": "2026-10-23",
   // Required by `wrangler preview`; static assets remain configured at the top level.
