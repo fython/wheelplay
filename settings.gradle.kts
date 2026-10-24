@@ -30,3 +30,5 @@ include(":common")
 include(":mobile")
 
 include(":shared")
+include(":projection-plugin-api")
+include(":projection-plugin-sample")

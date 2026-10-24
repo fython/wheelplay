@@ -132,6 +132,7 @@ class ServerCardStateTest {
             { completion: () -> Unit -> CarPlayBackgroundSession.clear(); completion() })
         refresh()
         assertEquals(View.GONE, connect.visibility); assertEquals(View.GONE, wireless.visibility)
+        assertEquals(View.VISIBLE, button(activity, "停止投影：CarPlay (iPhone)").visibility)
         assertEquals(View.VISIBLE, disconnect.visibility)
         CarPlayBackgroundSession.active = true; refresh()
         val tabs = views(activity.window.decorView).filterIsInstance<BottomNavigationView>().single()

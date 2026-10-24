@@ -32,6 +32,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":projection-plugin-api"))
     implementation("org.bouncycastle:bcpkix-jdk18on:1.79")
     implementation("io.github.g00fy2.quickie:quickie-bundled:1.12.0")
     implementation("com.google.zxing:core:3.5.3")
@@ -61,5 +62,8 @@ dependencies {
 
 // Android 16 Robolectric ApplicationSharedMemory uses the JDK FileDescriptor accessor.
 tasks.withType<Test>().configureEach {
+    // The full Robolectric suite loads several Android SDK resource tables. Gradle's
+    // default 512 MiB test worker heap is insufficient; org.gradle.jvmargs only sizes the daemon.
+    maxHeapSize = "2g"
     jvmArgs("--add-exports=java.base/jdk.internal.access=ALL-UNNAMED")
 }

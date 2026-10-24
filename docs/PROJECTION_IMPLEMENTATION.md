@@ -1,5 +1,7 @@
 # 投影输入源框架：当前实现
 
+第三方 APK 插件现通过独立 Service 提供 Surface 画面与触控，见 [APK 插件协议与 ICCOA 接入边界](PROJECTION_PLUGINS.md)。
+
 后续 Android Auto USB/TCP 协议实现、使用方法和 ICCOA SDK 阻塞见 [Android Auto 接入](ANDROID_AUTO.md)。VNC 协议和通用 Pointer/Key 输入的后续实现见 [VNC 接入](VNC.md)。下文记录 #33 框架阶段的范围。
 
 对应 [#28](https://github.com/fython/wheelplay/issues/28)，实现基线为 `66d0455`（PR #31 合入后的 main）。继续使用 Kotlin/C++，没有引入 Rust 后端或承诺普通 Linux 宿主支持。

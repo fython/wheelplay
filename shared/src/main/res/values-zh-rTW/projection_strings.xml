@@ -25,7 +25,7 @@
     <string name="source_carplay">CarPlay (iPhone)</string>
     <string name="source_carplay_summary">連接 iPhone 使用 CarPlay</string>
     <string name="source_aa_summary">使用本機或另一台 Android 手機投影</string>
-    <string name="source_iccoa_summary">CarLink 手機互聯 · 暫不可用</string>
+    <string name="source_iccoa_summary">CarLink 手機互聯 · 需安裝外掛</string>
     <string name="source_diagnostics">診斷輸入源</string>
     <string name="source_diagnostics_summary">檢查畫面輸出與觸控</string>
     <string name="source_back">返回輸入源</string>
@@ -34,4 +34,12 @@
     <string name="aa_usb_connect">透過 USB 連接 Android Auto</string>
     <string name="aa_remote_title">另一台手機 · 車機伺服器</string>
     <string name="aa_remote_connect">設定位址並連線</string>
+    <string name="home_projection_headline">在車機瀏覽器中使用投影</string>
+    <string name="home_source_title">投影輸入來源</string>
+    <string name="home_choose_source">選擇輸入來源</string>
+    <string name="home_switch_source">切換輸入來源：%1$s</string>
+    <string name="home_source_settings">輸入來源設定</string>
+    <string name="home_configure_connect">設定並連線</string>
+    <string name="home_active_source">目前投影：%1$s\n%2$s</string>
+    <string name="home_stop_source">停止投影：%1$s</string>
 </resources>

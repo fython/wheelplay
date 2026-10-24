@@ -1,0 +1,27 @@
+<resources>
+    <string name="plugin_stopping">Releasing plugin resources…</string>
+    <string name="plugin_waiting_for_exit">Waiting for the plugin process to exit…</string>
+    <string name="plugin_sources">Plugin sources</string>
+    <string name="plugin_summary">Add sources from installed plugin apps</string>
+    <string name="plugin_install_hint">Install a compatible plugin APK using Android, then refresh this list. Open the plugin settings to complete its setup and permissions before connecting. Plugins currently provide video and touch; audio and microphone routing are not part of the plugin API.</string>
+    <string name="plugin_none">No compatible plugin services found.</string>
+    <string name="plugin_refresh">Refresh installed plugins</string>
+    <string name="plugin_enable">Enable plugin</string>
+    <string name="plugin_disable">Disable plugin</string>
+    <string name="plugin_enabled">Enabled</string>
+    <string name="plugin_disabled">Plugin disabled or changed. Enable it to connect.</string>
+    <string name="plugin_enable_prompt">Enable %1$s (%2$s) as a projection source? It can provide the displayed content and receive touch input while selected. Only enable plugins you trust. Its Android permissions are managed separately.</string>
+    <string name="plugin_settings">Plugin settings and permissions</string>
+    <string name="plugin_connect">Connect plugin</string>
+    <string name="plugin_connecting">Connecting to plugin…</string>
+    <string name="plugin_connected">Plugin connected</string>
+    <string name="plugin_disconnected">Plugin disconnected</string>
+    <string name="plugin_unavailable">Plugin service or settings are unavailable. Refresh the list or check Android app settings.</string>
+    <string name="plugin_incompatible">Unsupported plugin API version. Update WheelPlay or the plugin.</string>
+    <string name="plugin_untrusted">Cannot verify this plugin signing certificate.</string>
+    <string name="plugin_timeout">Plugin did not become ready in time.</string>
+    <string name="plugin_cleanup_failed">Plugin cleanup was not confirmed. Projection is blocked. Force stop the plugin in Android settings and restart WheelPlay before reconnecting.</string>
+    <string name="plugin_iccoa_hint">Install a compatible ICCOA CarLink plugin APK, then return to this page to configure, enable and connect it.</string>
+    <string name="plugin_iccoa_missing">Install a CarLink plugin</string>
+    <string name="plugin_iccoa_installed">CarLink plugin: %1$s</string>
+</resources>

@@ -76,7 +76,16 @@ jobs:
             "cmake;$ANDROID_CMAKE_VERSION"
 
       - name: Build and verify Debug
-        run: ./gradlew --no-daemon --build-cache :shared:testDebugUnitTest :common:testDebugUnitTest :common:assembleDebugAndroidTest :mobile:lintDebug :mobile:assembleDebug
+        run: ./gradlew --no-daemon --build-cache :projection-plugin-api:testDebugUnitTest :projection-plugin-api:assembleRelease :projection-plugin-sample:lintDebug :projection-plugin-sample:assembleDebug :shared:testDebugUnitTest :common:testDebugUnitTest :common:assembleDebugAndroidTest :mobile:lintDebug :mobile:assembleDebug :mobile:assembleDebugAndroidTest
+
+      - name: Upload plugin SDK and independent sample APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheelplay-projection-plugin-sdk-and-sample
+          path: |
+            projection-plugin-api/build/outputs/aar/projection-plugin-api-release.aar
+            projection-plugin-sample/build/outputs/apk/debug/projection-plugin-sample-debug.apk
+          if-no-files-found: error
 
       - name: Upload failed unit test reports
         if: failure()
@@ -84,6 +93,8 @@ jobs:
         with:
           name: wheelplay-unit-test-results
           path: |
+            projection-plugin-api/build/reports/tests/
+            projection-plugin-api/build/test-results/
             shared/build/reports/tests/
             shared/build/test-results/
             common/build/reports/tests/
@@ -95,6 +106,13 @@ jobs:
         with:
           name: wheelplay-browser-runtime-tests
           path: common/build/outputs/apk/androidTest/debug/common-debug-androidTest.apk
+          if-no-files-found: error
+
+      - name: Upload plugin runtime test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheelplay-plugin-runtime-tests
+          path: mobile/build/outputs/apk/androidTest/debug/mobile-debug-androidTest.apk
           if-no-files-found: error
 
       - name: Upload Debug APK
@@ -149,6 +167,24 @@ jobs:
           name: wheelplay-browser-runtime-tests
           path: runtime-tests
 
+      - name: Download plugin runtime test APK
+        uses: actions/download-artifact@v4
+        with:
+          name: wheelplay-plugin-runtime-tests
+          path: plugin-tests
+
+      - name: Download host APK
+        uses: actions/download-artifact@v4
+        with:
+          name: wheelplay-debug-apk
+          path: plugin-host
+
+      - name: Download independent sample APK
+        uses: actions/download-artifact@v4
+        with:
+          name: wheelplay-projection-plugin-sdk-and-sample
+          path: plugin-sdk
+
       - name: Enable KVM
         run: sudo chmod a+rw /dev/kvm
 
@@ -191,6 +227,12 @@ jobs:
           script: |
             adb install -r runtime-tests/common-debug-androidTest.apk
             adb shell am instrument -w -r -e class com.shilapi.xcertplay.web.BrowserPageRuntimeTest com.shilapi.xcertplay.host.test/androidx.test.runner.AndroidJUnitRunner > browser-runtime.log
+            adb install -r plugin-host/mobile-debug.apk
+            adb install -r plugin-sdk/projection-plugin-sample/build/outputs/apk/debug/projection-plugin-sample-debug.apk
+            adb install -r plugin-tests/mobile-debug-androidTest.apk
+            adb shell am instrument -w -r -e class moe.feng.wheelplay.plugin.PluginSurfaceIntegrationTest moe.feng.wheelplay.debug.test/androidx.test.runner.AndroidJUnitRunner > plugin-runtime.log
+            cat plugin-runtime.log
+            grep -Eq '^OK \([1-9][0-9]* tests?\)' plugin-runtime.log
             cat browser-runtime.log
             grep -Eq '^OK \([1-9][0-9]* tests?\)' browser-runtime.log
 
@@ -199,5 +241,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: browser-runtime-api-${{ matrix.api-level }}
-          path: browser-runtime.log
+          path: |
+            browser-runtime.log
+            plugin-runtime.log
           if-no-files-found: warn

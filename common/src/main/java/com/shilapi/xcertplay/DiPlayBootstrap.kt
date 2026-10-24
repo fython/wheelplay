@@ -40,6 +40,8 @@ internal object DiPlayPreferences {
     fun savePhone(context: Context, address: String, name: String) {
         prefs(context).edit().putString("phone_address", address).putString("phone_name", name).apply()
     }
+    fun homeSource(context: Context): String = prefs(context).getString("home_source", "carplay") ?: "carplay"
+    fun saveHomeSource(context: Context, id: String) { prefs(context).edit().putString("home_source", id).apply() }
     fun autoConnect(context: Context) = prefs(context).getBoolean("auto_connect", false)
     fun saveAutoConnect(context: Context, value: Boolean) {
         prefs(context).edit().putBoolean("auto_connect", value).apply()
