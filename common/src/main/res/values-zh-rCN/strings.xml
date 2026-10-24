@@ -1,4 +1,5 @@
 <resources>
+    <string name="aa_microphone_permission_denied">录音权限已拒绝。Android Auto 将在没有麦克风输入的情况下连接。</string>
     <string name="notification_action_previous">上一首</string>
     <string name="notification_action_play">播放</string>
     <string name="notification_action_pause">暂停</string>

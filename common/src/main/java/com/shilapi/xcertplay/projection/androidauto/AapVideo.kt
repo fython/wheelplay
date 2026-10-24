@@ -21,9 +21,16 @@ internal class AapVideo(private val output: ProjectionVideoOutput, private val k
             if (config?.contentEquals(next) != true) { revision = output.configure(VideoCodec.H264, next, keyframe); config = next }
         }
         return revision != 0L && nals.any { it[0].toInt() and 31 in 1..5 } &&
-            output.frame(revision, HeapVideoFrame(unit.data), unit.ptsUs)
+            output.frame(revision, HeapVideoFrame(canonicalAnnexB(nals)), unit.ptsUs)
     }
     companion object {
+        private fun canonicalAnnexB(nals: List<ByteArray>): ByteArray = ByteArrayOutputStream().apply {
+            nals.forEach { nal ->
+                write(byteArrayOf(0, 0, 0, 1))
+                write(nal)
+            }
+        }.toByteArray()
+
         fun annexB(data: ByteArray): List<ByteArray> {
             val starts = ArrayList<Pair<Int, Int>>()
             var i = 0

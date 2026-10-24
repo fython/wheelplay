@@ -136,6 +136,14 @@ class DiPlayActivity : AppCompatActivity() {
     private var initialLaunch = true
     private var notificationTransport = true
     private var exportInProgress = false
+    private var pendingAndroidAutoSourceId: String? = null
+    private val androidAutoMicrophonePermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            val sourceId = pendingAndroidAutoSourceId ?: return@registerForActivityResult
+            pendingAndroidAutoSourceId = null
+            if (!granted) toast(getString(UiR.string.aa_microphone_permission_denied))
+            startProjectionSourceNow(sourceId)
+        }
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
         connect(notificationTransport)
     }
@@ -227,6 +235,7 @@ class DiPlayActivity : AppCompatActivity() {
         ServerWindow.showSystemBars(window)
         refreshAuthentication()
         selectedPrivateKey = savedInstanceState?.getString("selectedPrivateKey")?.let(Uri::parse)
+        pendingAndroidAutoSourceId = savedInstanceState?.getString("pendingAndroidAutoSourceId")
         awaitingTeslaVpnConsent = savedInstanceState?.getBoolean("awaitingTeslaVpnConsent") ?: false
         page = savedInstanceState?.getString("page") ?: intent.getStringExtra("page")
             ?: if (setupError == null) "service" else "settings"
@@ -264,6 +273,7 @@ class DiPlayActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString("page", page)
         outState.putString("selectedPrivateKey", selectedPrivateKey?.toString())
+        outState.putString("pendingAndroidAutoSourceId", pendingAndroidAutoSourceId)
         outState.putBoolean("awaitingTeslaVpnConsent", awaitingTeslaVpnConsent)
         super.onSaveInstanceState(outState)
     }
@@ -754,6 +764,19 @@ class DiPlayActivity : AppCompatActivity() {
     }
 
     private fun startProjectionSource(id: String) {
+        if (isAndroidAutoSource(id) &&
+            AirPlayPersistence.loadMicrophoneSource(this) == CarPlayMicrophoneSource.ANDROID &&
+            checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            pendingAndroidAutoSourceId = id
+            androidAutoMicrophonePermission.launch(Manifest.permission.RECORD_AUDIO)
+            return
+        }
+        startProjectionSourceNow(id)
+    }
+
+    private fun isAndroidAutoSource(id: String) = id == LocalAndroidAuto.SOURCE_ID || id.startsWith("android-auto-")
+
+    private fun startProjectionSourceNow(id: String) {
         registerProjectionSources(this)
         startWebServiceIfReady()
         projectionSessions.switchTo(id).whenComplete { _, failure -> runOnUiThread {
