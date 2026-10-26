@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="desktop_title">Android virtual desktop</string>
+    <string name="desktop_summary">Experimental · run a local app on a separate display using Shizuku</string>
+    <string name="desktop_hint">Experimental, device validation required. Fixed 1280 × 720 / 160 dpi, image output, touch and Back only. Audio stays on this phone; browser audio, microphone, keyboard and Home are unavailable. This shares your Android system and app data. Some apps may move from the main screen or refuse secondary displays. Protected content may be blank. Rotation requires reconnecting.</string>
+    <string name="desktop_not_installed">Shizuku is not installed. Install and start it, then authorize WheelPlay.</string>
+    <string name="desktop_not_running">Shizuku is not running. Start it again after a reboot. Android 11+ supports local wireless debugging; older versions need a computer.</string>
+    <string name="desktop_not_authorized">WheelPlay is not authorized. Allow access in Shizuku; if previously denied, change its app authorization setting.</string>
+    <string name="desktop_unsupported">Requires Android 10+ and Shizuku 13+ in shell or root mode. Manufacturer compatibility is experimental.</string>
+    <string name="desktop_ready">Shizuku authorized · ready to start an experimental session</string>
+    <string name="desktop_open_shizuku">Install / open Shizuku</string>
+    <string name="desktop_authorize">Authorize WheelPlay</string>
+    <string name="desktop_choose_app">Choose a launchable local app</string>
+    <string name="desktop_no_apps">No launchable apps are available.</string>
+    <string name="desktop_start">Start virtual desktop</string>
+    <string name="desktop_preparing">Preparing virtual desktop · waiting for its first frame</string>
+    <string name="desktop_waiting_browser">Display frame received · waiting for browser image output</string>
+    <string name="desktop_connected">Browser image output active · experimental · helper UID %1$d</string>
+    <string name="desktop_stopping">Releasing virtual desktop…</string>
+    <string name="desktop_bind_timeout">Shizuku helper timed out. Check authorization and manufacturer background restrictions.</string>
+    <string name="desktop_disconnected">Shizuku or the desktop helper disconnected. Restart Shizuku and reconnect.</string>
+    <string name="desktop_no_frame">No display frame received. This device or app may not support virtual displays.</string>
+    <string name="desktop_cleanup_failed">Virtual desktop cleanup could not be confirmed. Restart WheelPlay before switching sources.</string>
+    <string name="web_desktop_back">Back</string>
+</resources>

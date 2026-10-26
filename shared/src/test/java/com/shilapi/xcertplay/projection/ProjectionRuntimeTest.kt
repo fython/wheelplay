@@ -30,6 +30,28 @@ class ProjectionRuntimeTest {
     private val finger = ProjectionContact(0, .2, .8, true)
     private fun setup() { runtime.adopt(old, setOf(ProjectionResource.DISPLAY)); runtime.register(next) }
 
+    @Test fun backCapabilityDoesNotGrantKeyboardAndRejectsPreviousSession() {
+        val keys = mutableListOf<ProjectionInput>()
+        val desktop = object : ProjectionSession {
+            override val descriptor = SourceDescriptor("desktop", "desktop")
+            override val capabilities = ProjectionCapabilities(setOf(VideoIngressKind.SURFACE), 10, backButton = true)
+            override val inputReady = true
+            override fun touch(contacts: List<ProjectionContact>) = true
+            override fun input(event: ProjectionInput): Boolean { keys += event; return true }
+            override fun stop() = CompletableFuture.completedFuture(Unit)
+        }
+        runtime.adopt(desktop, setOf(ProjectionResource.DISPLAY))
+        assertTrue(runtime.input(desktop, ProjectionInput.Key("BrowserBack", true)))
+        assertFalse(runtime.input(desktop, ProjectionInput.Key("a", true)))
+        assertFalse(runtime.input(desktop, ProjectionInput.Key("Home", true)))
+        assertTrue(runtime.input(desktop, ProjectionInput.Release))
+        runtime.stop().join()
+        runtime.adopt(old, emptySet())
+        assertFalse(runtime.input(desktop, ProjectionInput.Key("BrowserBack", true)))
+        assertFalse(runtime.touch(desktop, listOf(finger)))
+        assertEquals(1, keys.count { it == ProjectionInput.Key("BrowserBack", true) })
+    }
+
     @Test fun discoveryRemovalCannotReleaseAnActiveSessionOrReplaceBuiltins() {
         setup()
         val plugin = Provider("plugin-example")

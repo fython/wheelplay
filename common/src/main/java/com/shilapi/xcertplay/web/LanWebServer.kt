@@ -702,6 +702,7 @@ internal class LanWebServer(
                                     .put("maxTouchContacts", media.maxTouchContacts)
                                     .put("pointerInput", media.pointerInput)
                                     .put("keyboardInput", media.keyboardInput)
+                                    .put("backButton", media.backButton)
                                     .put("stage", WebSession.stage(context))
                                     .put(
                                         "streaming",

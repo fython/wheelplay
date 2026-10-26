@@ -30,6 +30,8 @@ data class ProjectionCapabilities(
     val browserMicrophone: Boolean = microphone,
     val pointerInput: Boolean = false,
     val keyboardInput: Boolean = false,
+    /** Discrete Android Back; does not imply general keyboard/text support. */
+    val backButton: Boolean = false,
 ) {
     init {
         require(maxTouchContacts in 0..10)

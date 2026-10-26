@@ -69,7 +69,7 @@ class SourceNavigationTest {
             assertEquals("输入源", nav.menu.findItem(2).title)
             nav.selectedItemId = 2
             val titles = cards(activity).map { views(it).filterIsInstance<TextView>().first().text.toString() }
-            assertEquals(listOf("CarPlay (iPhone)", "Android Auto", "ICCOA CarLink", "VNC", "插件输入源", "诊断输入源"), titles)
+            assertEquals(listOf("CarPlay (iPhone)", "Android Auto", "ICCOA CarLink", "VNC", "Android 虚拟桌面", "插件输入源", "诊断输入源"), titles)
             assertTrue(buttons(activity).isEmpty())
             val initialSession = projectionSessions.snapshot()
             capture(activity, "index")
@@ -79,7 +79,7 @@ class SourceNavigationTest {
             assertFalse(buttons(activity).any { it.text == "连接本机 Android Auto" })
             capture(activity, "carplay")
             activity.onBackPressedDispatcher.onBackPressed()
-            assertEquals(6, cards(activity).size)
+            assertEquals(7, cards(activity).size)
             cards(activity)[1].performClick()
             assertTrue(buttons(activity).any { it.text == "连接本机 Android Auto" })
             assertTrue(buttons(activity).any { it.text == "通过 USB 连接 Android Auto" })
@@ -112,6 +112,44 @@ class SourceNavigationTest {
             assertSame(initialSession, projectionSessions.snapshot())
             assertNull(shadowOf(activity).nextStartedActivity)
         } finally { controller.pause().stop().destroy(); WebSession.stop() }
+    }
+
+    @Test fun desktopCardOnlyNavigatesAndMissingShizukuKeepsStartDisabled() {
+        val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
+        val activity = controller.get()
+        try {
+            val initial = projectionSessions.snapshot()
+            tabs(activity).selectedItemId = 2
+            cards(activity)[4].performClick()
+            assertTrue(buttons(activity).any { it.text == "安装 / 打开 Shizuku" })
+            assertTrue(buttons(activity).any { it.text == "授权 WheelPlay" })
+            assertTrue(buttons(activity).any { it.text == "选择可启动的本机应用" })
+            assertFalse(buttons(activity).single { it.text == "启动虚拟桌面" }.isEnabled)
+            assertTrue(views(page(activity)).filterIsInstance<TextView>().any { it.text.toString().contains("未安装 Shizuku") })
+            assertSame(initial, projectionSessions.snapshot())
+            assertNull(shadowOf(activity).nextStartedActivity)
+            assertTrue(shadowOf(RuntimeEnvironment.getApplication()).boundServiceConnections.isEmpty())
+            tabs(activity).selectedItemId = 1
+            selectHomeSource(activity, "Android 虚拟桌面")
+            buttons(activity).single { it.text == "设置并连接" }.performClick()
+            assertFalse(buttons(activity).single { it.text == "启动虚拟桌面" }.isEnabled)
+            assertSame(initial, projectionSessions.snapshot())
+            val active = object : ProjectionSession {
+                override val descriptor = SourceDescriptor("android-desktop", "Android 虚拟桌面")
+                override val capabilities = ProjectionCapabilities(setOf(VideoIngressKind.SURFACE))
+                override val inputReady = false
+                override val statusText = "desktop-test-connected"
+                override fun touch(contacts: List<ProjectionContact>) = true
+                override fun stop() = java.util.concurrent.CompletableFuture.completedFuture(Unit)
+            }
+            assertTrue(projectionSessions.adopt(active, setOf(ProjectionResource.DISPLAY)))
+            shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(1))
+            assertTrue(views(page(activity)).filterIsInstance<TextView>().any { it.text == "desktop-test-connected" })
+            val stop = buttons(activity).single { it.text == "停止投影" }
+            assertEquals(View.VISIBLE, stop.visibility)
+            stop.performClick()
+            assertNull(projectionSessions.snapshot())
+        } finally { projectionSessions.stop().join(); controller.pause().stop().destroy(); WebSession.stop() }
     }
 
     private fun installPlugin(pkg: String, sourceId: String?, api: Int = ProjectionPlugin.API_VERSION) {
@@ -251,7 +289,7 @@ class SourceNavigationTest {
             buttons(activity).single { it.text.startsWith("切换输入源：") }.performClick()
             val dialog = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog()
             val names = (0 until dialog.listView.count).map { dialog.listView.adapter.getItem(it).toString() }
-            assertEquals(listOf("CarPlay (iPhone)", "Android Auto", "VNC", "ICCOA CarLink test.carlink"), names)
+            assertEquals(listOf("CarPlay (iPhone)", "Android Auto", "VNC", "Android 虚拟桌面", "ICCOA CarLink test.carlink"), names)
             dialog.dismiss()
             selectHomeSource(activity, "ICCOA CarLink test.carlink")
             assertTrue(buttons(activity).single { it.text == "连接" }.isEnabled)

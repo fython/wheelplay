@@ -933,7 +933,7 @@ if (typeof document !== 'undefined') {
   $('refresh-qr').addEventListener('click', startQr);
   const pointers = new Map();
   let maxTouchContacts = 2;
-  let pointerInput = false, keyboardInput = false;
+  let pointerInput = false, keyboardInput = false, backButton = false;
   const send = (data, kind) => {
     if ((data.type === 'touch' || data.type === 'input') && presentation.current.videoEpoch !== null) {
       const { sessionId, videoEpoch } = presentation.current;
@@ -944,6 +944,12 @@ if (typeof document !== 'undefined') {
   const desktop = createDesktopInput({ send, pointerEnabled: () => pointerInput,
     keyboardEnabled: () => keyboardInput, interactive: () => live,
     point: (event, surface, clamp) => mapPoint(event.clientX, event.clientY, surface.getBoundingClientRect(), width, height, clamp) });
+  $('desktop-back').addEventListener('click', () => {
+    if (!backButton || !live) return;
+    release();
+    send({ type: 'input', kind: 'key', key: 'BrowserBack', down: true }, 'boundary');
+    send({ type: 'input', kind: 'key', key: 'BrowserBack', down: false }, 'boundary');
+  });
   let desktopRevision = presentation.current.revision;
   const browserMedia = createBrowserMediaSession({ send });
   const browserAudio = createBrowserAudio({
@@ -1009,6 +1015,7 @@ if (typeof document !== 'undefined') {
     for (const surface of [...screens, video, canvas, heldFrame].filter(Boolean)) surface.classList.toggle('stale', !value.visible);
     touchSurface.classList.toggle('stale', !live);
     $('waiting').hidden = value.visible;
+    $('desktop-back').disabled = !live;
     if (!live && (pointers.size || desktop.active)) release();
     const rtcVisible = rtc && value.visible && value.frame?.transport === 'rtc';
     rendererStats.activeMode = rtcVisible ? launchMode : value.visible ? 'jpeg' : 'waiting';
@@ -1190,6 +1197,8 @@ if (typeof document !== 'undefined') {
           if (previousRevision !== presentation.current.revision) desktop.release(false);
           if (pointerInput !== (data.pointerInput === true) || keyboardInput !== (data.keyboardInput === true)) desktop.release();
           pointerInput = data.pointerInput === true; keyboardInput = data.keyboardInput === true;
+          backButton = data.backButton === true;
+          $('desktop-back').hidden = !backButton;
           if (previousRevision !== presentation.current.revision) {
             jpeg.cancelPending();
             if (rtcMedia.revision !== presentation.current.revision) { rtc.close(); rtcRequested = false; }
@@ -1231,7 +1240,7 @@ if (typeof document !== 'undefined') {
       if (socket !== ws) return;
       if (outbox) { outbox.close(); outbox = null; }
       cancelMove();
-      socket = null; pointers.clear(); desktop.release(false); pointerInput = false; keyboardInput = false;
+      socket = null; pointers.clear(); desktop.release(false); pointerInput = false; keyboardInput = false; backButton = false; $('desktop-back').hidden = true;
       clearInterval(heartbeat); presentation.close(); cleanupRtc(); cleanupImage();
       browserMedia.close(); browserAudio.close(); $('audio-message').hidden = true;
       browserLocation.close();

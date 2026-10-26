@@ -173,8 +173,9 @@ class ProjectionRuntime {
         val supported = when (event) {
             is ProjectionInput.Pointer -> expected.capabilities.pointerInput && point(event.x, event.y) && event.buttons in 0..7
             is ProjectionInput.Scroll -> expected.capabilities.pointerInput && point(event.x, event.y) && event.dx in -10..10 && event.dy in -10..10
-            is ProjectionInput.Key -> expected.capabilities.keyboardInput && event.key.length in 1..32
-            else -> expected.capabilities.pointerInput || expected.capabilities.keyboardInput
+            is ProjectionInput.Key -> (expected.capabilities.keyboardInput && event.key.length in 1..32) ||
+                (expected.capabilities.backButton && event.key == "BrowserBack")
+            else -> expected.capabilities.pointerInput || expected.capabilities.keyboardInput || expected.capabilities.backButton
         }
         supported && expected.input(event)
     }

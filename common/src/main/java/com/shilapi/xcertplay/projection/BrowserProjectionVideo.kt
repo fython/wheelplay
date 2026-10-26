@@ -35,6 +35,9 @@ internal class BrowserProjectionVideo(
     private val imageEncoder = ImageFrameEncoder()
     private var hadViewer = false
     private var lastImageOptions: ImageEncodingOptions? = null
+    @Volatile private var published = false
+    override val hasFrame get() = !closed.get() && offscreen?.hasFrame == true
+    override val hasPublishedFrame get() = !closed.get() && published
     private var configured = false
     private var revision = 0L
 
@@ -48,6 +51,7 @@ internal class BrowserProjectionVideo(
                     if (!closed.get()) {
                         WebSession.setVideoActive(generation, true)
                         WebSession.publish(generation, bytes, format, quality)
+                        published = true
                     }
                 })
             if (kind == VideoIngressKind.ENCODED) decoder = AndroidMediaSink(

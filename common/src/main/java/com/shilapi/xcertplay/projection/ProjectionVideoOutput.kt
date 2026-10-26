@@ -8,6 +8,8 @@ import com.shilapi.xcertplay.media.VideoCodec
  * Only one ingress kind is enabled per output. Stop the producer before closing the output.
  */
 internal interface ProjectionVideoOutput : AutoCloseable {
+    val hasFrame: Boolean get() = false
+    val hasPublishedFrame: Boolean get() = false
     val surface: Surface
     /** ISO-BMFF avcC/hvcC configuration; returns a revision required by every subsequent frame. */
     fun configure(codec: VideoCodec, codecData: ByteArray, requestKeyframe: () -> Unit): Long

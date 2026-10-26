@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="desktop_title">Android 虚拟桌面</string>
+    <string name="desktop_summary">实验性 · 通过 Shizuku 在独立显示屏运行本机应用</string>
+    <string name="desktop_hint">实验性功能，需真机验证。固定 1280 × 720 / 160 dpi，使用图像输出，仅支持触控与返回。音频保留手机原有行为；不支持浏览器音频、麦克风、键盘和 Home。这与手机共享系统和应用数据；部分应用可能从主屏移动过来或拒绝副屏，受保护内容可能黑屏。旋转后需重新连接。</string>
+    <string name="desktop_not_installed">未安装 Shizuku。请先安装并启动，再授权 WheelPlay。</string>
+    <string name="desktop_not_running">Shizuku 未启动。手机重启后通常需再次启动；Android 11 及以上可使用本机无线调试，旧版本需要电脑。</string>
+    <string name="desktop_not_authorized">WheelPlay 未获授权。请允许 Shizuku 访问；如曾拒绝，请在 Shizuku 的应用授权设置中修改。</string>
+    <string name="desktop_unsupported">需要 Android 10 及以上、Shizuku 13 及以上的 shell 或 root 模式。厂商兼容性尚属实验阶段。</string>
+    <string name="desktop_ready">Shizuku 已授权 · 可以启动实验性会话</string>
+    <string name="desktop_open_shizuku">安装 / 打开 Shizuku</string>
+    <string name="desktop_authorize">授权 WheelPlay</string>
+    <string name="desktop_choose_app">选择可启动的本机应用</string>
+    <string name="desktop_no_apps">未找到可启动的应用。</string>
+    <string name="desktop_start">启动虚拟桌面</string>
+    <string name="desktop_preparing">正在准备虚拟桌面 · 等待首帧</string>
+    <string name="desktop_waiting_browser">已收到虚拟屏画面 · 等待浏览器图像输出</string>
+    <string name="desktop_connected">浏览器图像输出已就绪 · 实验性 · 助手 UID %1$d</string>
+    <string name="desktop_stopping">正在释放虚拟桌面…</string>
+    <string name="desktop_bind_timeout">Shizuku 助手启动超时，请检查授权和厂商后台限制。</string>
+    <string name="desktop_disconnected">Shizuku 或虚拟桌面助手已断开，请恢复 Shizuku 后重新连接。</string>
+    <string name="desktop_no_frame">未收到虚拟屏画面，此设备或应用可能不支持虚拟显示。</string>
+    <string name="desktop_cleanup_failed">无法确认虚拟桌面已完整释放，请重启 WheelPlay 后再切换输入源。</string>
+    <string name="web_desktop_back">返回</string>
+</resources>

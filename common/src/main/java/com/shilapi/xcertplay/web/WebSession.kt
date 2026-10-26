@@ -32,7 +32,7 @@ internal object WebSession {
         val sessionId: Long, val videoEpoch: Long, val width: Int, val height: Int,
         val sourceState: String, val inputReady: Boolean, val frame: Frame?, val source: WebVideoSource?,
         val sourceId: String? = null, val sourceName: String? = null, val maxTouchContacts: Int = 0,
-        val pointerInput: Boolean = false, val keyboardInput: Boolean = false,
+        val pointerInput: Boolean = false, val keyboardInput: Boolean = false, val backButton: Boolean = false,
     )
 
     private var mediaSessionId = SecureRandom().nextLong().ushr(11)
@@ -52,6 +52,7 @@ internal object WebSession {
         inputSession?.descriptor?.id, inputSession?.descriptor?.displayName,
         inputSession?.capabilities?.maxTouchContacts ?: 0,
         inputSession?.capabilities?.pointerInput == true, inputSession?.capabilities?.keyboardInput == true,
+        inputSession?.capabilities?.backButton == true,
     )
 
     @Synchronized fun mediaMatches(sessionId: Long, epoch: Long): Boolean =
