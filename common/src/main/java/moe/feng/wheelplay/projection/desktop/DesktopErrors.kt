@@ -2,6 +2,7 @@ package moe.feng.wheelplay.projection.desktop
 
 import android.os.RemoteException
 import com.shilapi.xcertplay.shared.R
+import java.lang.reflect.InvocationTargetException
 
 /** Stable wire codes. Diagnostics are for logs, never parsed for control flow or displayed as UI copy. */
 internal enum class DesktopErrorCode(val wire: Int, val message: Int) {
@@ -45,13 +46,19 @@ internal fun desktopFailure(error: Throwable): DesktopException =
         ?: DesktopException(DesktopErrorCode.INTERNAL, error.toString(), error)
 
 /** Only control-call errors carry text; successful control results share a singleton. */
-internal inline fun desktopServiceStatus(block: () -> Unit): DesktopStatus = try { block(); DesktopStatus.OK }
+internal inline fun desktopServiceStatus(block: () -> Unit): DesktopStatus = try { desktopUnwrapReflection(block); DesktopStatus.OK }
 catch (error: DesktopException) { DesktopStatus(error.code, error.diagnostic.take(1024)) }
 catch (error: IllegalArgumentException) { DesktopStatus(DesktopErrorCode.INVALID_ARGUMENT.wire, error.toString().take(1024)) }
 catch (error: SecurityException) { DesktopStatus(DesktopErrorCode.PERMISSION_DENIED.wire, error.toString().take(1024)) }
 catch (error: Exception) { DesktopStatus(DesktopErrorCode.INTERNAL.wire, error.toString().take(1024)) }
 
-internal inline fun <T> desktopOperation(code: DesktopErrorCode, block: () -> T): T = try { block() }
+internal inline fun <T> desktopOperation(code: DesktopErrorCode, block: () -> T): T = try { desktopUnwrapReflection(block) }
 catch (error: DesktopException) { throw error }
 catch (error: SecurityException) { throw DesktopException(DesktopErrorCode.PERMISSION_DENIED, error.toString(), error) }
 catch (error: Exception) { throw DesktopException(code, error.toString(), error) }
+
+/** Method.invoke wraps platform exceptions. Classify and serialize the target, retaining its cause. */
+internal inline fun <T> desktopUnwrapReflection(block: () -> T): T = try { block() }
+catch (error: InvocationTargetException) {
+    throw generateSequence<Throwable>(error) { (it as? InvocationTargetException)?.targetException }.last()
+}

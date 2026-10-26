@@ -13,8 +13,10 @@ internal class DesktopTouchQueue(
     private val worker: ExecutorService = Executors.newSingleThreadExecutor { Thread(it, "desktop-touch").apply { isDaemon = true } },
 ) : AutoCloseable {
     private val lock = Any()
-    // null is a cancellation barrier, not a touch frame.
-    private val pending = ArrayDeque<DesktopTouchFrame?>()
+    // Cancellation barriers also carry an epoch, including after they have been dequeued.
+    private data class Entry(val epoch: Int, val frame: DesktopTouchFrame?)
+    private val pending = ArrayDeque<Entry>()
+    private var epoch = 0
     private var draining = false
     private var closed = false
     private var failures = 0
@@ -24,17 +26,32 @@ internal class DesktopTouchQueue(
     init { require(capacity >= 2) }
 
     fun offer(frame: DesktopTouchFrame) = synchronized(lock) {
-        if (closed || fault != null) return@synchronized
+        if (closed || fault != null || frame.inputEpoch != epoch) return@synchronized
         if (pending.size >= capacity) {
             // Dropping a queued UP alone could leave a held pointer. Reset before accepting a fresh snapshot.
             pending.clear()
-            pending.addLast(null)
+            pending.addLast(Entry(epoch, null))
         }
-        pending.addLast(frame)
+        pending.addLast(Entry(epoch, frame))
         if (!draining) {
             draining = true
             worker.execute(::drain)
         }
+    }
+
+    /** Cancel old-page input before a synchronous navigation command. Late Binder calls are fenced too. */
+    fun barrier(nextEpoch: Int, action: () -> Unit) = synchronized(operationLock) {
+        synchronized(lock) {
+            desktopCheck(!closed, DesktopErrorCode.INVALID_STATE) { "Desktop input is closed" }
+            fault?.let { throw it }
+            desktopCheck(nextEpoch > 0 && nextEpoch.toLong() == epoch.toLong() + 1,
+                DesktopErrorCode.STALE_SESSION) { "Unexpected input epoch $nextEpoch after $epoch" }
+            epoch = nextEpoch
+            pending.clear()
+            failures = 0
+        }
+        if (!cancelGesture()) throw checkNotNull(fault)
+        action()
     }
 
     private fun drain() {
@@ -50,8 +67,9 @@ internal class DesktopTouchQueue(
         }
     }
 
-    private fun consume(frame: DesktopTouchFrame?) = synchronized(operationLock) {
-        if (closed || fault != null) return@synchronized
+    private fun consume(entry: Entry) = synchronized(operationLock) {
+        if (closed || fault != null || entry.epoch != epoch) return@synchronized
+        val frame = entry.frame
         if (frame == null) {
             cancelGesture()
             return@synchronized
@@ -74,7 +92,8 @@ internal class DesktopTouchQueue(
     }
 
     private fun cancelGesture(): Boolean = try { cancel(); true } catch (error: Exception) {
-        fail(DesktopException(DesktopErrorCode.INPUT_FAILED, "Unable to cancel desktop gesture: $error", error))
+        val code = (error as? DesktopException)?.code ?: DesktopErrorCode.INPUT_FAILED.wire
+        fail(DesktopException(code, "Unable to cancel desktop gesture: $error", error))
         false
     }
 

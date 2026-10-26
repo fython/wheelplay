@@ -89,6 +89,8 @@ internal class ShizukuDesktopBackend(private val context: Context) : DesktopBack
         private val death = IBinder.DeathRecipient { dead.countDown() }
         private var started = false
         private var closed = false
+        // Touch and Back are submitted by the session's single input worker.
+        private var inputEpoch = 0
         private lateinit var info: DesktopServiceInfo
         override val uid get() = info.uid
         override lateinit var capabilities: ProjectionCapabilities
@@ -117,12 +119,13 @@ internal class ShizukuDesktopBackend(private val context: Context) : DesktopBack
             check(!closed)
             desktopCheck(capabilities.maxTouchContacts > 0, DesktopErrorCode.UNSUPPORTED_CAPABILITY) { "Touch was not negotiated" }
             desktopCheck(contacts.size <= capabilities.maxTouchContacts, DesktopErrorCode.INVALID_ARGUMENT) { "Too many contacts" }
-            desktopRemoteCall { service.touch(token, DesktopTouchFrame.from(contacts)) }
+            desktopRemoteCall { service.touch(token, DesktopTouchFrame.from(contacts, inputEpoch)) }
         }
         override fun back() {
             check(!closed)
             desktopCheck(capabilities.backButton, DesktopErrorCode.UNSUPPORTED_CAPABILITY) { "Back was not negotiated" }
-            desktopRemoteCall { service.back(token, DesktopProtocol.LAYOUT).checkSuccess() }
+            inputEpoch = Math.incrementExact(inputEpoch)
+            desktopRemoteCall { service.back(token, DesktopProtocol.LAYOUT, inputEpoch).checkSuccess() }
         }
         override fun healthy(): Boolean {
             if (closed || !service.asBinder().isBinderAlive) return false

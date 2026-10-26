@@ -13,7 +13,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [29])
 class DesktopProtocolTest {
     @Test fun structuredResultsPreserveNestedStatusAndNullableHandshakeInfo() {
-        val serviceInfo = DesktopNegotiation.negotiate(version = 5, requested = DesktopFeatures.HOST_SUPPORTED, helperUid = 2000)
+        val serviceInfo = DesktopNegotiation.negotiate(version = DesktopProtocol.VERSION, requested = DesktopFeatures.HOST_SUPPORTED, helperUid = 2000)
         val success = DesktopHandshakeResult().apply { status = DesktopStatus.OK; info = serviceInfo }
         val decoded = parcelRoundTrip(success, DesktopHandshakeResult.CREATOR)
         assertEquals(success, decoded)
@@ -29,7 +29,7 @@ class DesktopProtocolTest {
     }
 
     @Test fun structuredSizeHeadersSkipUnknownFieldsAndRejectInvalidOrIncompleteInfo() {
-        val info = DesktopNegotiation.negotiate(version = 5, requested = DesktopFeatures.HOST_SUPPORTED, helperUid = 2000)
+        val info = DesktopNegotiation.negotiate(version = DesktopProtocol.VERSION, requested = DesktopFeatures.HOST_SUPPORTED, helperUid = 2000)
         withParcel { parcel ->
             info.writeToParcel(parcel, 0)
             parcel.writeInt(123) // Simulate an appended future field within the declared object size.
@@ -51,7 +51,7 @@ class DesktopProtocolTest {
     }
 
     @Test fun handshakeIntersectsCapabilitiesAndPreservesLimitsAcrossParcel() {
-        val info = DesktopNegotiation.negotiate(5, DesktopFeatures.HOST_SUPPORTED or DesktopFeatures.KEYBOARD or (1L shl 60), 2000)
+        val info = DesktopNegotiation.negotiate(DesktopProtocol.VERSION, DesktopFeatures.HOST_SUPPORTED or DesktopFeatures.KEYBOARD or (1L shl 60), 2000)
         assertEquals(DesktopFeatures.HOST_SUPPORTED, info.enabledFeatures)
         info.validate()
         assertTrue(info.accepts(DesktopDisplayConfig(1080, 1920, 320)))
@@ -60,7 +60,7 @@ class DesktopProtocolTest {
     }
 
     @Test fun optionalInputCanBeDisabledAndMalformedNegotiationIsRejected() {
-        val info = DesktopNegotiation.negotiate(5, DesktopFeatures.REQUIRED, 2000)
+        val info = DesktopNegotiation.negotiate(DesktopProtocol.VERSION, DesktopFeatures.REQUIRED, 2000)
         assertEquals(0, info.maxTouchContacts)
         info.validate(DesktopFeatures.REQUIRED)
         val capabilities = DesktopFeatures.projection(info.enabledFeatures, info.maxTouchContacts)
@@ -70,10 +70,10 @@ class DesktopProtocolTest {
         assertFalse(capabilities.audioPlayback); assertFalse(capabilities.microphone)
         assertFalse(capabilities.browserAudio); assertFalse(capabilities.browserMicrophone)
         assertEquals(DesktopErrorCode.PROTOCOL_MISMATCH, assertThrows(DesktopException::class.java) {
-            DesktopNegotiation.negotiate(4, DesktopFeatures.HOST_SUPPORTED, 2000)
+            DesktopNegotiation.negotiate(5, DesktopFeatures.HOST_SUPPORTED, 2000)
         }.category)
         assertEquals(DesktopErrorCode.UNSUPPORTED_CAPABILITY, assertThrows(DesktopException::class.java) {
-            DesktopNegotiation.negotiate(5, DesktopFeatures.TOUCH, 2000)
+            DesktopNegotiation.negotiate(DesktopProtocol.VERSION, DesktopFeatures.TOUCH, 2000)
         }.category)
         for (invalid in listOf(info.copyWith { uid = 12345 }, info.copyWith { enabledFeatures = enabledFeatures or DesktopFeatures.KEYBOARD },
             info.copyWith { maxTouchContacts = 10 }, info.copyWith { minSize = -1 }, info.copyWith { maxPixels = 0 })) {
@@ -92,18 +92,19 @@ class DesktopProtocolTest {
         assertFalse(orphanRoute.browserAudio); assertFalse(orphanRoute.browserMicrophone)
     }
 
-    @Test fun packedTouchRoundTripsAndUsesEightFewerBytesThanParallelArrays() {
+    @Test fun packedTouchRoundTripsWithEpochAndRemainsSmallerThanOriginalArrays() {
         for (count in listOf(0, 1, 2, 10)) {
-            val frame = DesktopTouchFrame.from(List(count) { ProjectionContact(it, it / 10.0, 1.0 - it / 10.0, it % 2 == 0) })
+            val frame = DesktopTouchFrame.from(List(count) { ProjectionContact(it, it / 10.0, 1.0 - it / 10.0, it % 2 == 0) }, inputEpoch = 42)
             withParcel { old ->
                 withParcel { packed ->
                     old.writeString("same-session-token"); old.writeInt(frame.layout)
                     old.writeIntArray(frame.ids); old.writeFloatArray(frame.xs); old.writeFloatArray(frame.ys); old.writeBooleanArray(frame.down)
                     packed.writeString("same-session-token"); packed.writeTypedObject(frame, 0)
-                    assertEquals("contacts=$count", old.dataSize() - 8, packed.dataSize())
+                    assertEquals("contacts=$count", old.dataSize() - 4, packed.dataSize())
                     packed.setDataPosition(0); assertEquals("same-session-token", packed.readString())
                     val decoded = packed.readTypedObject(DesktopTouchFrame.CREATOR)!!
                     assertEquals(frame.layout, decoded.layout)
+                    assertEquals(42, decoded.inputEpoch)
                     assertArrayEquals(frame.ids, decoded.ids); assertArrayEquals(frame.xs, decoded.xs, 0f)
                     assertArrayEquals(frame.ys, decoded.ys, 0f); assertArrayEquals(frame.down, decoded.down)
                     assertEquals(0, packed.dataAvail())
@@ -116,12 +117,12 @@ class DesktopProtocolTest {
     @Test fun touchDecoderRejectsHugeCountsTruncationAndInvalidBooleansBeforeInjection() {
         for (count in listOf(-1, 11, Int.MAX_VALUE, 1)) {
             withParcel { parcel ->
-                parcel.writeInt(1); parcel.writeInt(count); parcel.setDataPosition(0)
+                parcel.writeInt(1); parcel.writeInt(0); parcel.writeInt(count); parcel.setDataPosition(0)
                 assertThrows(BadParcelableException::class.java) { DesktopTouchFrame.CREATOR.createFromParcel(parcel) }
             }
         }
         withParcel { parcel ->
-            parcel.writeInt(1); parcel.writeInt(1); parcel.writeInt(0)
+            parcel.writeInt(1); parcel.writeInt(0); parcel.writeInt(1); parcel.writeInt(0)
             parcel.writeFloat(.5f); parcel.writeFloat(.5f); parcel.writeInt(2); parcel.setDataPosition(0)
             assertThrows(BadParcelableException::class.java) { DesktopTouchFrame.CREATOR.createFromParcel(parcel) }
         }

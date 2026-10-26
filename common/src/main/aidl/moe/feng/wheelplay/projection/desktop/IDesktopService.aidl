@@ -6,7 +6,7 @@ import moe.feng.wheelplay.projection.desktop.DesktopStartResult;
 import moe.feng.wheelplay.projection.desktop.DesktopStatus;
 import moe.feng.wheelplay.projection.desktop.DesktopTouchFrame;
 
-/** Version 5. One handshake and one immutable display per helper; session calls require the host UID.
+/** Version 6. One handshake and one immutable display per helper; session calls require the host UID.
  * Control results carry DesktopStatus: zero for success, stable DesktopErrorCode plus diagnostics on failure.
  * Malformed Parcel data and Binder transport failures use Android's standard exceptions.
  */
@@ -17,7 +17,8 @@ interface IDesktopService {
     DesktopStartResult start(String token, IBinder owner, in Surface surface, String component, int width, int height, int dpi) = 1;
     // Best-effort full snapshot, no per-frame reply. Persistent faults are reported by healthy().
     oneway void touch(String token, in DesktopTouchFrame frame) = 2;
-    DesktopStatus back(String token, int layout) = 3;
+    // Advances inputEpoch by one, discards older touches and cancels the gesture before Back.
+    DesktopStatus back(String token, int layout, int inputEpoch) = 3;
     // Success confirms the owned layout and renews its watchdog; errors do not renew it.
     DesktopStatus healthy(String token, int layout) = 4;
     // Idempotent after release; success confirms producer release, not helper process exit.

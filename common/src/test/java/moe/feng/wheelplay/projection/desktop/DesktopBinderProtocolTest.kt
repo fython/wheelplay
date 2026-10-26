@@ -23,6 +23,7 @@ class DesktopBinderProtocolTest {
         var frame: DesktopTouchFrame? = null
         var omitStatus = false
         var backCalls = 0
+        var inputEpoch = 0
         var touchFlags = 0
         var touchReplyWasNull = false
         override fun hello(version: Int, hostFeatures: Long): DesktopHandshakeResult {
@@ -42,7 +43,11 @@ class DesktopBinderProtocolTest {
             }
         }
         override fun touch(token: String, frame: DesktopTouchFrame) { this.frame = frame }
-        override fun back(token: String, layout: Int): DesktopStatus { backCalls++; return status }
+        override fun back(token: String, layout: Int, inputEpoch: Int): DesktopStatus {
+            assertEquals(this.inputEpoch + 1, inputEpoch)
+            this.inputEpoch = inputEpoch
+            backCalls++; return status
+        }
         override fun healthy(token: String, layout: Int) = status
         override fun stop(token: String) = status
         override fun destroy() = Unit
@@ -75,12 +80,16 @@ class DesktopBinderProtocolTest {
             assertEquals(42, connection.start(surface, "test.app/.Main", config))
             assertEquals(config, helper.config)
             connection.touch(listOf(ProjectionContact(7, .25, .75, false)))
+            assertEquals(0, helper.frame!!.inputEpoch)
             assertEquals(IBinder.FLAG_ONEWAY, helper.touchFlags and IBinder.FLAG_ONEWAY)
             assertTrue(helper.touchReplyWasNull)
             assertArrayEquals(intArrayOf(7), helper.frame!!.ids)
             assertArrayEquals(floatArrayOf(.25f), helper.frame!!.xs, 0f)
             assertArrayEquals(booleanArrayOf(false), helper.frame!!.down)
             connection.back(); assertEquals(1, helper.backCalls)
+            connection.touch(emptyList()); assertEquals(1, helper.frame!!.inputEpoch)
+            connection.back(); connection.touch(emptyList())
+            assertEquals(2, helper.frame!!.inputEpoch)
             assertTrue(connection.healthy())
             helper.status = DesktopStatus(DesktopErrorCode.LAYOUT_CHANGED.wire, "expected 1080x1920; received 1920x1080")
             val error = assertThrows(DesktopException::class.java) { connection.healthy() }

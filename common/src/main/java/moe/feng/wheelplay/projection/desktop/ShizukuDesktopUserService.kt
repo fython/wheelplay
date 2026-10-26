@@ -133,22 +133,21 @@ class ShizukuDesktopUserService(context: Context) : IDesktopService.Stub() {
                 Thread.sleep(50)
             }
             lastHeartbeat = SystemClock.elapsedRealtime()
-            if (capabilities.enabledFeatures and DesktopFeatures.TOUCH != 0L) {
-                touchQueue = DesktopTouchQueue(
-                    process = { frame -> synchronized(lock) {
-                        // A synchronous stop can overtake pending oneway calls. Never inject after release.
-                        if (token == session && display != null) {
-                            owned(session, frame.layout)
-                            requireFeature(DesktopFeatures.TOUCH)
-                            require(frame.ids.size <= capabilities.maxTouchContacts)
-                            touchInput.update(frame.ids, frame.xs, frame.ys, frame.down)
-                        }
-                    } },
-                    cancel = { synchronized(lock) { if (token == session && display != null) touchInput.cancel() } },
-                    diagnose = { Log.w("ShizukuDesktop", "Touch error ${it.code}: ${it.diagnostic}", it) },
-                    operationLock = lock,
-                )
-            }
+            // The queue also owns Back's epoch barrier when touch was not negotiated.
+            touchQueue = DesktopTouchQueue(
+                process = { frame -> synchronized(lock) {
+                    // A synchronous stop can overtake pending oneway calls. Never inject after release.
+                    if (token == session && display != null) {
+                        owned(session, frame.layout)
+                        requireFeature(DesktopFeatures.TOUCH)
+                        require(frame.ids.size <= capabilities.maxTouchContacts)
+                        touchInput.update(frame.ids, frame.xs, frame.ys, frame.down)
+                    }
+                } },
+                cancel = { synchronized(lock) { if (token == session && display != null) touchInput.cancel() } },
+                diagnose = { Log.w("ShizukuDesktop", "Touch error ${it.code}: ${it.diagnostic}", it) },
+                operationLock = lock,
+            )
             displayId
         } catch (failure: Throwable) {
             try { release() } catch (cleanup: Throwable) { cleanup.addSuppressed(failure); throw cleanup }
@@ -192,12 +191,14 @@ class ShizukuDesktopUserService(context: Context) : IDesktopService.Stub() {
         touchQueue?.offer(frame)
     }
 
-    override fun back(session: String, layout: Int) = statusCall {
+    override fun back(session: String, layout: Int, inputEpoch: Int) = statusCall {
         owned(session, layout)
         requireFeature(DesktopFeatures.BACK)
-        val now = SystemClock.uptimeMillis()
-        try { inject(KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK, 0, 0, -1, 0, 0, InputDevice.SOURCE_KEYBOARD)) }
-        finally { inject(KeyEvent(now, SystemClock.uptimeMillis(), KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BACK, 0, 0, -1, 0, 0, InputDevice.SOURCE_KEYBOARD)) }
+        checkNotNull(touchQueue).barrier(inputEpoch) {
+            val now = SystemClock.uptimeMillis()
+            try { inject(KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK, 0, 0, -1, 0, 0, InputDevice.SOURCE_KEYBOARD)) }
+            finally { inject(KeyEvent(now, SystemClock.uptimeMillis(), KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BACK, 0, 0, -1, 0, 0, InputDevice.SOURCE_KEYBOARD)) }
+        }
     }
 
     private fun inject(event: InputEvent) = desktopOperation(DesktopErrorCode.INPUT_FAILED) {
