@@ -14,7 +14,8 @@ Run CarPlay on an Android device and use it from your car's browser. WheelPlay h
 | **Android Auto — experimental** | USB AOA, explicit Head Unit Server TCP connections, and a guided same-phone connection. Device compatibility still needs validation. |
 | **VNC — experimental** | Remote desktop over RFB 3.3/3.7/3.8, JPEG/WebP display, touch, mouse and physical keyboard input, and view-only mode. Actual server/device compatibility still needs validation. |
 | **Diagnostic sources** | H.264, Surface, and framebuffer test sources for checking the display pipeline without a phone connection. |
-| **ICCOA CarLink** | Unavailable: the proprietary SDK is not included and no protocol implementation is provided. |
+| **Plugin APKs** | Install and enable independent Surface video/touch sources. Includes a standalone SDK and sample APK; see the [plugin guide](docs/PROJECTION_PLUGINS.md). |
+| **ICCOA CarLink** | Planned as a separate plugin APK. No proprietary SDK or CarLink plugin is included. |
 
 One projection source and one browser control session can be active at a time. For Android Auto, audio plays on the Android host and microphone input uses the host; browser audio/microphone routing and automatic wireless discovery are not implemented. See the [Android Auto guide](docs/ANDROID_AUTO.md) for setup and limitations.
 

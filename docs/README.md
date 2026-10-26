@@ -8,6 +8,7 @@
 - [架构与协议](ARCHITECTURE.md)：离屏解码、Web 服务、触摸及生命周期。
 - [Android Auto 协议接入与 ICCOA 依赖边界](ANDROID_AUTO.md)：USB/TCP、宿主音频、协议测试及真机验收清单。
 - [VNC 远程桌面](VNC.md)：连接方法、RFB 协议范围、通用桌面输入和设备验收。
+- [APK 输入源插件](PROJECTION_PLUGINS.md)：安装启用、独立 SDK/示例 APK、Surface 与触控协议，以及 ICCOA 插件接入边界。
 - [投影输入源实现与设备验收](PROJECTION_IMPLEMENTATION.md)：当前框架、CarPlay 适配、三类诊断源及后续协议接入范围。
 - [通用输入源框架设计草案](INPUT_SOURCE_FRAMEWORK.md)：CarPlay、Android Auto、ICCOA、桌面与 VNC 的接口边界、研究证据及分阶段迁移建议（研究时点的方案）。
 - [WebRTC 稳定性与卡顿恢复](WEBRTC_RECOVERY.md)：回退原因、可配置容忍时间及真机排查方法。

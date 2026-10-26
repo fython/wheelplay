@@ -1,0 +1,6 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <queries>
+        <package android:name="moe.feng.wheelplay" />
+        <package android:name="moe.feng.wheelplay.debug" />
+    </queries>
+</manifest>

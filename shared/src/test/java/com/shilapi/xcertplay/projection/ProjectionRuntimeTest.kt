@@ -30,6 +30,19 @@ class ProjectionRuntimeTest {
     private val finger = ProjectionContact(0, .2, .8, true)
     private fun setup() { runtime.adopt(old, setOf(ProjectionResource.DISPLAY)); runtime.register(next) }
 
+    @Test fun discoveryRemovalCannotReleaseAnActiveSessionOrReplaceBuiltins() {
+        setup()
+        val plugin = Provider("plugin-example")
+        runtime.replaceProviders("plugin-", listOf(plugin))
+        assertEquals(setOf("next", "plugin-example"), runtime.sources().map { it.descriptor.id }.toSet())
+        runtime.replaceProviders("plugin-", emptyList())
+        assertEquals(listOf("next"), runtime.sources().map { it.descriptor.id })
+        assertSame(old, runtime.snapshot())
+        assertEquals(setOf(ProjectionResource.DISPLAY), runtime.resources())
+        assertThrows(IllegalArgumentException::class.java) { runtime.replaceProviders("plugin-", listOf(next)) }
+        assertEquals(listOf("next"), runtime.sources().map { it.descriptor.id })
+    }
+
     @Test fun switchingCancelsBeforeStopAndWaitsForResourceRelease() {
         setup()
         assertTrue(runtime.touch(old, listOf(finger)))

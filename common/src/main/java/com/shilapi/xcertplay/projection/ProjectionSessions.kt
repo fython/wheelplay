@@ -4,7 +4,7 @@ package com.shilapi.xcertplay.projection
 internal val projectionSessions = ProjectionRuntime()
 
 @Synchronized internal fun registerProjectionSources(context: android.content.Context) {
-    if (projectionSessions.sources().isNotEmpty()) return
+    if (projectionSessions.sources().any { it.descriptor.id == "demo-surface" }) return
     val app = context.applicationContext
     com.shilapi.xcertplay.projection.androidauto.AndroidAutoMode.entries.forEach { mode ->
         projectionSessions.register(com.shilapi.xcertplay.projection.androidauto.AndroidAutoSource(app, mode) {
@@ -20,4 +20,5 @@ internal val projectionSessions = ProjectionRuntime()
             { ingress, width, height -> BrowserProjectionVideo(app, width, height, ingress) },
             { app.assets.open("projection/demo.h264clip") }))
     }
+    com.shilapi.xcertplay.projection.plugin.projectionPlugins(app)
 }

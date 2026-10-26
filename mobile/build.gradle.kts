@@ -23,6 +23,7 @@ android {
         targetSdk = 36
         versionCode = 21
         versionName = "0.3.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
     }
 
@@ -63,6 +64,9 @@ android {
 }
 
 dependencies {
+    androidTestImplementation(project(":projection-plugin-api"))
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
     implementation(platform(libs.androidx.compose.bom))
     implementation(project(":common"))
     implementation(project(":shared"))
