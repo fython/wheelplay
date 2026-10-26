@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay
 
+import com.shilapi.xcertplay.projection.ProjectionSourceIds
 import com.shilapi.xcertplay.projection.CarPlaySourceSession
 import com.shilapi.xcertplay.projection.ProjectionResource
 import com.shilapi.xcertplay.projection.projectionSessions
@@ -420,7 +421,7 @@ class CarPlayHostActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         showSystemBars()
         if (projectionSessions.hasSession() &&
-            projectionSessions.snapshot()?.descriptor?.id != "carplay") {
+            projectionSessions.snapshot()?.descriptor?.id != ProjectionSourceIds.CARPLAY) {
             showDiPlayHome("home"); finish(); return
         }
         if (intent.action == "android.hardware.usb.action.USB_DEVICE_ATTACHED") {

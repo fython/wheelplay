@@ -17,7 +17,7 @@ internal class SyntheticSource(
     private val output: (VideoIngressKind, Int, Int) -> ProjectionVideoOutput,
     private val encodedFixture: () -> InputStream,
 ) : ProjectionSourceProvider {
-    override val descriptor = SourceDescriptor("demo-${kind.name.lowercase()}", "Demo · ${kind.name.lowercase()}")
+    override val descriptor = SourceDescriptor("${ProjectionSourceIds.DEMO}-${kind.name.lowercase()}", "Demo · ${kind.name.lowercase()}")
     override val resources = setOf(ProjectionResource.DISPLAY)
     override fun probe() = SourceAvailability.Ready
     override fun open(): CompletableFuture<ProjectionSession> = CompletableFuture.supplyAsync {

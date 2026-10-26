@@ -21,8 +21,8 @@ internal class AndroidAutoSource(private val context: Context, private val mode:
     private val outputFactory: () -> ProjectionVideoOutput) : ProjectionSourceProvider {
     override val descriptor = when (mode) {
         AndroidAutoMode.LOCAL -> SourceDescriptor(LocalAndroidAuto.SOURCE_ID, context.getString(UiR.string.aa_local_title))
-        AndroidAutoMode.USB -> SourceDescriptor("android-auto-usb", "Android Auto · USB")
-        AndroidAutoMode.TCP -> SourceDescriptor("android-auto-tcp", "Android Auto · Head Unit Server (TCP)")
+        AndroidAutoMode.USB -> SourceDescriptor(ProjectionSourceIds.ANDROID_AUTO_USB, "Android Auto · USB")
+        AndroidAutoMode.TCP -> SourceDescriptor(ProjectionSourceIds.ANDROID_AUTO_TCP, "Android Auto · Head Unit Server (TCP)")
     }
     override val resources = buildSet {
         add(ProjectionResource.DISPLAY); add(ProjectionResource.MICROPHONE)

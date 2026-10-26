@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.projection.androidauto
 
+import com.shilapi.xcertplay.projection.ProjectionSourceIds
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -9,7 +10,7 @@ import android.provider.Settings
 /** Local head-unit server setup. Does not depend on private wireless-start broadcasts. */
 internal object LocalAndroidAuto {
     const val PACKAGE = "com.google.android.projection.gearhead"
-    const val SOURCE_ID = "android-auto-local"
+    const val SOURCE_ID = ProjectionSourceIds.ANDROID_AUTO_LOCAL
     const val SETUP_SEEN = "aa_local_setup_seen"
 
     fun isInstalledAndEnabled(context: Context): Boolean = try {

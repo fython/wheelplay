@@ -4,7 +4,7 @@ package com.shilapi.xcertplay.projection
 internal val projectionSessions = ProjectionRuntime()
 
 @Synchronized internal fun registerProjectionSources(context: android.content.Context) {
-    if (projectionSessions.sources().any { it.descriptor.id == "demo-surface" }) return
+    if (projectionSessions.sources().any { it.descriptor.id == ProjectionSourceIds.DEMO_SURFACE }) return
     val app = context.applicationContext
     com.shilapi.xcertplay.projection.androidauto.AndroidAutoMode.entries.forEach { mode ->
         projectionSessions.register(com.shilapi.xcertplay.projection.androidauto.AndroidAutoSource(app, mode) {

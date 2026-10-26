@@ -29,7 +29,7 @@ internal data class VncEndpoint(val host: String, val port: Int, val readOnly: B
 }
 
 internal class VncSource(private val context: Context, private val output: (Int, Int) -> ProjectionVideoOutput) : ProjectionSourceProvider {
-    override val descriptor = SourceDescriptor("vnc-tcp", "VNC")
+    override val descriptor = SourceDescriptor(ProjectionSourceIds.VNC_TCP, "VNC")
     override val resources = setOf(ProjectionResource.DISPLAY, ProjectionResource.WIRELESS)
     private var password = CharArray(0)
     fun endpoint(): VncEndpoint = context.getSharedPreferences("projection", 0).let {
@@ -58,7 +58,7 @@ internal class VncSource(private val context: Context, private val output: (Int,
 
 internal class VncSession(private val context: Context, private val endpoint: VncEndpoint,
     private val password: CharArray, private val outputFactory: (Int, Int) -> ProjectionVideoOutput) : ProjectionSession {
-    override val descriptor = SourceDescriptor("vnc-tcp", "VNC")
+    override val descriptor = SourceDescriptor(ProjectionSourceIds.VNC_TCP, "VNC")
     override val capabilities = ProjectionCapabilities(setOf(VideoIngressKind.FRAMEBUFFER), if (endpoint.readOnly) 0 else 1,
         pointerInput = !endpoint.readOnly, keyboardInput = !endpoint.readOnly)
     @Volatile private var ready = false

@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.projection.desktop
 
+import com.shilapi.xcertplay.projection.ProjectionSourceIds
 import android.view.Surface
 import com.shilapi.xcertplay.projection.ProjectionContact
 import com.shilapi.xcertplay.projection.SourceAvailability
@@ -28,5 +29,5 @@ internal object DesktopProtocol {
     const val HEIGHT = 720
     const val DPI = 160
     const val LAYOUT = 1
-    const val SOURCE_ID = "android-desktop"
+    const val SOURCE_ID = ProjectionSourceIds.ANDROID_DESKTOP
 }

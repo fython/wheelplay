@@ -25,7 +25,7 @@ internal data class InstalledProjectionPlugin(
 ) {
     val id get() = PREFIX + component.flattenToString()
     val consentKey get() = "$signer@$installedAt"
-    companion object { const val PREFIX = "plugin-" }
+    companion object { const val PREFIX = ProjectionSourceIds.PLUGIN_PREFIX }
 }
 
 /** Package metadata only: discovering/listing an installed APK never binds or starts its code. */

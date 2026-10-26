@@ -17,7 +17,7 @@ internal class CarPlaySourceSession(private val status: () -> String?) : Project
         else closed.completeExceptionally(IllegalStateException("CarPlay transport did not stop"))
     }
     override val statusText get() = status()
-    override val descriptor = SourceDescriptor("carplay", "CarPlay")
+    override val descriptor = SourceDescriptor(ProjectionSourceIds.CARPLAY, "CarPlay")
     override val capabilities = ProjectionCapabilities(setOf(VideoIngressKind.ENCODED), 2,
         nightMode = true, audioPlayback = true, microphone = true)
     override val inputReady get() = controller?.touchReady == true
