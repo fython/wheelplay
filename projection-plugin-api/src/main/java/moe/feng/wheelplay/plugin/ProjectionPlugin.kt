@@ -22,6 +22,7 @@ data class PluginVideoInfo(
     val maxTouchContacts: Int = 0,
     val nightMode: Boolean = false,
     val processExitRequired: Boolean = false,
+    val nativeCancelInput: Boolean = false,
 ) {
     init {
         require(width in 1..4096 && height in 1..4096 && width.toLong() * height <= 8_388_608)
@@ -31,13 +32,13 @@ data class PluginVideoInfo(
         putInt("apiVersion", ProjectionPlugin.API_VERSION)
         putInt("width", width); putInt("height", height)
         putInt("maxTouchContacts", maxTouchContacts); putBoolean("nightMode", nightMode)
-        putBoolean("processExitRequired", processExitRequired)
+        putBoolean("processExitRequired", processExitRequired); putBoolean("nativeCancelInput", nativeCancelInput)
     }
     companion object {
         fun fromBundle(bundle: Bundle): PluginVideoInfo {
             require(bundle.getInt("apiVersion") == ProjectionPlugin.API_VERSION) { "Unsupported plugin API" }
             return PluginVideoInfo(bundle.getInt("width"), bundle.getInt("height"),
-                bundle.getInt("maxTouchContacts"), bundle.getBoolean("nightMode"), bundle.getBoolean("processExitRequired"))
+                bundle.getInt("maxTouchContacts"), bundle.getBoolean("nightMode"), bundle.getBoolean("processExitRequired"), bundle.getBoolean("nativeCancelInput"))
         }
     }
 }

@@ -61,6 +61,12 @@ internal class VncSession(private val context: Context, private val endpoint: Vn
     override val descriptor = SourceDescriptor(ProjectionSourceIds.VNC_TCP, "VNC")
     override val capabilities = ProjectionCapabilities(setOf(VideoIngressKind.FRAMEBUFFER), if (endpoint.readOnly) 0 else 1,
         pointerInput = !endpoint.readOnly, keyboardInput = !endpoint.readOnly)
+    @Volatile private var lifecycleFailure: ProjectionFailure? = null
+    override val state get() = ProjectionSessionState(
+        when { completion.isDone -> if (lifecycleFailure == null) ProjectionPhase.STOPPED else ProjectionPhase.FAILED
+            stopping.get() -> ProjectionPhase.STOPPING
+            ready -> ProjectionPhase.RUNNING
+            else -> ProjectionPhase.CONNECTING }, capabilities, inputReady, lifecycleFailure)
     @Volatile private var ready = false
     override val inputReady get() = ready && !stopping.get() && !endpoint.readOnly
     @Volatile override var statusText = "VNC: connecting"
@@ -146,8 +152,10 @@ internal class VncSession(private val context: Context, private val endpoint: Vn
         } catch (caught: Throwable) {
             if (!stopping.get()) {
                 val error = failure.get() ?: caught
+                lifecycleFailure = projectionFailure(error)
                 state("VNC: ${error.message ?: error.javaClass.simpleName}")
-                Handler(Looper.getMainLooper()).post { android.widget.Toast.makeText(context, statusText, android.widget.Toast.LENGTH_LONG).show() }
+                val message = lifecycleFailure!!.message(context)
+                Handler(Looper.getMainLooper()).post { android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show() }
             }
         } finally {
             stopping.set(true); ready = false; password.fill('\u0000')
@@ -158,7 +166,11 @@ internal class VncSession(private val context: Context, private val endpoint: Vn
                 video?.close(); queue.clear()
                 synchronized(this) { input = null }
             }
-            if (cleanup.isFailure) completion.completeExceptionally(ProjectionCleanupException("VNC cleanup failed", cleanup.exceptionOrNull()))
+            if (cleanup.isFailure) {
+                lifecycleFailure = ProjectionFailure(ProjectionErrorCategory.CLEANUP, cleanup.exceptionOrNull().toString(), "vnc")
+                completion.completeExceptionally(ProjectionCleanupException("VNC cleanup failed", cleanup.exceptionOrNull()))
+                projectionSessions.changed(this)
+            }
             else { completion.complete(Unit); projectionSessions.ended(this) }
         }
     }
@@ -175,6 +187,10 @@ internal class VncSession(private val context: Context, private val endpoint: Vn
         if (!inputReady && event != ProjectionInput.Release) return false
         if (event == ProjectionInput.Release) touchDown = false
         return input?.accept(event) ?: false
+    }
+    @Synchronized override fun cancelInput(reason: ProjectionCancelReason): Boolean {
+        touchDown = false
+        return input?.accept(ProjectionInput.Release) ?: false
     }
     @Synchronized override fun stop(): CompletableFuture<Unit> {
         if (stopping.get()) return completion

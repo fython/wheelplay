@@ -35,14 +35,20 @@ internal class ShizukuDesktopBackend(private val context: Context) : DesktopBack
                 }
             } catch (_: Exception) { R.string.desktop_not_running }
         }
-        return SourceAvailability.Unavailable(context.getString(reason))
+        val message = context.getString(reason)
+        return SourceAvailability.Unavailable(message, ProjectionFailure(
+            if (reason == R.string.desktop_not_authorized) ProjectionErrorCategory.PERMISSION else ProjectionErrorCategory.UNAVAILABLE,
+            message, "shizuku"))
     }
 
-    override fun connect(): CompletableFuture<DesktopConnection> {
+    override fun connect() = connect(ProjectionStartup())
+
+    override fun connect(startup: ProjectionStartup): CompletableFuture<DesktopConnection> {
+        startup.checkActive()
         val result = CompletableFuture<DesktopConnection>()
         val availability = probe()
         if (availability is SourceAvailability.Unavailable) {
-            result.completeExceptionally(DesktopException(DesktopErrorCode.DISCONNECTED, availability.reason)); return result
+            result.completeExceptionally(ProjectionException(availability.failure)); return result
         }
         val version = context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode.toInt()
         val args = Shizuku.UserServiceArgs(ComponentName(context, ShizukuDesktopUserService::class.java))
@@ -50,39 +56,58 @@ internal class ShizukuDesktopBackend(private val context: Context) : DesktopBack
             .version(version).daemon(false).processNameSuffix("desktop")
         val main = Handler(Looper.getMainLooper())
         lateinit var binding: ServiceConnection
-        fun unbind() { runCatching { Shizuku.unbindUserService(args, binding, true) } }
-        val timeout = Runnable {
-            if (result.completeExceptionally(DesktopException(DesktopErrorCode.BIND_TIMEOUT, "Helper bind/handshake exceeded 10 seconds"))) unbind()
+        var bound = false
+        var connection: Connection? = null // Binding lifecycle is serialized on main.
+        val aborting = java.util.concurrent.atomic.AtomicBoolean()
+        fun unbind() { Shizuku.unbindUserService(args, binding, true) }
+        fun abort(failure: Throwable) {
+            if (result.isDone || !aborting.compareAndSet(false, true)) return
+            val acquired = connection
+            CompletableFuture.runAsync {
+                val cleanup = runCatching { if (acquired != null) acquired.close() else if (bound) unbind() }.exceptionOrNull()
+                result.completeExceptionally(if (cleanup == null) failure else
+                    ProjectionCleanupException("Desktop bind cancellation cleanup unconfirmed", cleanup).apply { addSuppressed(failure) })
+            }
         }
+        val timeout = Runnable { abort(DesktopException(DesktopErrorCode.BIND_TIMEOUT, "Helper bind/handshake exceeded 10 seconds")) }
         binding = object : ServiceConnection {
             override fun onServiceConnected(name: ComponentName, binder: IBinder) {
-                // Handshaking is Binder I/O and must not block the Activity/main thread.
+                val acquired = runCatching { Connection(IDesktopService.Stub.asInterface(binder), ::unbind) }.getOrElse { abort(it); return }
+                connection = acquired
                 CompletableFuture.runAsync {
-                    val connection = Connection(IDesktopService.Stub.asInterface(binder), ::unbind)
                     try {
-                        connection.handshake()
-                        if (!result.complete(connection)) connection.close()
+                        // Cancellation before acquisition never sends hello/start or admits a late helper.
+                        if (result.isDone || aborting.get() || startup.isCancelled) { acquired.close(); return@runAsync }
+                        acquired.handshake()
+                        main.post {
+                            if (startup.isCancelled || aborting.get() || !result.complete(acquired)) {
+                                CompletableFuture.runAsync { acquired.close() }
+                            }
+                        }
                     } catch (failure: Throwable) {
-                        val cleanup = runCatching { connection.close() }.exceptionOrNull()
-                        result.completeExceptionally(if (cleanup == null) failure else
-                            ProjectionCleanupException("Desktop helper startup cleanup unconfirmed", cleanup).apply { addSuppressed(failure) })
-                    } finally { main.removeCallbacks(timeout) }
+                        val cleanup = runCatching { acquired.close() }.exceptionOrNull()
+                        main.post { abort(if (cleanup == null) failure else ProjectionCleanupException("Handshake cleanup failed", cleanup)) }
+                    }
                 }
             }
             override fun onServiceDisconnected(name: ComponentName) {
-                if (result.completeExceptionally(DesktopException(DesktopErrorCode.DISCONNECTED, "Helper disconnected while binding"))) {
-                    main.removeCallbacks(timeout); unbind()
-                }
+                abort(DesktopException(DesktopErrorCode.DISCONNECTED, "Helper disconnected while binding"))
             }
         }
-        main.postDelayed(timeout, 10_000)
-        try { Shizuku.bindUserService(args, binding) } catch (failure: Throwable) {
-            main.removeCallbacks(timeout); unbind(); result.completeExceptionally(failure)
+        val cancellation = startup.onCancel { main.post { abort(ProjectionException(checkNotNull(startup.cancellation))) } }
+        result.whenComplete { _, _ -> main.removeCallbacks(timeout); cancellation.close() }
+        main.post {
+            if (startup.isCancelled) { abort(ProjectionException(checkNotNull(startup.cancellation))); return@post }
+            main.postDelayed(timeout, 10_000)
+            try { bound = true; Shizuku.bindUserService(args, binding) } catch (failure: Throwable) { abort(failure) }
         }
         return result
     }
 
-    internal class Connection(private val service: IDesktopService, private val unbind: () -> Unit) : DesktopConnection {
+    internal class Connection(private val service: IDesktopService, private val unbind: () -> Unit,
+        private val requestedFeatures: Long = DesktopFeatures.HOST_SUPPORTED,
+        private val requiredFeatures: Long = DesktopFeatures.REQUIRED,
+        private val sessionFeatures: Long = requestedFeatures) : DesktopConnection {
         private val token = UUID.randomUUID().toString()
         private val owner = Binder()
         private val dead = CountDownLatch(1)
@@ -92,28 +117,42 @@ internal class ShizukuDesktopBackend(private val context: Context) : DesktopBack
         // Touch and Back are submitted by the session's single input worker.
         private var inputEpoch = 0
         private lateinit var info: DesktopServiceInfo
+        private var actual: DesktopDisplayInfo? = null
+        private var enabledFeatures = 0L
         override val uid get() = info.uid
         override lateinit var capabilities: ProjectionCapabilities
             private set
+        init { service.asBinder().linkToDeath(death, 0) }
         fun handshake() {
             desktopRemoteCall {
-                service.asBinder().linkToDeath(death, 0)
-                val reply = service.hello(DesktopProtocol.VERSION, DesktopFeatures.HOST_SUPPORTED)
+                val reply = service.hello(DesktopProtocol.VERSION, requestedFeatures, requiredFeatures)
                 reply.status.checkSuccess()
                 info = reply.info ?: throw DesktopException(DesktopErrorCode.PROTOCOL_MISMATCH, "Handshake omitted service info")
-                info.validate()
+                info.validate(requestedFeatures, requiredFeatures)
                 capabilities = DesktopFeatures.projection(info.enabledFeatures, info.maxTouchContacts)
             }
         }
-        override fun start(surface: Surface, component: String, config: DesktopDisplayConfig): Int {
+        override fun start(surface: Surface, component: String, config: DesktopDisplayConfig): DesktopDisplayInfo {
             check(!closed && !started)
             desktopCheck(info.accepts(config), DesktopErrorCode.INVALID_ARGUMENT) { "Display configuration exceeds helper limits" }
             started = true
             return desktopRemoteCall {
-                val reply = service.start(token, owner, surface, component, config.width, config.height, config.dpi)
+                val request = DesktopStartConfig().apply {
+                    this.component = component; width = config.width; height = config.height; dpi = config.dpi
+                    requestedFeatures = sessionFeatures; requiredFeatures = this@Connection.requiredFeatures
+                }
+                val reply = service.start(token, owner, surface, request)
                 reply.status.checkSuccess()
-                reply.displayId
-            }.also { desktopCheck(it > 0, DesktopErrorCode.DISPLAY_FAILED) { "Invalid virtual display" } }
+                desktopCheck(reply.enabledFeatures and (info.enabledFeatures and sessionFeatures) == reply.enabledFeatures &&
+                    reply.enabledFeatures and (requiredFeatures or DesktopFeatures.REQUIRED) == (requiredFeatures or DesktopFeatures.REQUIRED),
+                    DesktopErrorCode.PROTOCOL_MISMATCH) { "Invalid enabled session features" }
+                val actual = reply.display ?: throw DesktopException(DesktopErrorCode.PROTOCOL_MISMATCH, "Missing display info")
+                actual.validate(config)
+                capabilities = DesktopFeatures.projection(reply.enabledFeatures, info.maxTouchContacts)
+                this.actual = actual
+                enabledFeatures = reply.enabledFeatures
+                actual
+            }
         }
         override fun touch(contacts: List<ProjectionContact>) {
             check(!closed)
@@ -127,12 +166,34 @@ internal class ShizukuDesktopBackend(private val context: Context) : DesktopBack
             inputEpoch = Math.incrementExact(inputEpoch)
             desktopRemoteCall { service.back(token, DesktopProtocol.LAYOUT, inputEpoch).checkSuccess() }
         }
-        override fun healthy(): Boolean {
-            if (closed || !service.asBinder().isBinderAlive) return false
-            desktopRemoteCall { service.healthy(token, DesktopProtocol.LAYOUT).checkSuccess() }
-            return true
+        override fun cancelInput() {
+            check(!closed)
+            inputEpoch = Math.incrementExact(inputEpoch)
+            desktopRemoteCall { service.cancelInput(token, DesktopProtocol.LAYOUT, inputEpoch).checkSuccess() }
         }
-        override fun close() {
+        private fun DesktopStateResult.checkedState(): DesktopSessionState {
+            status.checkSuccess()
+            val snapshot = state ?: throw DesktopException(DesktopErrorCode.PROTOCOL_MISMATCH, "Missing desktop state")
+            desktopCheck(snapshot.phase in DesktopSessionState.IDLE..DesktopSessionState.FAILED,
+                DesktopErrorCode.PROTOCOL_MISMATCH) { "Unknown desktop phase ${snapshot.phase}" }
+            if (snapshot.phase == DesktopSessionState.RUNNING) {
+                desktopCheck(snapshot.enabledFeatures == enabledFeatures && snapshot.inputEpoch == inputEpoch,
+                    DesktopErrorCode.PROTOCOL_MISMATCH) { "Unexpected active session capabilities/epoch" }
+                val expected = actual ?: throw DesktopException(DesktopErrorCode.INVALID_STATE, "Display has not started")
+                desktopCheck(snapshot.display == expected, DesktopErrorCode.LAYOUT_CHANGED) { "Actual layout changed" }
+            }
+            return snapshot
+        }
+        override fun healthy(): DesktopSessionState = desktopRemoteCall {
+            check(!closed)
+            service.healthy(token, DesktopProtocol.LAYOUT).checkedState().also {
+                desktopCheck(it.phase == DesktopSessionState.RUNNING, DesktopErrorCode.INVALID_STATE) { "Helper is not running" }
+                it.failure?.throwIfError()
+            }
+        }
+        override fun state(): DesktopSessionState = desktopRemoteCall { service.getState(token).checkedState() }
+
+        @Synchronized override fun close() {
             if (closed) return
             try {
                 if (service.asBinder().isBinderAlive) {

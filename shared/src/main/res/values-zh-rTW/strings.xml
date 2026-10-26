@@ -690,4 +690,17 @@
     <string name="plugin_iccoa_hint">請安裝相容的 ICCOA CarLink 外掛 APK，然後返回此頁面完成設定、啟用並連線。</string>
     <string name="plugin_iccoa_missing">安裝 CarLink 外掛</string>
     <string name="plugin_iccoa_installed">CarLink 外掛：%1$s</string>
+    <string name="projection_error_permission">輸入源權限遭拒，請檢查授權。</string>
+    <string name="projection_error_connection">輸入源連線已中斷，請重新連線。</string>
+    <string name="projection_error_protocol">輸入源通訊協定不相容或資料無效。</string>
+    <string name="projection_error_configuration">輸入源設定無效，請檢查設定。</string>
+    <string name="projection_error_input">輸入源控制失敗，請重新連線。</string>
+    <string name="projection_error_timeout">輸入源準備逾時，請嘗試重新連線。</string>
+    <string name="projection_error_cancelled">已取消輸入源啟動。</string>
+    <string name="projection_error_cleanup">無法確認輸入源已完整釋放，請重新啟動應用程式後再切換輸入源。</string>
+    <string name="projection_error_unavailable">輸入源無法使用，請檢查設定與相依項目。</string>
+    <string name="projection_error_internal">輸入源發生錯誤，請停止後重新連線。</string>
+    <string name="projection_state_connecting">正在連線至輸入源…</string>
+    <string name="projection_state_running">輸入源已就緒</string>
+    <string name="projection_state_stopping">正在釋放輸入源資源…</string>
 </resources>

@@ -1,6 +1,7 @@
 package moe.feng.wheelplay.projection.desktop
 
 import android.os.RemoteException
+import com.shilapi.xcertplay.projection.*
 import com.shilapi.xcertplay.shared.R
 import java.lang.reflect.InvocationTargetException
 
@@ -27,7 +28,7 @@ internal enum class DesktopErrorCode(val wire: Int, val message: Int) {
 }
 
 internal class DesktopException(val code: Int, val diagnostic: String, cause: Throwable? = null) :
-    IllegalStateException(diagnostic, cause) {
+    ProjectionException(desktopProjectionFailure(code, diagnostic), cause) {
     constructor(code: DesktopErrorCode, diagnostic: String, cause: Throwable? = null) : this(code.wire, diagnostic, cause)
     val category get() = DesktopErrorCode.entries.firstOrNull { it.wire == code } ?: DesktopErrorCode.UNKNOWN
 }
@@ -62,3 +63,18 @@ internal inline fun <T> desktopUnwrapReflection(block: () -> T): T = try { block
 catch (error: InvocationTargetException) {
     throw generateSequence<Throwable>(error) { (it as? InvocationTargetException)?.targetException }.last()
 }
+
+internal fun desktopProjectionFailure(code: Int, diagnostic: String) = ProjectionFailure(
+    when (DesktopErrorCode.entries.firstOrNull { it.wire == code }) {
+        DesktopErrorCode.PERMISSION_DENIED -> ProjectionErrorCategory.PERMISSION
+        DesktopErrorCode.PROTOCOL_MISMATCH, DesktopErrorCode.UNSUPPORTED_CAPABILITY -> ProjectionErrorCategory.PROTOCOL
+        DesktopErrorCode.INVALID_ARGUMENT, DesktopErrorCode.APP_UNAVAILABLE, DesktopErrorCode.LAYOUT_CHANGED -> ProjectionErrorCategory.CONFIGURATION
+        DesktopErrorCode.INPUT_FAILED, DesktopErrorCode.INPUT_QUEUE_FULL -> ProjectionErrorCategory.INPUT
+        DesktopErrorCode.CLEANUP_FAILED -> ProjectionErrorCategory.CLEANUP
+        DesktopErrorCode.BIND_TIMEOUT, DesktopErrorCode.NO_FRAME -> ProjectionErrorCategory.TIMEOUT
+        DesktopErrorCode.DISCONNECTED -> ProjectionErrorCategory.CONNECTION
+        else -> ProjectionErrorCategory.INTERNAL
+    }, diagnostic, "desktop", code.toString(),
+)
+
+internal fun DesktopException.projectionFailure() = failure

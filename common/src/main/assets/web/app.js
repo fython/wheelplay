@@ -1006,7 +1006,12 @@ if (typeof document !== 'undefined') {
   });
   function cancelMove() { moveGeneration++; movePending = false; }
   function contacts() { return [...pointers.values()].map(p => ({ id: p.id, x: p.x, y: p.y, down: true })); }
-  function release() { cancelMove(); pointers.clear(); desktop.release(); send({ type: 'touch', contacts: [] }); }
+  function release() {
+    cancelMove(); pointers.clear(); desktop.release(false);
+    send(presentation.current.videoEpoch === null
+      ? { type: 'touch', contacts: [] }
+      : { type: 'input', kind: 'release' });
+  }
   function renderPresentation(value) {
     if (value.revision !== desktopRevision) {
       desktop.release(false); desktopRevision = value.revision;
@@ -1367,8 +1372,9 @@ if (typeof document !== 'undefined') {
     send({ type: 'touch', contacts: [...contacts(), { ...p, down: false }] });
   }
   surface.addEventListener('pointerup', up);
-  surface.addEventListener('pointercancel', up);
-  surface.addEventListener('lostpointercapture', up);
+  const cancel = event => { if (pointers.has(event.pointerId)) release(); };
+  surface.addEventListener('pointercancel', cancel);
+  surface.addEventListener('lostpointercapture', cancel);
   }
   for (const surface of [...screens, canvas, touchSurface]) bindSurface(surface);
   window.addEventListener('blur', release);

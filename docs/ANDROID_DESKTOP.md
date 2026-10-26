@@ -28,7 +28,7 @@
 `DesktopBackend` / `DesktopConnection` 是 Android 平台层接口，将可用性、连接、身份能力与停止同 Shizuku 解耦；共享 `ProjectionSourceProvider` 不暴露 Binder/ADB 类型。
 
 - 固定依赖 `dev.rikka.shizuku:api` 和 `provider` **13.1.5**。只接受实际 UID 2000（shell）或 0（root），状态页展示实际身份；二者不等价。
-- `IDesktopService` 协议版本 6，仅包含协商、带尺寸/DPI 的显示启动、触控、返回、健康检查、停止和销毁。主进程与助手共用参数范围校验，助手在创建显示前再次校验。不接收命令行、任意 Intent 或任意系统调用。
+- `IDesktopService` 协议版本 7，仅包含协商、带尺寸/DPI 的显示启动、触控、返回、健康检查、停止和销毁。主进程与助手共用参数范围校验，助手在创建显示前再次校验。不接收命令行、任意 Intent 或任意系统调用。
 - 每次连接使用独立 Shizuku tag，携带应用版本，避免旧绑定回调解除新会话。设置 `daemon(false)`，正常停止同时等待助手 Binder 死亡，按 UserService 协议实现销毁事务 `16777115` 和进程退出。
 - 每个入口验证宿主 UID；每个会话绑定随机 token、客户端 Binder 和布局版本。输入必须显式设置属于本助手且大于 0 的 displayId，设置失败即拒绝，绝不回退到默认显示屏。
 - 主进程输入工作队列上限 64，满队列即停止会话，不静默丢弃抬手；公共浏览器控制租约负责失焦、断网、过期、切源时释放触点。返回键的按下/抬起在助手同一调用内完成。
@@ -40,7 +40,7 @@
 
 虚拟桌面实现与 AIDL 协议统一位于 `moe.feng.wheelplay.projection.desktop`；同名测试使用相同包层级。Shizuku UserService 通过新包下的 `ShizukuDesktopUserService` 类绑定。
 
-握手请求传协议版本和宿主支持的功能位，响应 `DesktopHandshakeResult` 包含状态与 `DesktopServiceInfo`：助手 UID、协议版本、助手支持位、双方启用位、最大触点数、宽高/DPI/总像素范围。主进程验证返回值后，将协商结果转换为公共 `ProjectionCapabilities`；会话及助手均拒绝未启用的输入操作。功能位使用固定数值，不使用 enum ordinal；未知功能位忽略，缺少必需的 Surface 视频或屏幕配置能力时明确失败。同一 APK 内仍要求协议版本完全匹配；同一版本内通过功能位协商可选能力。
+握手请求传协议版本、宿主请求的功能位和必需功能位，响应 `DesktopHandshakeResult` 包含状态与 `DesktopServiceInfo`：助手 UID、协议版本、助手支持位、协商启用位、最大触点数、宽高/DPI/总像素范围。主进程验证返回值后，将协商结果转换为公共 `ProjectionCapabilities`；会话及助手均拒绝未启用的输入操作。功能位使用固定数值，不使用 enum ordinal；未知可选功能位忽略，启用位可以是支持与请求交集的子集；缺少客户端必需能力或基础 Surface 视频/屏幕配置能力时明确失败。同一 APK 内仍要求协议版本完全匹配；同一版本内通过功能位协商可选能力。
 
 | 功能位 | 语义 |
 | --- | --- |
@@ -69,11 +69,11 @@ Back 保留同步状态响应，并作为输入代次屏障：客户端每次 Ba
 
 `DesktopServiceInfo`、`DesktopHandshakeResult` 和 `DesktopStartResult` 使用 structured parcelable：字段、缺省值和可空性声明在 `.aidl` 中，由编译器生成 Java 类、`CREATOR` 和序列化实现。Kotlin 通过 `apply` 构建响应，`DesktopNegotiation` 和扩展函数负责能力协商、参数范围及响应校验。生成类型是可变字段对象，构建完成后在会话内按只读快照使用。
 
-生成器使用对象长度头，能够跳过未知尾字段并为缺失字段提供缺省值；这不代替业务校验。缺少 `status` 视为协议错误，缺少版本/UID/必要显示范围的握手结果也会被拒绝。structured parcelable 在 v5 引入；当前 **v6** 新增触控输入代次及 Back 屏障参数，严格拒绝 v5 等旧版本；未启用 Stable AIDL 的接口冻结和兼容性检查。
+生成器使用对象长度头，能够跳过未知尾字段并为缺失字段提供缺省值；这不代替业务校验。缺少 `status` 视为协议错误，缺少版本/UID/必要显示范围的握手结果也会被拒绝。structured parcelable 在 v5 引入；v6 引入触控输入代次及 Back 屏障；当前 **v7** 使用 structured 启动配置、实际显示信息和会话状态响应，新增必需能力协商、独立取消和只读状态查询，严格拒绝 v6 等旧版本；未启用 Stable AIDL 的接口冻结和兼容性检查。
 
 `DesktopTouchFrame` 和 `DesktopStatus` 继续使用自定义 Parcelable。它们的 `.aidl` 只声明类型，字段和读写实现分别位于同名 Kotlin 类：前者保留紧凑触控格式及解码前长度校验，后者保留仅失败时传输诊断及成功单例。生成类不应提交到源码或再由同名 Kotlin 类实现。测试覆盖 structured 类型及嵌套自定义状态的往返、未知尾字段、无效长度头和缺失状态拒绝。
 
-`DesktopStatus.code == 0` 表示成功；启动结果还包含 displayId。控制调用的业务失败返回固定错误码和最多 1024 字符的独立诊断；隐藏 API 的反射异常先逐层解包，按真实异常分类并保留实际诊断，本地异常链保留原始原因，致命 Error 不转换为普通状态；单向触控的瞬时失败只写助手日志，会话故障通过健康检查返回错误码和诊断，不依赖隐藏异常 API。宿主在 `lastError` 中保留原始错误码（包括未知新码）、诊断和本地异常原因，并写入 `AndroidDesktop` Logcat 日志；UI 只按错误类别显示本地化提示，不解析或直接展示诊断。Binder 断连、权限异常和损坏 Parcel 仍使用 Android 的标准传输异常；Shizuku 保留的 `destroy` 事务保持原签名。
+`DesktopStatus.code == 0` 表示成功；启动结果还包含实际显示信息与本次会话启用能力。控制调用的业务失败返回固定错误码和最多 1024 字符的独立诊断；隐藏 API 的反射异常先逐层解包，按真实异常分类并保留实际诊断，本地异常链保留原始原因，致命 Error 不转换为普通状态；单向触控的瞬时失败只写助手日志，会话故障通过健康检查返回错误码和诊断，不依赖隐藏异常 API。宿主在 `lastError` 中保留原始错误码（包括未知新码）、诊断和本地异常原因，并写入 `AndroidDesktop` Logcat 日志；UI 只按错误类别显示本地化提示，不解析或直接展示诊断。Binder 断连、权限异常和损坏 Parcel 仍使用 Android 的标准传输异常；Shizuku 保留的 `destroy` 事务保持原签名。
 
 | 错误码 | 名称 |
 | --- | --- |
@@ -95,7 +95,7 @@ Back 保留同步状态响应，并作为输入代次屏障：客户端每次 Ba
 | 16 | NO_FRAME |
 | 17 | INPUT_QUEUE_FULL |
 
-每个助手只握手一次、启动一次，会话参数不可变。`healthy` 成功确认布局并续期看门狗，失败不续期；`stop` 释放后幂等，成功只确认 producer 释放。宿主仍需调用 `destroy` 并等待 Binder 死亡，才能确认助手退出并释放 consumer Surface。
+每个助手只握手一次、启动一次，会话参数不可变。`healthy` 返回 `DesktopStateResult`，成功确认布局并续期看门狗，失败不续期；`getState` 使用相同状态快照但从不续期看门狗；`stop` 释放后幂等，成功只确认 producer 释放。宿主仍需调用 `destroy` 并等待 Binder 死亡，才能确认助手退出并释放 consumer Surface。
 
 ## 验证与设备记录
 
@@ -133,3 +133,14 @@ Shizuku API 使用 MIT 许可，版权及许可文本见 [SHIZUKU-API-LICENSE.tx
 - [Shizuku API 13.1.5](https://github.com/RikkaApps/Shizuku-API)，UserService/Binder/销毁契约与 Maven source artifact 13.1.5。
 - [scrcpy v3.3.3 虚拟显示](https://github.com/Genymobile/scrcpy/blob/v3.3.3/server/src/main/java/com/genymobile/scrcpy/video/NewDisplayCapture.java)，用于核对显示标志/API 版本边界。
 - [scrcpy v3.3.3 ActivityManager 包装](https://github.com/Genymobile/scrcpy/blob/v3.3.3/server/src/main/java/com/genymobile/scrcpy/wrappers/ActivityManager.java)，用于核对 shell 启动 Activity 的隐藏 API 签名。
+
+
+## v7 配置、状态与取消
+
+`start(token, owner, surface, DesktopStartConfig)` 接收组件、宽高、DPI、会话请求能力和必需能力。握手描述服务支持及本次连接允许的能力，会话可以进一步选择只读等子集。返回的 `DesktopStartResult` 含实际 `DesktopDisplayInfo`（displayId、宽高、DPI、旋转、布局修订号）及最终启用能力；宿主验证实际布局和请求一致后才接受，当前不做静默尺寸调整或动态旋转。
+
+`DesktopSessionState` 描述 IDLE/RUNNING/STOPPED/FAILED、有效能力、输入代次、实际显示信息及故障状态。停止后保留最后的显示参数、输入代次及终止故障。`healthy` 用于续期健康检查；`getState` 只读诊断不会延长助手寿命。两者均返回明确操作状态，缺失状态/快照、非法阶段或不一致的活动布局均拒绝。
+
+`cancelInput(token, layout, inputEpoch)` 是独立同步控制操作，使用与 Back 相同的代次屏障，只发 ACTION_CANCEL，不发 UP 或 Back；即使只读会话也可用于清理。触控仍为单向无响应调用，数据包布局与 v6 一致。取消失败返回稳定错误码并保留诊断。Desktop 的阶段和错误同时映射到公共 ProjectionSessionState，启动绑定接受公共协作取消信号。
+
+v7 自动化覆盖配置/实际显示信息的 Parcelable 往返、连接与会话能力降级、只读就绪、独立取消与输入代次、只读查询不续期，以及公共框架的迟到获取、就绪超时、清理失败/超时和终止错误保留。浏览器回归区分正常抬手与取消，并覆盖旧协议兼容及暂停期间的会话/租约校验；插件测试覆盖可选取消和旧插件回退。这些检查不替代上面的真机验收。

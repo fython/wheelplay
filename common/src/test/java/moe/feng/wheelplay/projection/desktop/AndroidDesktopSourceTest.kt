@@ -33,16 +33,18 @@ class AndroidDesktopSourceTest {
     private val connection = object : DesktopConnection {
         override val uid = 2000
         override var capabilities = ProjectionCapabilities(setOf(VideoIngressKind.SURFACE), 10, backButton = true)
-        override fun start(surface: Surface, component: String, config: DesktopDisplayConfig): Int {
+        override fun start(surface: Surface, component: String, config: DesktopDisplayConfig): DesktopDisplayInfo {
             startedConfig = config
             events += "start:$component"; started.countDown()
             startError?.let { throw it }
             if (startFailure) error("display rejected")
-            return 12
+            return DesktopDisplayInfo().apply { displayId = 12; width = config.width; height = config.height; dpi = config.dpi; layoutRevision = 1 }
         }
         override fun touch(contacts: List<ProjectionContact>) { events += "touch:${contacts.size}"; firstTouch.countDown(); touchGate?.await(3, TimeUnit.SECONDS) }
         override fun back() { events += "back"; back.countDown() }
-        override fun healthy() = true
+        override fun cancelInput() { events += "cancel" }
+        override fun healthy() = DesktopSessionState().apply { phase = DesktopSessionState.RUNNING }
+        override fun state() = healthy()
         override fun close() { events += "release-display"; if (closeFailure) error("still owned") }
     }
     private val backend = object : DesktopBackend {
@@ -67,6 +69,33 @@ class AndroidDesktopSourceTest {
         while (!session.inputReady && System.nanoTime() < deadline) Thread.yield()
         assertTrue(session.inputReady)
     }
+    @Test fun independentCancellationDoesNotSendAnUpSnapshotOrBack() {
+        val session = source().open().get()
+        try {
+            session.activate(); ready(session)
+            assertTrue(session.cancelInput(ProjectionCancelReason.FOCUS_LOST))
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
+            while (!events.contains("cancel") && System.nanoTime() < deadline) Thread.yield()
+            assertTrue(events.contains("cancel"))
+            assertFalse(events.contains("touch:0")); assertFalse(events.contains("back"))
+        } finally { session.stop().get(3, TimeUnit.SECONDS) }
+    }
+
+    @Test fun readOnlyDesktopReachesRunningWithoutEnablingInput() {
+        connection.capabilities = ProjectionCapabilities(setOf(VideoIngressKind.SURFACE))
+        val session = source().open().get()
+        try {
+            session.activate()
+            assertTrue(started.await(3, TimeUnit.SECONDS))
+            output.hasFrame = true
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
+            while (session.state.phase != ProjectionPhase.RUNNING && System.nanoTime() < deadline) Thread.yield()
+            assertEquals(ProjectionPhase.RUNNING, session.state.phase)
+            assertFalse(session.inputReady)
+            assertFalse(session.touch(listOf(ProjectionContact(0, .5, .5, true))))
+        } finally { session.stop().get(3, TimeUnit.SECONDS) }
+    }
+
     @Test fun sessionAdvertisesAndEnforcesNegotiatedInputCapabilities() {
         connection.capabilities = ProjectionCapabilities(setOf(VideoIngressKind.SURFACE), 2, backButton = false)
         val session = source().open().get()

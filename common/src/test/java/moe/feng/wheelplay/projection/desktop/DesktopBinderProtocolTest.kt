@@ -20,26 +20,33 @@ class DesktopBinderProtocolTest {
         var offered = DesktopFeatures.SERVICE_SUPPORTED
         var status = DesktopStatus.OK
         var config: DesktopDisplayConfig? = null
+        var actual: DesktopDisplayInfo? = null
+        var enabled = 0L
+        var healthCalls = 0
+        var omitState = false
         var frame: DesktopTouchFrame? = null
         var omitStatus = false
         var backCalls = 0
         var inputEpoch = 0
         var touchFlags = 0
         var touchReplyWasNull = false
-        override fun hello(version: Int, hostFeatures: Long): DesktopHandshakeResult {
+        override fun hello(version: Int, hostFeatures: Long, requiredFeatures: Long): DesktopHandshakeResult {
             val enabled = offered and hostFeatures
-            val serviceInfo = DesktopNegotiation.negotiate(version = version, requested = enabled, helperUid = 2000)
+            val serviceInfo = DesktopNegotiation.negotiate(version = version, requested = enabled, helperUid = 2000, required = requiredFeatures)
                 .apply { supportedFeatures = offered }
             return DesktopHandshakeResult().apply {
                 status = if (omitStatus) null else this@Helper.status
                 info = if (this@Helper.status.code == 0) serviceInfo else null
             }
         }
-        override fun start(token: String, owner: IBinder, surface: Surface, component: String, width: Int, height: Int, dpi: Int): DesktopStartResult {
-            config = DesktopDisplayConfig(width, height, dpi)
+        override fun start(token: String, owner: IBinder, surface: Surface, request: DesktopStartConfig): DesktopStartResult {
+            config = DesktopDisplayConfig(request.width, request.height, request.dpi)
             return DesktopStartResult().apply {
                 status = if (omitStatus) null else this@Helper.status
-                displayId = if (this@Helper.status.code == 0) 42 else 0
+                display = DesktopDisplayInfo().apply { displayId = 42; width = request.width; height = request.height; dpi = request.dpi; layoutRevision = 1 }
+                enabledFeatures = request.enabledWithin(offered)
+                actual = display
+                enabled = enabledFeatures
             }
         }
         override fun touch(token: String, frame: DesktopTouchFrame) { this.frame = frame }
@@ -48,12 +55,23 @@ class DesktopBinderProtocolTest {
             this.inputEpoch = inputEpoch
             backCalls++; return status
         }
-        override fun healthy(token: String, layout: Int) = status
+        private fun snapshot() = DesktopStateResult().apply {
+            status = if (omitStatus) null else this@Helper.status
+            state = if (omitState) null else DesktopSessionState().apply {
+                phase = DesktopSessionState.RUNNING; enabledFeatures = enabled
+                inputEpoch = this@Helper.inputEpoch; display = actual
+            }
+        }
+        override fun healthy(token: String, layout: Int): DesktopStateResult { healthCalls++; return snapshot() }
+        override fun getState(token: String) = snapshot()
+        override fun cancelInput(token: String, layout: Int, inputEpoch: Int): DesktopStatus {
+            assertEquals(this.inputEpoch + 1, inputEpoch); this.inputEpoch = inputEpoch; return status
+        }
         override fun stop(token: String) = status
         override fun destroy() = Unit
     }
 
-    private fun connect(helper: Helper): ShizukuDesktopBackend.Connection {
+    private fun connect(helper: Helper, sessionFeatures: Long = DesktopFeatures.HOST_SUPPORTED): ShizukuDesktopBackend.Connection {
         val remote = object : Binder() {
             override fun onTransact(code: Int, data: Parcel, reply: Parcel?, flags: Int): Boolean {
                 if (code == IBinder.FIRST_CALL_TRANSACTION + 2) {
@@ -65,7 +83,7 @@ class DesktopBinderProtocolTest {
         }
         val proxy = IDesktopService.Stub.asInterface(remote)
         assertNotSame(helper, proxy)
-        return ShizukuDesktopBackend.Connection(proxy) {}.apply { handshake() }
+        return ShizukuDesktopBackend.Connection(proxy, {}, sessionFeatures = sessionFeatures).apply { handshake() }
     }
 
     @Test fun generatedProxyTransportsHandshakeDisplaySettingsTouchAndCodedFailures() {
@@ -77,7 +95,7 @@ class DesktopBinderProtocolTest {
         val surface = Surface(SurfaceTexture(0))
         try {
             val config = DesktopDisplayConfig(1080, 1920, 320)
-            assertEquals(42, connection.start(surface, "test.app/.Main", config))
+            assertEquals(42, connection.start(surface, "test.app/.Main", config).displayId)
             assertEquals(config, helper.config)
             connection.touch(listOf(ProjectionContact(7, .25, .75, false)))
             assertEquals(0, helper.frame!!.inputEpoch)
@@ -90,7 +108,7 @@ class DesktopBinderProtocolTest {
             connection.touch(emptyList()); assertEquals(1, helper.frame!!.inputEpoch)
             connection.back(); connection.touch(emptyList())
             assertEquals(2, helper.frame!!.inputEpoch)
-            assertTrue(connection.healthy())
+            assertEquals(DesktopSessionState.RUNNING, connection.healthy().phase)
             helper.status = DesktopStatus(DesktopErrorCode.LAYOUT_CHANGED.wire, "expected 1080x1920; received 1920x1080")
             val error = assertThrows(DesktopException::class.java) { connection.healthy() }
             assertEquals(DesktopErrorCode.LAYOUT_CHANGED, error.category)
@@ -98,6 +116,35 @@ class DesktopBinderProtocolTest {
             helper.status = DesktopStatus(9001, "future helper failure")
             connection.touch(emptyList()) // No per-frame business failure is returned.
             assertEquals(9001, assertThrows(DesktopException::class.java) { connection.healthy() }.code)
+        } finally { surface.release() }
+    }
+
+    @Test fun cancellationAdvancesEpochWithoutBackAndStateQueryDoesNotSendHeartbeat() {
+        val helper = Helper(); val connection = connect(helper)
+        val surface = Surface(SurfaceTexture(0))
+        try {
+            connection.start(surface, "app/.Main", DesktopDisplayConfig())
+            connection.cancelInput(); connection.touch(emptyList())
+            assertEquals(1, helper.frame!!.inputEpoch); assertEquals(0, helper.backCalls)
+            val state = connection.state()
+            assertEquals(1, state.inputEpoch); assertEquals(0, helper.healthCalls)
+            connection.healthy(); assertEquals(1, helper.healthCalls)
+            helper.omitState = true
+            assertEquals(DesktopErrorCode.PROTOCOL_MISMATCH, assertThrows(DesktopException::class.java) { connection.state() }.category)
+        } finally { surface.release() }
+    }
+
+    @Test fun perSessionReadOnlyDowngradeControlsActualCapabilities() {
+        val helper = Helper(); val connection = connect(helper, sessionFeatures = DesktopFeatures.REQUIRED)
+        assertTrue(connection.capabilities.backButton)
+        val surface = Surface(SurfaceTexture(0))
+        try {
+            connection.start(surface, "app/.Main", DesktopDisplayConfig())
+            assertFalse(connection.capabilities.backButton); assertEquals(0, connection.capabilities.maxTouchContacts)
+            connection.cancelInput() // Unconditional lifecycle command also works for read-only sessions.
+            assertEquals(1, connection.healthy().inputEpoch)
+            assertThrows(DesktopException::class.java) { connection.back() }
+            assertThrows(DesktopException::class.java) { connection.touch(emptyList()) }
         } finally { surface.release() }
     }
 

@@ -24,6 +24,10 @@ class AapTouch(private val width: Int, private val height: Int) {
         if (events.isEmpty() && active.isNotEmpty() && previous != active) events += Event(2, 0, active.values.toList())
         return events
     }
+    fun cancel(): List<Event> {
+        if (active.isEmpty()) return emptyList()
+        return listOf(Event(3, 0, active.values.toList())).also { active.clear() }
+    }
     fun encode(event: Event, nanos: Long): ByteArray = AapProto.build {
         number(1, nanos)
         bytes(3, AapProto.build {

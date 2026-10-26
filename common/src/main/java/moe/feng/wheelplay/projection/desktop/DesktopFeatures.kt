@@ -42,6 +42,7 @@ internal object DesktopFeatures {
         pointerInput = features has POINTER,
         keyboardInput = features has KEYBOARD,
         backButton = features has BACK,
+        cancellation = com.shilapi.xcertplay.projection.ProjectionCancellation.NATIVE,
     )
 
     infix fun Long.has(feature: Long) = this and feature == feature

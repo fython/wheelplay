@@ -690,4 +690,17 @@
     <string name="plugin_iccoa_hint">请安装兼容的 ICCOA CarLink 插件 APK，然后返回此页面完成设置、启用并连接。</string>
     <string name="plugin_iccoa_missing">安装 CarLink 插件</string>
     <string name="plugin_iccoa_installed">CarLink 插件：%1$s</string>
+    <string name="projection_error_permission">输入源权限被拒绝，请检查授权。</string>
+    <string name="projection_error_connection">输入源连接已中断，请重新连接。</string>
+    <string name="projection_error_protocol">输入源协议不兼容或数据无效。</string>
+    <string name="projection_error_configuration">输入源配置无效，请检查设置。</string>
+    <string name="projection_error_input">输入源控制失败，请重新连接。</string>
+    <string name="projection_error_timeout">输入源准备超时，请尝试重新连接。</string>
+    <string name="projection_error_cancelled">已取消输入源启动。</string>
+    <string name="projection_error_cleanup">无法确认输入源已完整释放，请重启应用后再切换输入源。</string>
+    <string name="projection_error_unavailable">输入源不可用，请检查设置和依赖。</string>
+    <string name="projection_error_internal">输入源发生错误，请停止后重新连接。</string>
+    <string name="projection_state_connecting">正在连接输入源…</string>
+    <string name="projection_state_running">输入源已就绪</string>
+    <string name="projection_state_stopping">正在释放输入源资源…</string>
 </resources>

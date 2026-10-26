@@ -20,8 +20,11 @@ internal class SyntheticSource(
     override val descriptor = SourceDescriptor("${ProjectionSourceIds.DEMO}-${kind.name.lowercase()}", "Demo · ${kind.name.lowercase()}")
     override val resources = setOf(ProjectionResource.DISPLAY)
     override fun probe() = SourceAvailability.Ready
-    override fun open(): CompletableFuture<ProjectionSession> = CompletableFuture.supplyAsync {
+    override fun open() = open(ProjectionStartup())
+    override fun open(startup: ProjectionStartup): CompletableFuture<ProjectionSession> = CompletableFuture.supplyAsync {
+        startup.checkActive()
         val clip = if (kind == VideoIngressKind.ENCODED) Clip.read(encodedFixture()) else null
+        startup.checkActive()
         val video = output(kind, WIDTH, HEIGHT)
         try { Session(video, clip) } catch (failure: Throwable) {
             try { video.close() } catch (cleanup: Throwable) {
@@ -43,6 +46,9 @@ internal class SyntheticSource(
         @Volatile private var night = false
         @Volatile private var failureMessage: String? = null
         override val statusText get() = failureMessage
+        override val state get() = ProjectionSessionState(
+            when { failureMessage != null -> ProjectionPhase.FAILED; stopped.get() -> ProjectionPhase.STOPPED; else -> ProjectionPhase.RUNNING },
+            capabilities, inputReady, failureMessage?.let { ProjectionFailure(ProjectionErrorCategory.INTERNAL, it, "demo") })
         override val inputReady get() = !stopped.get() && failureMessage == null && capabilities.maxTouchContacts > 0
         private val pixels = ProjectionFramebuffer(WIDTH, HEIGHT)
         private var frame = 0L
@@ -51,7 +57,7 @@ internal class SyntheticSource(
 
         init {
             worker.scheduleWithFixedDelay({
-                if (!stopped.get() && failureMessage == null) try { draw() } catch (failure: Exception) { failureMessage = failure.message ?: failure.javaClass.simpleName }
+                if (!stopped.get() && failureMessage == null) try { draw() } catch (failure: Exception) { failureMessage = failure.message ?: failure.javaClass.simpleName; projectionSessions.changed(this) }
             }, 0, 66, TimeUnit.MILLISECONDS)
         }
         private fun draw() {
@@ -87,6 +93,7 @@ internal class SyntheticSource(
             this.contacts = contacts.toList()
             return true
         }
+        override fun cancelInput(reason: ProjectionCancelReason): Boolean { contacts = emptyList(); return !stopped.get() }
         override fun setNightMode(night: Boolean): ProjectionCommandResult {
             if (!capabilities.nightMode) return ProjectionCommandResult.UNSUPPORTED
             if (stopped.get()) return ProjectionCommandResult.UNAVAILABLE

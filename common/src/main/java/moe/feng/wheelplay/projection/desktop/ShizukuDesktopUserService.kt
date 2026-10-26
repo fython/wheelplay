@@ -49,6 +49,11 @@ class ShizukuDesktopUserService(context: Context) : IDesktopService.Stub() {
     private val setDisplay = InputEvent::class.java.getMethod("setDisplayId", Int::class.javaPrimitiveType)
     private var negotiated: DesktopServiceInfo? = null
     private var config: DesktopDisplayConfig? = null
+    private var sessionFeatures = 0L
+    private var lastToken: String? = null
+    private var sessionFailure: DesktopStatus? = null
+    private var actualDisplay: DesktopDisplayInfo? = null
+    private var lastInputEpoch = 0
     private var touches: DesktopTouch? = null
     @Volatile private var touchQueue: DesktopTouchQueue? = null
     private val death = IBinder.DeathRecipient { terminate() }
@@ -72,39 +77,41 @@ class ShizukuDesktopUserService(context: Context) : IDesktopService.Stub() {
 
     private fun statusCall(block: () -> Unit) = desktopServiceStatus { hostCall(block) }
 
-    override fun hello(version: Int, hostFeatures: Long): DesktopHandshakeResult = DesktopHandshakeResult().apply {
+    override fun hello(version: Int, hostFeatures: Long, requiredFeatures: Long): DesktopHandshakeResult = DesktopHandshakeResult().apply {
         status = statusCall {
             desktopCheck(negotiated == null && !used, DesktopErrorCode.INVALID_STATE) { "Handshake already completed" }
             desktopCheck(Build.VERSION.SDK_INT >= 29, DesktopErrorCode.UNSUPPORTED_CAPABILITY) { "Android 10 or later required" }
-            info = DesktopNegotiation.negotiate(version = version, requested = hostFeatures, helperUid = Process.myUid())
+            info = DesktopNegotiation.negotiate(version = version, requested = hostFeatures, helperUid = Process.myUid(), required = requiredFeatures)
                 .also { negotiated = it }
         }
     }
 
     private fun requireFeature(feature: Long) {
-        desktopCheck(negotiated?.enabledFeatures?.let { it and feature == feature } == true,
+        desktopCheck((if (used) sessionFeatures else negotiated?.enabledFeatures ?: 0L) and feature == feature,
             DesktopErrorCode.UNSUPPORTED_CAPABILITY) { "Operation was not negotiated: $feature" }
     }
 
-    override fun start(session: String, client: IBinder, target: Surface, component: String,
-        width: Int, height: Int, dpi: Int): DesktopStartResult = DesktopStartResult().apply {
+    override fun start(session: String, client: IBinder, target: Surface, config: DesktopStartConfig): DesktopStartResult = DesktopStartResult().apply {
         status = desktopServiceStatus {
-            displayId = startDisplay(session, client, target, component, width, height, dpi)
+            display = startDisplay(session, client, target, config)
+            enabledFeatures = sessionFeatures
         }
     }
 
-    private fun startDisplay(session: String, client: IBinder, target: Surface, component: String,
-        width: Int, height: Int, dpi: Int): Int = hostCall {
+    private fun startDisplay(session: String, client: IBinder, target: Surface,
+        request: DesktopStartConfig): DesktopDisplayInfo = hostCall {
         desktopCheck(negotiated != null && !used && token == null, DesktopErrorCode.INVALID_STATE) { "Handshake required; helper may only start once" }
         val capabilities = checkNotNull(negotiated)
-        val requested = DesktopDisplayConfig(width = width, height = height, dpi = dpi)
+        val requested = DesktopDisplayConfig(width = request.width, height = request.height, dpi = request.dpi)
+        val enabled = request.enabledWithin(capabilities.enabledFeatures)
         require(session.length in 16..128 && target.isValid)
-        val activity = requireNotNull(ComponentName.unflattenFromString(component))
+        val activity = requireNotNull(ComponentName.unflattenFromString(request.component))
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setComponent(activity)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
         val info = shellContext.packageManager.resolveActivity(intent, 0)?.activityInfo
         desktopCheck(info?.isDesktopLaunchable == true, DesktopErrorCode.APP_UNAVAILABLE) { "Application cannot be launched" }
-        used = true; token = session; owner = client; surface = target
+        used = true; token = session; lastToken = session; owner = client; surface = target
+        sessionFeatures = enabled
         config = requested
         val touchInput = DesktopTouch(requested, ::inject).also { touches = it }
         try {
@@ -120,6 +127,7 @@ class ShizukuDesktopUserService(context: Context) : IDesktopService.Stub() {
             val displayId = virtualDisplay.display.displayId
             desktopCheck(displayId > 0, DesktopErrorCode.DISPLAY_FAILED) { "Refusing the default display" }
             desktopCheck(layoutValid(), DesktopErrorCode.LAYOUT_CHANGED) { "Unsupported display layout" }
+            actualDisplay = displayInfo()
             val options = ActivityOptions.makeBasic().apply { launchDisplayId = displayId }
             desktopOperation(DesktopErrorCode.LAUNCH_FAILED) { startActivity(intent, options.toBundle()) }
             // Some single-task apps ignore the requested display. Do not report their blank
@@ -148,9 +156,13 @@ class ShizukuDesktopUserService(context: Context) : IDesktopService.Stub() {
                 diagnose = { Log.w("ShizukuDesktop", "Touch error ${it.code}: ${it.diagnostic}", it) },
                 operationLock = lock,
             )
-            displayId
+            displayInfo().also { actualDisplay = it }
         } catch (failure: Throwable) {
-            try { release() } catch (cleanup: Throwable) { cleanup.addSuppressed(failure); throw cleanup }
+            sessionFailure = desktopServiceStatus { throw failure }
+            try { release() } catch (cleanup: Throwable) {
+                sessionFailure = desktopServiceStatus { throw cleanup }
+                cleanup.addSuppressed(failure); throw cleanup
+            }
             throw failure
         }
     }
@@ -208,19 +220,68 @@ class ShizukuDesktopUserService(context: Context) : IDesktopService.Stub() {
         check(injectMethod.invoke(inputManager, event, 0) == true) { "Display input injection rejected; check manufacturer permissions" }
     }
 
-    override fun healthy(session: String, layout: Int) = statusCall {
+    private fun displayInfo(): DesktopDisplayInfo {
+        val screen = checkNotNull(display).display
+        val metrics = DisplayMetrics()
+        @Suppress("DEPRECATION") screen.getRealMetrics(metrics)
+        return DesktopDisplayInfo().apply {
+            displayId = screen.displayId; width = metrics.widthPixels; height = metrics.heightPixels
+            dpi = metrics.densityDpi; rotation = screen.rotation; layoutRevision = DesktopProtocol.LAYOUT
+        }
+    }
+
+    private fun snapshotState() = DesktopSessionState().apply {
+        failure = touchQueue?.fault?.let { DesktopStatus(it.code, it.diagnostic.take(1024)) } ?: sessionFailure
+            ?: if (this@ShizukuDesktopUserService.display != null && !layoutValid())
+                DesktopStatus(DesktopErrorCode.LAYOUT_CHANGED.wire, "Display layout changed") else null
+        phase = when {
+            failure != null -> DesktopSessionState.FAILED
+            this@ShizukuDesktopUserService.display != null -> DesktopSessionState.RUNNING
+            used -> DesktopSessionState.STOPPED
+            else -> DesktopSessionState.IDLE
+        }
+        enabledFeatures = sessionFeatures
+        inputEpoch = touchQueue?.inputEpoch ?: lastInputEpoch
+        display = if (this@ShizukuDesktopUserService.display != null) displayInfo() else actualDisplay
+    }
+
+    override fun healthy(session: String, layout: Int) = DesktopStateResult().apply {
+        status = statusCall {
+            try {
+                owned(session, layout)
+                touchQueue?.fault?.let { throw it }
+                lastHeartbeat = SystemClock.elapsedRealtime()
+            } catch (error: DesktopException) {
+                if (session == token) sessionFailure = DesktopStatus(error.code, error.diagnostic.take(1024))
+                throw error
+            } finally { if (session == lastToken) state = snapshotState() }
+        }
+    }
+
+    override fun getState(session: String) = DesktopStateResult().apply {
+        status = statusCall {
+            desktopCheck(session == lastToken, DesktopErrorCode.STALE_SESSION) { "Unknown desktop session" }
+            state = snapshotState() // Intentionally does not renew lastHeartbeat.
+        }
+    }
+
+    override fun cancelInput(session: String, layout: Int, inputEpoch: Int) = statusCall {
         owned(session, layout)
-        touchQueue?.fault?.let { throw it }
-        lastHeartbeat = SystemClock.elapsedRealtime()
+        checkNotNull(touchQueue).barrier(inputEpoch) {}
     }
 
     override fun stop(session: String) = statusCall {
         desktopCheck(token == null || token == session, DesktopErrorCode.STALE_SESSION) { "Stale desktop session" }
-        release()
+        try { release() } catch (error: Throwable) {
+            sessionFailure = desktopServiceStatus { throw error }
+            throw error
+        }
     }
 
     private fun release() = desktopOperation(DesktopErrorCode.CLEANUP_FAILED) {
         // Even rejected input must not prevent the display and its tasks from being destroyed.
+        lastInputEpoch = touchQueue?.inputEpoch ?: lastInputEpoch
+        sessionFailure = touchQueue?.fault?.let { DesktopStatus(it.code, it.diagnostic.take(1024)) } ?: sessionFailure
         touchQueue?.close(); touchQueue = null
         runCatching { touches?.cancel() }
         display?.release()

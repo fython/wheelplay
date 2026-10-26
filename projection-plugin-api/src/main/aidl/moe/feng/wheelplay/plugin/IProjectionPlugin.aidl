@@ -10,4 +10,6 @@ oneway interface IProjectionPlugin {
     void touch(String token, in int[] ids, in double[] xs, in double[] ys, in boolean[] down);
     void setNightMode(String token, boolean night);
     void stop(String token);
+    // Optional extension: call only when PluginVideoInfo.nativeCancelInput is true.
+    void cancelInput(String token);
 }

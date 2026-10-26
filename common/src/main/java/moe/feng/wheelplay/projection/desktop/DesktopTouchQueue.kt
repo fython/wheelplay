@@ -17,6 +17,7 @@ internal class DesktopTouchQueue(
     private data class Entry(val epoch: Int, val frame: DesktopTouchFrame?)
     private val pending = ArrayDeque<Entry>()
     private var epoch = 0
+    val inputEpoch: Int get() = synchronized(lock) { epoch }
     private var draining = false
     private var closed = false
     private var failures = 0

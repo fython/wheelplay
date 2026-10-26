@@ -690,4 +690,17 @@
     <string name="plugin_iccoa_hint">Install a compatible ICCOA CarLink plugin APK, then return to this page to configure, enable and connect it.</string>
     <string name="plugin_iccoa_missing">Install a CarLink plugin</string>
     <string name="plugin_iccoa_installed">CarLink plugin: %1$s</string>
+    <string name="projection_error_permission">The source was denied permission. Check its authorization.</string>
+    <string name="projection_error_connection">The source connection was interrupted. Reconnect to continue.</string>
+    <string name="projection_error_protocol">The source protocol is incompatible or invalid.</string>
+    <string name="projection_error_configuration">The source configuration is invalid. Check its settings.</string>
+    <string name="projection_error_input">Source input failed. Reconnect to continue.</string>
+    <string name="projection_error_timeout">The source did not become ready in time. Try reconnecting.</string>
+    <string name="projection_error_cancelled">Source startup cancelled.</string>
+    <string name="projection_error_cleanup">Source cleanup could not be confirmed. Restart the app before switching sources.</string>
+    <string name="projection_error_unavailable">The source is unavailable. Check its settings and dependencies.</string>
+    <string name="projection_error_internal">The source encountered an error. Stop it and reconnect.</string>
+    <string name="projection_state_connecting">Connecting to source…</string>
+    <string name="projection_state_running">Source ready</string>
+    <string name="projection_state_stopping">Releasing source resources…</string>
 </resources>

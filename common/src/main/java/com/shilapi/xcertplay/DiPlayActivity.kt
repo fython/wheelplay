@@ -2,6 +2,8 @@
 // UI copy and visual language adapted from DiAuto. See docs/THIRD_PARTY_NOTICES.md.
 package com.shilapi.xcertplay
 
+import com.shilapi.xcertplay.projection.message
+import com.shilapi.xcertplay.projection.projectionFailure
 import com.shilapi.xcertplay.projection.ProjectionSourceIds
 import com.shilapi.xcertplay.projection.projectionSessions
 import com.shilapi.xcertplay.projection.plugin.projectionPlugins
@@ -537,8 +539,8 @@ class DiPlayActivity : AppCompatActivity() {
             homeStopButton = button("", false) {
                 homeStopButton?.isEnabled = false
                 val active = projectionSessions.snapshot()
-                if (active != null) projectionSessions.stop(active).whenComplete { _, failure -> runOnUiThread {
-                    if (failure != null) toast(getString(UiR.string.projection_failed, failure.cause?.message ?: failure.message.orEmpty()))
+                if (projectionSessions.hasSession()) projectionSessions.stop(active).whenComplete { _, failure -> runOnUiThread {
+                    if (failure != null) toast(getString(UiR.string.projection_failed, projectionFailure(failure).message(this@DiPlayActivity)))
                     refreshStatus(); refreshService()
                 } } else CarPlayBackgroundSession.stop { runOnUiThread { refreshStatus(); refreshService() } }
             }
@@ -591,14 +593,16 @@ class DiPlayActivity : AppCompatActivity() {
         val source = selectedHomeSource()
         val active = projectionSessions.snapshot()
         val carPlayRunning = CarPlayBackgroundSession.hasSession()
-        val activeName = active?.descriptor?.displayName ?: if (carPlayRunning) getString(UiR.string.source_carplay) else null
+        val runtimeState = projectionSessions.stateSnapshot()
+        val activeName = active?.descriptor?.displayName ?: if (carPlayRunning) getString(UiR.string.source_carplay)
+            else runtimeState.source?.displayName?.takeIf { projectionSessions.hasSession() }
         val selectedActive = (source.id == ProjectionSourceIds.CARPLAY && carPlayRunning) || active?.let {
             it.descriptor.id == source.id || (source.id in setOf(ProjectionSourceIds.ANDROID_AUTO, ProjectionSourceIds.VNC) && belongsToSource(it.descriptor.id, source.id))
         } == true
         homeSourceButton?.text = getString(UiR.string.home_switch_source, source.name)
         webStage?.text = when {
             active != null -> getString(UiR.string.home_active_source, active.descriptor.displayName,
-                active.statusText ?: getString(UiR.string.projection_active, active.descriptor.displayName))
+                runtimeState.failure?.message(this) ?: active.statusText ?: getString(UiR.string.projection_active, active.descriptor.displayName))
             carPlayRunning -> getString(UiR.string.home_active_source, getString(UiR.string.source_carplay), WebSession.stage(this))
             source.id == ProjectionSourceIds.CARPLAY -> setupError ?: when {
                 DiPlayPreferences.phoneAddress(this) != null -> getString(UiR.string.status_selected_phone, DiPlayPreferences.phoneName(this))
@@ -606,6 +610,7 @@ class DiPlayActivity : AppCompatActivity() {
             }
             projectionPlugins(this).lastFailure(source.id) != null ->
                 getString(UiR.string.projection_failed, projectionPlugins(this).lastFailure(source.id))
+            runtimeState.source?.id == source.id -> runtimeState.message(this)
             else -> getString(UiR.string.projection_waiting)
         }
         sessionConnectButton?.apply {
@@ -954,8 +959,10 @@ class DiPlayActivity : AppCompatActivity() {
             sourceStatuses[group] = label(getString(UiR.string.projection_waiting), 16, TEXT).also { body.addView(it) }
             sourceStopButtons[group] = button(getString(UiR.string.projection_stop), false) {
                 val session = projectionSessions.snapshot()?.takeIf { sessionBelongsToSource(it, group) }
-                if (session != null) projectionSessions.stop(session).whenComplete { _, failure -> runOnUiThread {
-                    if (failure != null) toast(getString(UiR.string.projection_failed, failure.cause?.message ?: failure.message.orEmpty()))
+                val state = projectionSessions.stateSnapshot()
+                val pendingHere = state.source?.id?.let { it == group || belongsToSource(it, group) } == true && projectionSessions.hasSession()
+                if (session != null || pendingHere) projectionSessions.stop(session).whenComplete { _, failure -> runOnUiThread {
+                    if (failure != null) toast(getString(UiR.string.projection_failed, projectionFailure(failure).message(this@DiPlayActivity)))
                     refreshStatus(); refreshService()
                 } }
             }.also { body.addView(it, ui.secondaryButtonLayout(12)) }
@@ -1058,7 +1065,7 @@ class DiPlayActivity : AppCompatActivity() {
         registerProjectionSources(this)
         startWebServiceIfReady()
         projectionSessions.switchTo(id).whenComplete { _, failure -> runOnUiThread {
-            if (failure != null) toast(getString(UiR.string.projection_failed, failure.cause?.message ?: failure.message.orEmpty()))
+            if (failure != null) toast(getString(UiR.string.projection_failed, projectionFailure(failure).message(this@DiPlayActivity)))
             refreshStatus(); refreshService()
         } }
     }
@@ -1233,7 +1240,7 @@ class DiPlayActivity : AppCompatActivity() {
         }
         if (projectionSessions.hasSession()) projectionSessions.stop().whenComplete { _, failure -> runOnUiThread {
             if (failure == null) open()
-            else toast(getString(UiR.string.projection_failed, failure.cause?.message ?: failure.message.orEmpty()))
+            else toast(getString(UiR.string.projection_failed, projectionFailure(failure).message(this@DiPlayActivity)))
         } } else open()
     }
     private fun openProjection() {
@@ -1348,9 +1355,14 @@ class DiPlayActivity : AppCompatActivity() {
         val projection = projectionSessions.snapshot()
         sourceStatuses.forEach { (group, label) ->
             val session = projection?.takeIf { sessionBelongsToSource(it, group) }
-            label.text = if (session == null) getString(UiR.string.projection_waiting)
-                else session.statusText ?: getString(UiR.string.projection_active, session.descriptor.displayName)
-            sourceStopButtons[group]?.visibility = if (session != null) View.VISIBLE else View.GONE
+            val state = projectionSessions.stateSnapshot()
+            val belongs = state.source?.id?.let { it == group || belongsToSource(it, group) } == true
+            label.text = when {
+                belongs && (state.failure != null || session == null) -> state.message(this)
+                session != null -> session.statusText ?: state.message(this)
+                else -> getString(UiR.string.projection_waiting)
+            }
+            sourceStopButtons[group]?.visibility = if (session != null || (belongs && projectionSessions.hasSession())) View.VISIBLE else View.GONE
         }
         val running = CarPlayBackgroundSession.hasSession()
         status?.text = when {

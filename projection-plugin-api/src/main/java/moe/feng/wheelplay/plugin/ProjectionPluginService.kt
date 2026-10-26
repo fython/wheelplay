@@ -28,6 +28,8 @@ abstract class ProjectionPluginService : Service() {
     protected open fun projectionProcessName(): String = Application.getProcessName()
     protected open fun exitProjectionProcess() { android.os.Process.killProcess(android.os.Process.myPid()) }
     protected open fun onTouch(contacts: List<PluginContact>) = Unit
+    /** Advertise nativeCancelInput only when this hook performs protocol-native cancellation. */
+    protected open fun onCancelInput() { onTouch(emptyList()) }
     protected open fun onNightMode(night: Boolean) = Unit
 
     /** Override to apply additional host signing-certificate policy if required by your SDK. */
@@ -162,6 +164,9 @@ abstract class ProjectionPluginService : Service() {
         }
         override fun setNightMode(token: String, night: Boolean) = dispatch(token) {
             if (it.started && it.info.nightMode) onNightMode(night)
+        }
+        override fun cancelInput(token: String) = dispatch(token) {
+            if (it.started && it.info.nativeCancelInput) onCancelInput()
         }
         override fun stop(token: String) {
             val uid = Binder.getCallingUid()

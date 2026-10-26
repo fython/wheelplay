@@ -152,6 +152,42 @@ class SourceNavigationTest {
         } finally { projectionSessions.stop().join(); controller.pause().stop().destroy(); WebSession.stop() }
     }
 
+    @Test fun homeStopCancelsPendingAcquisitionBeforeASessionExists() {
+        val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
+        val activity = controller.get()
+        val pending = java.util.concurrent.CompletableFuture<ProjectionSession>()
+        val cancelled = java.util.concurrent.CountDownLatch(1)
+        projectionSessions.register(object : ProjectionSourceProvider {
+            override val descriptor = SourceDescriptor("pending-test", "Pending source")
+            override val resources = setOf(ProjectionResource.DISPLAY)
+            override fun probe() = SourceAvailability.Ready
+            override fun open() = pending
+            override fun open(startup: ProjectionStartup): java.util.concurrent.CompletableFuture<ProjectionSession> {
+                startup.onCancel {
+                    pending.completeExceptionally(java.util.concurrent.CancellationException("cancelled"))
+                    cancelled.countDown()
+                }
+                return pending
+            }
+        })
+        try {
+            tabs(activity).selectedItemId = 1
+            val opening = projectionSessions.open("pending-test")
+            shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(1))
+            assertNull(projectionSessions.snapshot())
+            val stop = buttons(activity).single { it.text == activity.getString(com.shilapi.xcertplay.shared.R.string.home_stop_source, "Pending source") }
+            assertEquals(View.VISIBLE, stop.visibility)
+            stop.performClick()
+            assertTrue(cancelled.await(2, java.util.concurrent.TimeUnit.SECONDS))
+            assertTrue(opening.isCompletedExceptionally)
+            assertFalse(projectionSessions.hasSession())
+        } finally {
+            pending.completeExceptionally(java.util.concurrent.CancellationException("test cleanup"))
+            projectionSessions.stop().join()
+            controller.pause().stop().destroy(); WebSession.stop()
+        }
+    }
+
     @Test fun desktopDisplaySettingsValidateSaveCancelAndRestoreDefaultsWithoutStartingProjection() {
         val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
         val activity = controller.get()

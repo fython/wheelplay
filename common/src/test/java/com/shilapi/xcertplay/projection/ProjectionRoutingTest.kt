@@ -17,7 +17,7 @@ class ProjectionRoutingTest {
     private class Source(val name: String, val touches: Int, val desktop: Boolean = false) : ProjectionSession {
         override val descriptor = SourceDescriptor(name, name)
         override val capabilities = ProjectionCapabilities(setOf(VideoIngressKind.FRAMEBUFFER), touches, pointerInput = desktop, keyboardInput = desktop)
-        override val inputReady = touches > 0
+        override var inputReady = touches > 0
         val inputs = mutableListOf<ProjectionInput>()
         override fun input(event: ProjectionInput): Boolean { inputs += event; return true }
         val reports = mutableListOf<List<ProjectionContact>>()
@@ -85,6 +85,28 @@ class ProjectionRoutingTest {
             WebSession.audio.createRoute().use { assertFalse(it.microphoneEnabled) }
         } finally { WebSession.audio.detach(viewer) }
     }
+    @Test fun cancellationWhileVideoAndInputArePausedStillChecksOwnershipAndEpoch() {
+        val app = RuntimeEnvironment.getApplication()
+        WebListenSettings.saveHttpsEnabled(app, false); WebSession.start(app)
+        val source = Source("paused", 1)
+        projectionSessions.adopt(source, emptySet())
+        val epoch = WebSession.beginVideo(320, 180)
+        WebSession.setVideoActive(epoch, true)
+        val version = WebSession.mediaSnapshot()
+        val owner = Any(); WebSession.touch.claim(owner)
+        assertTrue(WebSession.mediaTouch(owner, version.sessionId, epoch,
+            listOf(ProjectionContact(0, .5, .5, true)), 1))
+        source.inputReady = false
+        WebSession.setVideoActive(epoch, false)
+        val before = source.inputs.size
+        assertFalse(WebSession.mediaInput(Any(), version.sessionId, epoch, ProjectionInput.Release, 2))
+        assertFalse(WebSession.mediaInput(owner, version.sessionId, epoch - 1, ProjectionInput.Release, 2))
+        assertEquals(before, source.inputs.size)
+        assertTrue(WebSession.mediaInput(owner, version.sessionId, epoch, ProjectionInput.Release, 2))
+        assertEquals(ProjectionInput.Release, source.inputs.last())
+        assertEquals(before + 1, source.inputs.size)
+    }
+
     @Test fun desktopInputChecksLeaseBoundsCapabilitiesAndVideoEpoch() {
         val app = RuntimeEnvironment.getApplication()
         WebListenSettings.saveHttpsEnabled(app, false); WebSession.start(app)

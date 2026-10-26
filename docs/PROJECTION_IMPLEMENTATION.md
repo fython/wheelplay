@@ -47,6 +47,17 @@ Web 服务和浏览器配对不再依赖 MFi 身份。CarPlay 的连接入口仍
 2. 使用慢网络和重连验证有界背压；H.264 的 WebRTC→图像回退能请求 IDR 并恢复。测试固定画面重连、尺寸变化、夜间模式和后台服务退出。
 3. CarPlay 有线/无线、重连、双指、媒体按键、浏览器音频、浏览器/本机/禁用麦克风均回归；对比同机同网的帧率、延迟、内存和耗电。本环境的编译和 JVM/Chromium 测试不能证明这些设备指标。
 
-下一真实源仍优先 Android Auto：从 DiAuto 提取一种传输及协议会话，将完整压缩访问单元交给视频端口，并在适配器处理 ACK、明确的 touch action/actionIndex、音频和焦点。此次没有打包未经端到端验证的 AA 协议实现，也未复制外部证书私钥。音频 PCM/麦克风的跨协议端口和更完整的生命周期状态/取消启动接口仍需由第二个真实源驱动收敛；当前音频回路仍为 CarPlay 兼容路径。
+下一真实源仍优先 Android Auto：从 DiAuto 提取一种传输及协议会话，将完整压缩访问单元交给视频端口，并在适配器处理 ACK、明确的 touch action/actionIndex、音频和焦点。此次没有打包未经端到端验证的 AA 协议实现，也未复制外部证书私钥。音频 PCM/麦克风的跨协议端口仍需继续收敛；公共生命周期和启动取消契约见下文。
 
 ICCOA 继续受制于 MiAuto 未分发的 `icar-sdk.dex`。拿到适用 SDK 后，先验证离屏 Surface、触控注入和停止释放，再实现 provider；没有 SDK 时不能把包装层视作可用源。VNC 可复用 framebuffer 合成，但 Pointer/Key/Text 等能力尚未实现。新源只能声明实际支持的能力。
+
+
+## 公共取消、状态与启动契约
+
+`ProjectionSession.cancelInput(reason)` 与 `touch(emptyList())` 分开：前者用于失焦、断连、租约失效、布局变化和切源，后者仍表示正常抬手。`ProjectionCapabilities.cancellation` 明确 `NATIVE` 与 `RELEASE_ONLY`：Desktop 使用带输入代次的 CANCEL 屏障，Android Auto 发送 ACTION_CANCEL，VNC/CarPlay 使用协议支持的按键/触点释放，插件按可选能力选择原生取消或兼容释放。释放型协议不能保证没有点击副作用。取消不依赖键盘、Back 或当前输入就绪能力；正常输入仍受原有能力和会话门控保护。浏览器（包括 pointercancel / lostpointercapture）、TouchLease 与 Runtime 停止流程均使用同一取消入口。当前 sessionId/videoEpoch 的取消允许在画面或输入暂停时提交，仍校验租约所有者；旧版本或旧会话不能取消新会话。无版本信息的旧浏览器协议保持空触点释放兼容。
+
+`ProjectionSessionState` 是输入源的生命周期、有效能力、输入就绪及类型化错误快照；只读源可以 RUNNING 而不开放输入。`ProjectionRuntime.stateSnapshot()` / `subscribeState()` 同时提供资源清理状态，并在会话移除后保留终止原因。公共错误类别独立于后端，`backend` / `backendCode` 保留协议特定信息，`diagnostic` 仅用于诊断。界面按公共类别显示本地化文案，浏览器配置额外提供 `sessionPhase` 和 `sourceError`，不发送原始诊断。原来的 `statusText` 保留为兼容的详细展示文本。
+
+`open()` 完成表示会话已接纳并调用 activate；`awaitReady(session)` 独立等待 RUNNING。`ProjectionStartup` 提供协作取消信号，provider 可在 `open(startup)` 内注册非阻塞取消回调、检查取消。取消信号和 Future 的取消都不是资源释放证明；调用者通过 `runtime.stop()` 请求取消并等待清理确认。Shizuku 会撤销待处理绑定、终止已取得的助手；同步返回会话的 AA/VNC/插件通过各自 stop 中断后续连接；诊断源在异步分配前检查信号。
+
+Runtime 默认限制获取会话和就绪等待各 60 秒，取消/停止清理 15 秒，可通过构造参数调整。启动期间停止不会激活晚到会话，而是等待其 stop；清理超时或失败会保留资源所有权。晚到回调不能重新激活会话，也不能自动解除已进入的隔离状态。后端清理完成之前不能开启下一输入源，页面在启动期间提供停止入口。现有旧 provider 默认适配仍需完成获取/清理 Future；不响应取消时按同样超时规则隔离。

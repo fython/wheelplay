@@ -44,6 +44,8 @@ class RemotePluginSessionTest {
         override fun connect(token: String, apiVersion: Int, host: IProjectionHost) {
             this.host = host; this.token = token; host.onInfo(token, info)
         }
+        val cancellations = LinkedBlockingQueue<String>()
+        override fun cancelInput(token: String) { cancellations.offer(token) }
         override fun start(token: String, surface: Surface) { starts++; host.onState(token, ProjectionPlugin.READY, "Ready") }
         override fun touch(token: String, ids: IntArray, xs: DoubleArray, ys: DoubleArray, down: BooleanArray) { touches.offer(ids) }
         override fun setNightMode(token: String, night: Boolean) = Unit
@@ -67,6 +69,24 @@ class RemotePluginSessionTest {
         while (!predicate() && System.nanoTime() < deadline) { shadowOf(Looper.getMainLooper()).idle(); Thread.sleep(5) }
         assertTrue("Timed out", predicate())
     }
+    @Test fun nativeCancelIsCapabilityGatedAndLegacyPluginsReceiveOnlyRelease() {
+        for (native in listOf(false, true)) {
+            val peer = Peer().apply { info = PluginVideoInfo(640, 360, 5, nativeCancelInput = native).toBundle() }
+            val context = Binding(peer); val runtime = ProjectionRuntime(); val output = Output()
+            val session = RemotePluginSession(context, plugin, runtime, { true }, { _, _ -> output })
+            runtime.adopt(session, setOf(ProjectionResource.DISPLAY)); session.activate(); until { session.inputReady }
+            assertTrue(runtime.cancelInput(session, ProjectionCancelReason.FOCUS_LOST))
+            if (native) {
+                assertEquals(peer.token, peer.cancellations.poll(2, TimeUnit.SECONDS))
+                assertTrue(peer.touches.isEmpty())
+            } else {
+                assertArrayEquals(intArrayOf(), peer.touches.poll(2, TimeUnit.SECONDS))
+                assertTrue(peer.cancellations.isEmpty())
+            }
+            val stopped = runtime.stop(); until { peer.stops == 1 }; peer.acknowledge(); until { stopped.isDone }; stopped.join()
+        }
+    }
+
     @Test fun touchAndStopWaitForAcknowledgementAndIgnoreStaleCallbacks() {
         val peer = Peer(); val context = Binding(peer); val runtime = ProjectionRuntime(); val output = Output()
         val session = RemotePluginSession(context, plugin, runtime, { true }, { _, _ -> output })

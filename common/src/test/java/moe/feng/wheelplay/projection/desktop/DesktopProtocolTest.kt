@@ -20,7 +20,7 @@ class DesktopProtocolTest {
         assertSame(DesktopStatus.OK, decoded.status)
         val failed = DesktopHandshakeResult().apply { status = DesktopStatus(9001, "future error"); info = null }
         assertEquals(failed, parcelRoundTrip(failed, DesktopHandshakeResult.CREATOR))
-        val started = DesktopStartResult().apply { status = DesktopStatus.OK; displayId = 42 }
+        val started = DesktopStartResult().apply { status = DesktopStatus.OK; display = DesktopDisplayInfo().apply { displayId = 42 } }
         assertEquals(started, parcelRoundTrip(started, DesktopStartResult.CREATOR))
         val missing = parcelRoundTrip(DesktopStartResult(), DesktopStartResult.CREATOR)
         assertEquals(DesktopErrorCode.PROTOCOL_MISMATCH, assertThrows(DesktopException::class.java) {
@@ -70,15 +70,53 @@ class DesktopProtocolTest {
         assertFalse(capabilities.audioPlayback); assertFalse(capabilities.microphone)
         assertFalse(capabilities.browserAudio); assertFalse(capabilities.browserMicrophone)
         assertEquals(DesktopErrorCode.PROTOCOL_MISMATCH, assertThrows(DesktopException::class.java) {
-            DesktopNegotiation.negotiate(5, DesktopFeatures.HOST_SUPPORTED, 2000)
+            DesktopNegotiation.negotiate(6, DesktopFeatures.HOST_SUPPORTED, 2000)
         }.category)
         assertEquals(DesktopErrorCode.UNSUPPORTED_CAPABILITY, assertThrows(DesktopException::class.java) {
-            DesktopNegotiation.negotiate(DesktopProtocol.VERSION, DesktopFeatures.TOUCH, 2000)
+            DesktopNegotiation.negotiate(DesktopProtocol.VERSION, DesktopFeatures.TOUCH, 2000, required = 0)
         }.category)
         for (invalid in listOf(info.copyWith { uid = 12345 }, info.copyWith { enabledFeatures = enabledFeatures or DesktopFeatures.KEYBOARD },
             info.copyWith { maxTouchContacts = 10 }, info.copyWith { minSize = -1 }, info.copyWith { maxPixels = 0 })) {
             assertThrows(DesktopException::class.java) { invalid.validate(DesktopFeatures.REQUIRED) }
         }
+    }
+
+    @Test fun supportedRequestedAndEnabledFeaturesCanDifferButRequiredFeaturesCannotDisappear() {
+        val info = DesktopNegotiation.negotiate(DesktopProtocol.VERSION, DesktopFeatures.HOST_SUPPORTED, 2000,
+            available = DesktopFeatures.REQUIRED)
+        assertEquals(DesktopFeatures.SERVICE_SUPPORTED, info.supportedFeatures)
+        assertEquals(DesktopFeatures.REQUIRED, info.enabledFeatures)
+        info.validate()
+        assertThrows(DesktopException::class.java) {
+            DesktopNegotiation.negotiate(DesktopProtocol.VERSION, DesktopFeatures.HOST_SUPPORTED, 2000,
+                required = DesktopFeatures.REQUIRED or DesktopFeatures.TOUCH, available = DesktopFeatures.REQUIRED)
+        }
+        val request = DesktopStartConfig().apply {
+            component = "app/.Main"; width = 720; height = 1280; dpi = 320
+            requestedFeatures = DesktopFeatures.REQUIRED; requiredFeatures = DesktopFeatures.REQUIRED
+        }
+        assertEquals(DesktopFeatures.REQUIRED, request.enabledWithin(DesktopFeatures.HOST_SUPPORTED))
+        assertEquals(request, parcelRoundTrip(request, DesktopStartConfig.CREATOR))
+        request.requiredFeatures = DesktopFeatures.HOST_SUPPORTED
+        assertEquals(DesktopErrorCode.INVALID_ARGUMENT, assertThrows(DesktopException::class.java) {
+            request.enabledWithin(DesktopFeatures.HOST_SUPPORTED)
+        }.category)
+    }
+
+    @Test fun actualDisplayAndStateSnapshotsRoundTripAndRejectUnexpectedLayout() {
+        val config = DesktopDisplayConfig(720, 1280, 320)
+        val display = DesktopDisplayInfo().apply {
+            displayId = 12; width = config.width; height = config.height; dpi = config.dpi; layoutRevision = 1
+        }
+        display.validate(config)
+        val snapshot = DesktopSessionState().apply {
+            phase = DesktopSessionState.FAILED; inputEpoch = 5; enabledFeatures = DesktopFeatures.REQUIRED
+            this.display = display; failure = DesktopStatus(9001, "specific device diagnostic")
+        }
+        val response = DesktopStateResult().apply { status = DesktopStatus.OK; state = snapshot }
+        assertEquals(response, parcelRoundTrip(response, DesktopStateResult.CREATOR))
+        display.rotation = 1
+        assertEquals(DesktopErrorCode.LAYOUT_CHANGED, assertThrows(DesktopException::class.java) { display.validate(config) }.category)
     }
 
     @Test fun audioRoutesRemainSeparateFromLocalAudioAndOtherInputs() {
