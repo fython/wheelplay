@@ -4,7 +4,7 @@ package com.shilapi.xcertplay.projection
 internal val projectionSessions = ProjectionRuntime()
 
 @Synchronized internal fun registerProjectionSources(context: android.content.Context) {
-    if (projectionSessions.sources().any { it.descriptor.id == "demo-surface" }) return
+    if (projectionSessions.sources().any { it.descriptor.id == ProjectionSourceIds.DEMO_SURFACE }) return
     val app = context.applicationContext
     com.shilapi.xcertplay.projection.androidauto.AndroidAutoMode.entries.forEach { mode ->
         projectionSessions.register(com.shilapi.xcertplay.projection.androidauto.AndroidAutoSource(app, mode) {
@@ -12,6 +12,7 @@ internal val projectionSessions = ProjectionRuntime()
         })
     }
     projectionSessions.register(IccoaSource(app))
+    projectionSessions.register(moe.feng.wheelplay.projection.desktop.AndroidDesktopSource(app))
     projectionSessions.register(com.shilapi.xcertplay.projection.vnc.VncSource(app) { width, height ->
         BrowserProjectionVideo(app, width, height, VideoIngressKind.FRAMEBUFFER)
     })

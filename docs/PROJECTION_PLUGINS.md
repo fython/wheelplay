@@ -117,3 +117,8 @@ adb shell am instrument -w -r -e class moe.feng.wheelplay.plugin.PluginSurfaceIn
 ```
 
 设备验收需同时安装宿主和示例 APK：看到动态画面、多个触点反馈和夜间模式；与 CarPlay/AA/VNC 来回切换至少 30 次；连接时更新/卸载/强停插件；禁用后不能继续输入；错误版本和缺失权限有可恢复提示；后台与锁屏时检查 OEM 行为。示例 APK 的独立 UID 和真实跨进程 Surface 链路必须通过设备测试确认。
+
+
+### 可选原生取消扩展
+
+API v2 的 `PluginVideoInfo` 新增可选 `nativeCancelInput`（缺省 false）。明确声明 true 的插件可以实现 `ProjectionPluginService.onCancelInput()`，宿主才会调用追加在 AIDL 末尾的 `cancelInput(token)`；该调用与触控在同一 oneway Binder/SDK 队列中排序，并沿用 UID/token 检查。只有确实取消手势而非正常抬手的实现才应声明此能力。旧插件未携带此字段，继续收到空触控快照，旧事务号保持不变。新插件也可被旧宿主使用，旧宿主忽略此可选字段。SDK 状态消息在宿主映射到公共生命周期/错误模型，停止确认与专属进程退出要求保持不变。

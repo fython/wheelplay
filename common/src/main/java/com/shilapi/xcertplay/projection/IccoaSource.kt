@@ -5,7 +5,7 @@ import java.util.concurrent.CompletableFuture
 
 /** No proprietary SDK is bundled. Do not start BLE/P2P or claim a usable CarLink session. */
 internal class IccoaSource(private val context: Context) : ProjectionSourceProvider {
-    override val descriptor = SourceDescriptor("iccoa-carlink", "ICCOA CarLink")
+    override val descriptor = SourceDescriptor(ProjectionSourceIds.ICCOA_CARLINK, "ICCOA CarLink")
     override val resources = setOf(ProjectionResource.USB, ProjectionResource.WIRELESS,
         ProjectionResource.DISPLAY, ProjectionResource.MICROPHONE)
     override fun probe(): SourceAvailability = SourceAvailability.Unavailable(

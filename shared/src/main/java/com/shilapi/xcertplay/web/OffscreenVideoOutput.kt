@@ -38,7 +38,8 @@ class OffscreenVideoOutput(
     private var bitmap: Bitmap? = null
     lateinit var surface: Surface
         private set
-    private var hasImage = false
+    @Volatile private var hasImage = false
+    val hasFrame: Boolean get() = hasImage && !closed.get()
     private var hadViewer = false
     private var encodedOptions: ImageEncodingOptions? = null
     private val encoder = ImageFrameEncoder()

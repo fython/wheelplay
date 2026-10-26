@@ -3,8 +3,6 @@ package com.shilapi.xcertplay
 import android.content.Intent
 import android.net.Uri
 import android.os.Looper
-import android.view.View
-import android.view.ViewGroup
 import androidx.compose.ui.test.*
 import androidx.lifecycle.ViewModelProvider
 import java.io.ByteArrayInputStream
@@ -27,6 +25,10 @@ import org.robolectric.annotation.Config
 @Config(sdk = [29], qualifiers = "zh-rCN-mdpi")
 @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
 class AuthenticationImportModelTest : ComposeSettingsTest() {
+    private companion object {
+        const val IMPORT_TIMEOUT_SECONDS = 30L
+    }
+
     private val app
         get() = RuntimeEnvironment.getApplication()
 
@@ -45,13 +47,13 @@ class AuthenticationImportModelTest : ComposeSettingsTest() {
     }
 
     private fun waitForCompletion(model: AuthenticationImportModel) {
-        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(IMPORT_TIMEOUT_SECONDS)
         do {
             shadowOf(Looper.getMainLooper()).idle()
             if (model.state.value?.busy == false && !DiPlayBootstrap.importing) return
             Thread.sleep(5)
         } while (System.nanoTime() < deadline)
-        fail("Import did not complete")
+        fail("Import did not complete: state=${model.state.value}, importing=${DiPlayBootstrap.importing}")
     }
 
     private fun apk(identity: SyntheticMfiIdentity.Identity): ByteArray =
@@ -114,41 +116,50 @@ class AuthenticationImportModelTest : ComposeSettingsTest() {
             object : ByteArrayInputStream(bytes) {
                 override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
                     entered.countDown()
-                    check(release.await(5, TimeUnit.SECONDS))
+                    // The test owns this gate and releases it in finally. Activity recreation
+                    // may be slow on CI; its duration must not turn the fixture into a failed import.
+                    release.await()
                     return super.read(buffer, offset, length)
                 }
             }
         }
         val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
-        val model = ViewModelProvider(controller.get())[AuthenticationImportModel::class.java]
-        assertSame(app, model.getApplication<android.app.Application>())
         try {
-            model.import(apk = apkUri)
-            assertTrue(entered.await(2, TimeUnit.SECONDS))
-            assertThrows(Exception::class.java) { DiPlayBootstrap.ensure(app) }
-            controller.recreate()
-            assertSame(
-                model,
-                ViewModelProvider(controller.get())[AuthenticationImportModel::class.java],
-            )
+            val model = ViewModelProvider(controller.get())[AuthenticationImportModel::class.java]
+            assertSame(app, model.getApplication<android.app.Application>())
+            try {
+                model.import(apk = apkUri)
+                assertTrue("Import worker did not reach the blocked read",
+                    entered.await(IMPORT_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                assertThrows(IllegalStateException::class.java) { DiPlayBootstrap.ensure(app) }
+                controller.recreate()
+                assertSame(
+                    model,
+                    ViewModelProvider(controller.get())[AuthenticationImportModel::class.java],
+                )
+                assertTrue("Import must remain blocked until the test releases it", DiPlayBootstrap.importing)
+                assertTrue(model.state.value!!.busy)
+            } finally {
+                release.countDown()
+                waitForCompletion(model)
+            }
+            // The Activity consumes the result message. Check the installed identity before
+            // ensure() can fall back to bundled assets and obscure the actual import failure.
+            assertTrue("Import completed without installing authentication resources", store.exists())
+            assertArrayEquals(identity.certificate, store.load().readCertificate())
+            DiPlayBootstrap.ensure(controller.get())
+            compose.onNodeWithText("资源已就绪 · 私钥与证书校验通过").assertExists()
+            assertNotNull(shadowOf(controller.get()).nextStartedService)
+            val service = Robolectric.buildService(DiPlaySessionService::class.java).create()
+            try {
+                service.get().onStartCommand(Intent(app, DiPlaySessionService::class.java), 0, 1)
+                assertTrue(com.shilapi.xcertplay.web.WebSession.running)
+            } finally {
+                service.destroy()
+            }
         } finally {
-            release.countDown()
-            waitForCompletion(model)
+            controller.pause().stop().destroy()
         }
-        fun views(view: View): List<View> =
-            listOf(view) +
-                if (view is ViewGroup)
-                    (0 until view.childCount).flatMap { views(view.getChildAt(it)) }
-                else emptyList()
-        DiPlayBootstrap.ensure(controller.get())
-        compose.onNodeWithText("资源已就绪 · 私钥与证书校验通过").assertExists()
-        assertNotNull(shadowOf(controller.get()).nextStartedService)
-        assertArrayEquals(identity.certificate, store.load().readCertificate())
-        val service = Robolectric.buildService(DiPlaySessionService::class.java).create()
-        service.get().onStartCommand(Intent(app, DiPlaySessionService::class.java), 0, 1)
-        assertTrue(com.shilapi.xcertplay.web.WebSession.running)
-        service.destroy()
-        controller.pause().stop().destroy()
     }
 
     @Test

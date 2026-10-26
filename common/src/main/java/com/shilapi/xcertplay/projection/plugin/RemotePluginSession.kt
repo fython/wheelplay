@@ -38,6 +38,12 @@ internal class RemotePluginSession(
         { task -> Thread(task, "projection-plugin-ipc").apply { isDaemon = true } })
     private val mediaWorker = Executors.newSingleThreadExecutor { task -> Thread(task, "projection-plugin-surface").apply { isDaemon = true } }
     private var failureReason: String? = null
+    @Volatile private var lifecycleFailure: ProjectionFailure? = null
+    override val state get() = ProjectionSessionState(
+        when { completion.isDone -> if (lifecycleFailure == null) ProjectionPhase.STOPPED else ProjectionPhase.FAILED
+            stopping -> ProjectionPhase.STOPPING; ready -> ProjectionPhase.RUNNING
+            infoReceived -> ProjectionPhase.NEGOTIATING; else -> ProjectionPhase.CONNECTING },
+        capabilities, inputReady, lifecycleFailure)
     private var activated = false
     private var bound = false
     @Volatile private var remote: IProjectionPlugin? = null
@@ -58,6 +64,7 @@ internal class RemotePluginSession(
     private fun rememberFailure(message: String) {
         if (failureReason != null) return
         failureReason = message.take(512)
+        lifecycleFailure = ProjectionFailure(ProjectionErrorCategory.CONNECTION, message.take(512), "plugin", ProjectionPlugin.ERROR.toString())
         runCatching { onFailure(failureReason!!) }
     }
     private fun notifyStatus(message: String) {
@@ -78,7 +85,8 @@ internal class RemotePluginSession(
                 processExitRequired = video.processExitRequired
                 main.removeCallbacks(deadline)
                 main.postDelayed(deadline, startupTimeoutMs)
-                capabilities = ProjectionCapabilities(setOf(VideoIngressKind.SURFACE), video.maxTouchContacts, video.nightMode)
+                capabilities = ProjectionCapabilities(setOf(VideoIngressKind.SURFACE), video.maxTouchContacts, video.nightMode,
+                    cancellation = if (video.nativeCancelInput) ProjectionCancellation.NATIVE else ProjectionCancellation.RELEASE_ONLY)
                 runtime.changed(this@RemotePluginSession)
                 output = CompletableFuture.supplyAsync({ outputFactory(video.width, video.height) }, mediaWorker).also { pending ->
                     pending.whenComplete { port, failure -> main.post {
@@ -186,6 +194,11 @@ internal class RemotePluginSession(
         enqueue { it.touch(token, copy.map { c -> c.id }.toIntArray(), copy.map { c -> c.x }.toDoubleArray(),
             copy.map { c -> c.y }.toDoubleArray(), copy.map { c -> c.down }.toBooleanArray()) }
     }
+    override fun cancelInput(reason: ProjectionCancelReason): Boolean = synchronized(admission) {
+        if (stopping || !startSent) return false
+        if (capabilities.cancellation == ProjectionCancellation.NATIVE) enqueue { it.cancelInput(token) }
+        else touch(emptyList())
+    }
     override fun setNightMode(night: Boolean): ProjectionCommandResult = synchronized(admission) {
         if (stopping || !ready) return ProjectionCommandResult.UNAVAILABLE
         if (!capabilities.nightMode) return ProjectionCommandResult.UNSUPPORTED
@@ -246,12 +259,14 @@ internal class RemotePluginSession(
                 completion.complete(Unit)
                 runtime.ended(this)
             } else {
+                lifecycleFailure = ProjectionFailure(ProjectionErrorCategory.CLEANUP, failure.toString(), "plugin")
                 val cleanupMessage = context.getString(UiR.string.plugin_cleanup_failed)
                 // Preserve the original failure too, but make the unsafe cleanup actionable.
                 val report = failureReason?.let { "$it\n$cleanupMessage" } ?: cleanupMessage
                 runCatching { onFailure(report) }
                 notifyStatus(report)
                 completion.completeExceptionally(failure)
+                runtime.changed(this)
             }
         } }
     }

@@ -94,6 +94,7 @@ internal object BrowserStrings {
                 UiR.string.web_use_the_browser_menu_to_toggle_full_screen,
             "web_exit_full_screen" to UiR.string.web_exit_full_screen,
             "web_full_screen" to UiR.string.web_full_screen,
+            "web_desktop_back" to UiR.string.web_desktop_back,
             "web_unsupported_microphone_sample_format" to
                 UiR.string.web_unsupported_microphone_sample_format,
             "web_tap_the_display_to_allow_audio_playback" to

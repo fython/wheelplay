@@ -13,6 +13,7 @@
 | **CarPlay** | 支持 iPhone USB 与无线连接、浏览器显示与触控；需要有效的 CarPlay 认证资源。 |
 | **Android Auto（实验性）** | 已实现 USB AOA、显式 Head Unit Server TCP 连接及本机连接引导；设备兼容性仍需真机验证。 |
 | **VNC（实验性）** | 通过 RFB 3.3/3.7/3.8 连接远程桌面，支持 JPEG/WebP 画面、触控、鼠标、实体键盘及仅查看模式。实际服务端与设备兼容性仍需验证。 |
+| **Android 虚拟桌面（实验性）** | Shizuku UserService、本机应用选择、固定尺寸 JPEG/WebP、多指触控与返回。需要 Android 10+/Shizuku 13+，尚未完成真机兼容性验证，见[使用与验收指南](docs/ANDROID_DESKTOP.md)。 |
 | **诊断输入源** | 提供 H.264、Surface 和帧缓冲测试源，无需连接手机即可检查画面链路。 |
 | **插件 APK** | 安装并启用独立的 Surface 画面／触控输入源；提供独立 SDK 和示例 APK，见[插件指南](docs/PROJECTION_PLUGINS.md)。 |
 | **ICCOA CarLink** | 计划通过独立插件 APK 提供；本版本不包含专有 SDK 或 CarLink 插件。 |

@@ -28,10 +28,13 @@ android {
 
     buildFeatures {
         compose = true
+        aidl = true
     }
 }
 
 dependencies {
+    implementation("dev.rikka.shizuku:api:13.1.5")
+    implementation("dev.rikka.shizuku:provider:13.1.5")
     implementation(project(":projection-plugin-api"))
     implementation("org.bouncycastle:bcpkix-jdk18on:1.79")
     implementation("io.github.g00fy2.quickie:quickie-bundled:1.12.0")

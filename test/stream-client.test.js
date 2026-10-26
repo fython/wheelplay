@@ -590,12 +590,33 @@ test('a same-version RTC offer keeps the pending JPEG available if negotiation f
   assert.equal(f.element('touch-surface').classList.contains('stale'), false);
 });
 
+test('versioned pointer cancellation sends a cancel command while ordinary up still releases the contact', async () => {
+  for (const event of ['pointercancel', 'lostpointercapture']) {
+    const f = fixture(), ws = await f.connect(); mediaStatus(ws);
+    ws.onmessage({ data: videoPacket(1) }); finishJpeg(f);
+    f.pointer('pointerdown', 100, 'touch-surface');
+    f.pointer('pointermove', 200, 'touch-surface');
+    f.pointer(event, 200, 'touch-surface');
+    const afterCancel = ws.sent.length;
+    f.flushMoves(); f.pointer('pointerup', 200, 'touch-surface');
+    assert.equal(ws.sent.length, afterCancel);
+    assert.deepEqual(ws.sent.filter(m => m.type === 'input').at(-1), {
+      type: 'input', kind: 'release', sessionId: 7, videoEpoch: 1,
+    });
+    assert.deepEqual(ws.sent.filter(m => m.type === 'touch').map(m => m.contacts[0].down), [true]);
+    f.pointer('pointerdown', 100, 'touch-surface'); f.pointer('pointerup', 100, 'touch-surface');
+    f.pointer('lostpointercapture', 100, 'touch-surface');
+    assert.equal(ws.sent.filter(m => m.type === 'input').length, 1);
+    assert.equal(ws.sent.filter(m => m.type === 'touch').at(-1).contacts[0].down, false);
+  }
+});
+
 test('a source gap releases touch, keeps the picture, and expires with no more status messages', async () => {
   const f = fixture(), ws = await f.connect(); mediaStatus(ws);
   ws.onmessage({ data: videoPacket(1) }); finishJpeg(f);
   f.pointer('pointerdown', 100, 'touch-surface');
   mediaStatus(ws, { sourceState: 'recovering', streaming: false, inputReady: false });
-  assert.deepEqual(ws.sent.filter(m => m.type === 'touch').at(-1).contacts, []);
+  assert.deepEqual(ws.sent.filter(m => m.type === 'input').at(-1), { type: 'input', kind: 'release', sessionId: 7, videoEpoch: 1 });
   assert.equal(f.element('waiting').hidden, true);
   assert.equal(f.element('media-message').hidden, false);
   assert.match(f.element('media-message').textContent, /触控已暂停/);
@@ -643,7 +664,7 @@ test('a rotated JPEG arriving before status disables old touch and commits the n
   ws.onmessage({ data: videoPacket(1) }); finishJpeg(f);
   f.pointer('pointerdown', 100, 'touch-surface');
   ws.onmessage({ data: videoPacket(2, { width: 720, height: 1280 }) });
-  assert.deepEqual(ws.sent.filter(m => m.type === 'touch').at(-1).contacts, []);
+  assert.deepEqual(ws.sent.filter(m => m.type === 'input').at(-1), { type: 'input', kind: 'release', sessionId: 7, videoEpoch: 2 });
   finishJpeg(f, 720, 1280);
   assert.equal(f.element('touch-surface').classList.contains('stale'), true, 'input needs a ready status');
   mediaStatus(ws, { videoEpoch: 2, width: 720, height: 1280 });
@@ -828,7 +849,7 @@ test('Direct Canvas preserves versioned media isolation and input readiness acro
   await f.offer(ws, 1, { sessionId: 7, videoEpoch: 1 }); await f.decoded();
   f.pointer('pointerdown', 100, 'touch-surface');
   mediaStatus(ws, { videoEpoch: 2, sourceState: 'recovering', inputReady: false });
-  assert.deepEqual(ws.sent.filter(m => m.type === 'touch').at(-1).contacts, []);
+  assert.deepEqual(ws.sent.filter(m => m.type === 'input').at(-1), { type: 'input', kind: 'release', sessionId: 7, videoEpoch: 2 });
   assert.equal(f.element('held-frame').hidden, false);
   assert.equal(f.element('touch-surface').classList.contains('stale'), true);
   const count = f.peers.length;

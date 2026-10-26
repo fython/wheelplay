@@ -69,7 +69,7 @@ class SourceNavigationTest {
             assertEquals("输入源", nav.menu.findItem(2).title)
             nav.selectedItemId = 2
             val titles = cards(activity).map { views(it).filterIsInstance<TextView>().first().text.toString() }
-            assertEquals(listOf("CarPlay (iPhone)", "Android Auto", "ICCOA CarLink", "VNC", "插件输入源", "诊断输入源"), titles)
+            assertEquals(listOf("CarPlay (iPhone)", "Android Auto", "ICCOA CarLink", "VNC", "Android 虚拟桌面", "插件输入源", "诊断输入源"), titles)
             assertTrue(buttons(activity).isEmpty())
             val initialSession = projectionSessions.snapshot()
             capture(activity, "index")
@@ -79,7 +79,7 @@ class SourceNavigationTest {
             assertFalse(buttons(activity).any { it.text == "连接本机 Android Auto" })
             capture(activity, "carplay")
             activity.onBackPressedDispatcher.onBackPressed()
-            assertEquals(6, cards(activity).size)
+            assertEquals(7, cards(activity).size)
             cards(activity)[1].performClick()
             assertTrue(buttons(activity).any { it.text == "连接本机 Android Auto" })
             assertTrue(buttons(activity).any { it.text == "通过 USB 连接 Android Auto" })
@@ -111,6 +111,118 @@ class SourceNavigationTest {
             assertEquals("", fields[2].text.toString())
             assertSame(initialSession, projectionSessions.snapshot())
             assertNull(shadowOf(activity).nextStartedActivity)
+        } finally { controller.pause().stop().destroy(); WebSession.stop() }
+    }
+
+    @Test fun desktopCardOnlyNavigatesAndMissingShizukuKeepsStartDisabled() {
+        val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
+        val activity = controller.get()
+        try {
+            val initial = projectionSessions.snapshot()
+            tabs(activity).selectedItemId = 2
+            cards(activity)[4].performClick()
+            assertTrue(buttons(activity).any { it.text == "安装 / 打开 Shizuku" })
+            assertTrue(buttons(activity).any { it.text == "授权 WheelPlay" })
+            assertTrue(buttons(activity).any { it.text == "选择可启动的本机应用" })
+            assertFalse(buttons(activity).single { it.text == "启动虚拟桌面" }.isEnabled)
+            assertTrue(views(page(activity)).filterIsInstance<TextView>().any { it.text.toString().contains("未安装 Shizuku") })
+            assertSame(initial, projectionSessions.snapshot())
+            assertNull(shadowOf(activity).nextStartedActivity)
+            assertTrue(shadowOf(RuntimeEnvironment.getApplication()).boundServiceConnections.isEmpty())
+            tabs(activity).selectedItemId = 1
+            selectHomeSource(activity, "Android 虚拟桌面")
+            buttons(activity).single { it.text == "设置并连接" }.performClick()
+            assertFalse(buttons(activity).single { it.text == "启动虚拟桌面" }.isEnabled)
+            assertSame(initial, projectionSessions.snapshot())
+            val active = object : ProjectionSession {
+                override val descriptor = SourceDescriptor("android-desktop", "Android 虚拟桌面")
+                override val capabilities = ProjectionCapabilities(setOf(VideoIngressKind.SURFACE))
+                override val inputReady = false
+                override val statusText = "desktop-test-connected"
+                override fun touch(contacts: List<ProjectionContact>) = true
+                override fun stop() = java.util.concurrent.CompletableFuture.completedFuture(Unit)
+            }
+            assertTrue(projectionSessions.adopt(active, setOf(ProjectionResource.DISPLAY)))
+            shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(1))
+            assertTrue(views(page(activity)).filterIsInstance<TextView>().any { it.text == "desktop-test-connected" })
+            val stop = buttons(activity).single { it.text == "停止投影" }
+            assertEquals(View.VISIBLE, stop.visibility)
+            stop.performClick()
+            assertNull(projectionSessions.snapshot())
+        } finally { projectionSessions.stop().join(); controller.pause().stop().destroy(); WebSession.stop() }
+    }
+
+    @Test fun homeStopCancelsPendingAcquisitionBeforeASessionExists() {
+        val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
+        val activity = controller.get()
+        val pending = java.util.concurrent.CompletableFuture<ProjectionSession>()
+        val cancelled = java.util.concurrent.CountDownLatch(1)
+        projectionSessions.register(object : ProjectionSourceProvider {
+            override val descriptor = SourceDescriptor("pending-test", "Pending source")
+            override val resources = setOf(ProjectionResource.DISPLAY)
+            override fun probe() = SourceAvailability.Ready
+            override fun open() = pending
+            override fun open(startup: ProjectionStartup): java.util.concurrent.CompletableFuture<ProjectionSession> {
+                startup.onCancel {
+                    pending.completeExceptionally(java.util.concurrent.CancellationException("cancelled"))
+                    cancelled.countDown()
+                }
+                return pending
+            }
+        })
+        try {
+            tabs(activity).selectedItemId = 1
+            val opening = projectionSessions.open("pending-test")
+            shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(1))
+            assertNull(projectionSessions.snapshot())
+            val stop = buttons(activity).single { it.text == activity.getString(com.shilapi.xcertplay.shared.R.string.home_stop_source, "Pending source") }
+            assertEquals(View.VISIBLE, stop.visibility)
+            stop.performClick()
+            assertTrue(cancelled.await(2, java.util.concurrent.TimeUnit.SECONDS))
+            assertTrue(opening.isCompletedExceptionally)
+            assertFalse(projectionSessions.hasSession())
+        } finally {
+            pending.completeExceptionally(java.util.concurrent.CancellationException("test cleanup"))
+            projectionSessions.stop().join()
+            controller.pause().stop().destroy(); WebSession.stop()
+        }
+    }
+
+    @Test fun desktopDisplaySettingsValidateSaveCancelAndRestoreDefaultsWithoutStartingProjection() {
+        val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
+        val activity = controller.get()
+        try {
+            val initial = projectionSessions.snapshot()
+            tabs(activity).selectedItemId = 2
+            cards(activity)[4].performClick()
+            val source = projectionSessions.sources().filterIsInstance<moe.feng.wheelplay.projection.desktop.AndroidDesktopSource>().single()
+            fun open(): android.app.AlertDialog {
+                buttons(activity).single { it.text.startsWith("画面：") }.performClick()
+                return org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog()
+            }
+            val dialog = open()
+            val fields = views(dialog.window!!.decorView).filterIsInstance<android.widget.EditText>()
+            assertEquals(listOf("1280", "720", "160"), fields.map { it.text.toString() })
+            fields[0].setText("999999999999")
+            dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick()
+            assertTrue(dialog.isShowing)
+            assertEquals(1280, source.displayConfig().width)
+            fields[0].setText("1080"); fields[1].setText("1920"); fields[2].setText("320")
+            dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick()
+            assertFalse(dialog.isShowing)
+            assertEquals(moe.feng.wheelplay.projection.desktop.DesktopDisplayConfig(1080, 1920, 320), source.displayConfig())
+            assertTrue(buttons(activity).any { it.text == "画面：1080 × 1920 · 320 DPI" })
+            val canceled = open()
+            canceled.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).performClick()
+            canceled.getButton(android.app.AlertDialog.BUTTON_NEGATIVE).performClick()
+            assertEquals(320, source.displayConfig().dpi)
+            val reset = open()
+            reset.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).performClick()
+            assertTrue(reset.isShowing)
+            reset.getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick()
+            assertEquals(moe.feng.wheelplay.projection.desktop.DesktopDisplayConfig(), source.displayConfig())
+            assertSame(initial, projectionSessions.snapshot())
+            assertTrue(shadowOf(RuntimeEnvironment.getApplication()).boundServiceConnections.isEmpty())
         } finally { controller.pause().stop().destroy(); WebSession.stop() }
     }
 
@@ -251,7 +363,7 @@ class SourceNavigationTest {
             buttons(activity).single { it.text.startsWith("切换输入源：") }.performClick()
             val dialog = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog()
             val names = (0 until dialog.listView.count).map { dialog.listView.adapter.getItem(it).toString() }
-            assertEquals(listOf("CarPlay (iPhone)", "Android Auto", "VNC", "ICCOA CarLink test.carlink"), names)
+            assertEquals(listOf("CarPlay (iPhone)", "Android Auto", "VNC", "Android 虚拟桌面", "ICCOA CarLink test.carlink"), names)
             dialog.dismiss()
             selectHomeSource(activity, "ICCOA CarLink test.carlink")
             assertTrue(buttons(activity).single { it.text == "连接" }.isEnabled)

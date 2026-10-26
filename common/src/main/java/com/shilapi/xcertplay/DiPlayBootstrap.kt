@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay
 
+import com.shilapi.xcertplay.projection.ProjectionSourceIds
 import android.content.Context
 import com.shilapi.xcertplay.airplay.AirPlayIdentity
 import com.shilapi.xcertplay.orchestration.MfiTarget
@@ -40,7 +41,7 @@ internal object DiPlayPreferences {
     fun savePhone(context: Context, address: String, name: String) {
         prefs(context).edit().putString("phone_address", address).putString("phone_name", name).apply()
     }
-    fun homeSource(context: Context): String = prefs(context).getString("home_source", "carplay") ?: "carplay"
+    fun homeSource(context: Context): String = prefs(context).getString("home_source", ProjectionSourceIds.CARPLAY) ?: ProjectionSourceIds.CARPLAY
     fun saveHomeSource(context: Context, id: String) { prefs(context).edit().putString("home_source", id).apply() }
     fun autoConnect(context: Context) = prefs(context).getBoolean("auto_connect", false)
     fun saveAutoConnect(context: Context, value: Boolean) {

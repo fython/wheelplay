@@ -21,8 +21,8 @@ internal class AndroidAutoSource(private val context: Context, private val mode:
     private val outputFactory: () -> ProjectionVideoOutput) : ProjectionSourceProvider {
     override val descriptor = when (mode) {
         AndroidAutoMode.LOCAL -> SourceDescriptor(LocalAndroidAuto.SOURCE_ID, context.getString(UiR.string.aa_local_title))
-        AndroidAutoMode.USB -> SourceDescriptor("android-auto-usb", "Android Auto · USB")
-        AndroidAutoMode.TCP -> SourceDescriptor("android-auto-tcp", "Android Auto · Head Unit Server (TCP)")
+        AndroidAutoMode.USB -> SourceDescriptor(ProjectionSourceIds.ANDROID_AUTO_USB, "Android Auto · USB")
+        AndroidAutoMode.TCP -> SourceDescriptor(ProjectionSourceIds.ANDROID_AUTO_TCP, "Android Auto · Head Unit Server (TCP)")
     }
     override val resources = buildSet {
         add(ProjectionResource.DISPLAY); add(ProjectionResource.MICROPHONE)
@@ -60,11 +60,17 @@ internal class AndroidAutoSession(private val context: Context, override val des
     private val connection: AapConnection, private val micEnabled: Boolean,
     private val outputFactory: () -> ProjectionVideoOutput) : ProjectionSession {
     override val capabilities = ProjectionCapabilities(setOf(VideoIngressKind.ENCODED), 10, nightMode = true,
-        audioPlayback = true, microphone = micEnabled, browserAudio = false, browserMicrophone = false)
+        audioPlayback = true, microphone = micEnabled, browserAudio = false, browserMicrophone = false, cancellation = ProjectionCancellation.NATIVE)
     @Volatile override var statusText = "Android Auto: connecting"
         private set
     @Volatile private var ready = false
-    private var inputBound = false
+    @Volatile private var lifecycleFailure: ProjectionFailure? = null
+    override val state get() = ProjectionSessionState(
+        when { finished.isDone -> if (lifecycleFailure == null) ProjectionPhase.STOPPED else ProjectionPhase.FAILED
+            stopping.get() -> ProjectionPhase.STOPPING
+            inputBound -> ProjectionPhase.RUNNING
+            else -> ProjectionPhase.CONNECTING }, capabilities, inputReady, lifecycleFailure)
+    @Volatile private var inputBound = false
     private var videoFocusMode = 1
     override val inputReady get() = ready && !stopping.get()
     private val stopping = AtomicBoolean()
@@ -170,6 +176,7 @@ internal class AndroidAutoSession(private val context: Context, override val des
             val error = workerFailure.get() ?: caught
             if (!stopping.get()) {
                 failure = error
+                lifecycleFailure = projectionFailure(error)
                 if (!connected && descriptor.id == LocalAndroidAuto.SOURCE_ID) {
                     context.getSharedPreferences("projection", 0).edit().remove(LocalAndroidAuto.SETUP_SEEN).apply()
                     state(context.getString(UiR.string.aa_local_server_unavailable))
@@ -186,7 +193,9 @@ internal class AndroidAutoSession(private val context: Context, override val des
                 outbound.clear(); frames.clear()
             }
             if (cleanup.isFailure) {
+                lifecycleFailure = ProjectionFailure(ProjectionErrorCategory.CLEANUP, cleanup.exceptionOrNull().toString(), "android-auto")
                 finished.completeExceptionally(ProjectionCleanupException("Android Auto cleanup failed", cleanup.exceptionOrNull()))
+                projectionSessions.changed(this)
             } else {
                 finished.complete(Unit)
                 projectionSessions.ended(this)
@@ -237,7 +246,7 @@ internal class AndroidAutoSession(private val context: Context, override val des
                 0x8007 -> if (channel == 2) {
                     val mode = AapProto.number(body, 2).toInt()
                     require(mode in 1..4)
-                    if (mode != 1) touch(emptyList())
+                    if (mode != 1) cancelInput(ProjectionCancelReason.FOCUS_LOST)
                     videoFocusMode = mode
                     videoRecovery.setProjected(mode == 1 || mode == 4)
                     ready = inputBound && mode == 1
@@ -276,11 +285,16 @@ internal class AndroidAutoSession(private val context: Context, override val des
         if (!inputReady) return false
         return touches.update(contacts).all { send(3, 0x8001, touches.encode(it, android.os.SystemClock.elapsedRealtimeNanos())) }
     }
+    @Synchronized override fun cancelInput(reason: ProjectionCancelReason): Boolean {
+        if (!inputBound || stopping.get()) return false
+        return touches.cancel().all { send(3, 0x8001, touches.encode(it, android.os.SystemClock.elapsedRealtimeNanos())) }
+    }
     override fun setNightMode(night: Boolean): ProjectionCommandResult {
         this.night = night
         return if (nightSubscribed && send(1, 0x8003, AapServices.night(night))) ProjectionCommandResult.SENT else ProjectionCommandResult.UNAVAILABLE
     }
     @Synchronized override fun stop(): CompletableFuture<Unit> {
+        cancelInput(ProjectionCancelReason.SOURCE_SWITCH)
         stopping.set(true); ready = false; videoRecovery.close(); connection.close()
         if (reader == null) finished.complete(Unit)
         return finished

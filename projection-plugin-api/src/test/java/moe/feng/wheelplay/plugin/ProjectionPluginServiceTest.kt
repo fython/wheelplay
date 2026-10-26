@@ -17,17 +17,20 @@ import java.util.concurrent.*
 class ProjectionPluginServiceTest {
     open class Service : ProjectionPluginService() {
         var allowHost = true
+        var nativeCancel = false
+        val cancellations = LinkedBlockingQueue<Boolean>()
         val started = CountDownLatch(1)
         val stopRequested = CountDownLatch(1)
         val stopped = CompletableFuture<Unit>()
         val touches = LinkedBlockingQueue<List<PluginContact>>()
         var beforeInfo: (() -> Unit)? = null
         override fun isHostAllowed(uid: Int) = allowHost
-        override fun videoInfo(): PluginVideoInfo { beforeInfo?.invoke(); return PluginVideoInfo(640, 360, 2, true) }
+        override fun videoInfo(): PluginVideoInfo { beforeInfo?.invoke(); return PluginVideoInfo(640, 360, 2, true, nativeCancelInput = nativeCancel) }
         override fun onStartProjection(surface: Surface, events: Events) {
             started.countDown(); events.state(ProjectionPlugin.READY)
         }
         override fun onStopProjection(): CompletableFuture<Unit> { stopRequested.countDown(); return stopped }
+        override fun onCancelInput() { cancellations.offer(true) }
         override fun onTouch(contacts: List<PluginContact>) { touches.add(contacts) }
     }
     class DedicatedService : Service() {
@@ -45,6 +48,24 @@ class ProjectionPluginServiceTest {
         override fun onState(token: String, state: Int, message: String) { if (state == ProjectionPlugin.READY) ready.countDown() }
         override fun onStopped(token: String, clean: Boolean, message: String) { stopped.add(clean) }
     }
+    @Test fun nativeCancellationIsNegotiatedAndRejectsForeignTokens() {
+        val controller = Robolectric.buildService(Service::class.java).create()
+        val service = controller.get().apply { nativeCancel = true }; val host = Host()
+        val binder = IProjectionPlugin.Stub.asInterface(service.onBind(Intent(ProjectionPlugin.ACTION)))
+        val texture = SurfaceTexture(0); val surface = Surface(texture)
+        try {
+            binder.connect("session", ProjectionPlugin.API_VERSION, host)
+            assertTrue(PluginVideoInfo.fromBundle(host.info.poll(3, TimeUnit.SECONDS)!!).nativeCancelInput)
+            binder.start("session", surface); assertTrue(host.ready.await(3, TimeUnit.SECONDS))
+            binder.cancelInput("foreign"); binder.cancelInput("session")
+            assertEquals(true, service.cancellations.poll(3, TimeUnit.SECONDS))
+            binder.touch("session", intArrayOf(0), doubleArrayOf(.5), doubleArrayOf(.5), booleanArrayOf(true))
+            assertEquals(1, service.touches.poll(3, TimeUnit.SECONDS)!!.size)
+            assertTrue(service.cancellations.isEmpty())
+            assertFalse(PluginVideoInfo.fromBundle(PluginVideoInfo(640, 360).toBundle()).nativeCancelInput)
+        } finally { service.stopped.complete(Unit); controller.destroy(); texture.release() }
+    }
+
     @Test fun sdkAcknowledgesStopOnlyAfterProducerCompletionAndRejectsForeignTokens() {
         val controller = Robolectric.buildService(Service::class.java).create()
         val service = controller.get(); val host = Host()

@@ -11,6 +11,7 @@ import com.shilapi.xcertplay.projection.projectionSessions
 import com.shilapi.xcertplay.projection.ProjectionContact
 import com.shilapi.xcertplay.projection.ProjectionSession
 import com.shilapi.xcertplay.projection.ProjectionInput
+import com.shilapi.xcertplay.projection.message
 import com.shilapi.xcertplay.CarPlayMicrophoneSource
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.i18n.*
@@ -32,14 +33,17 @@ internal object WebSession {
         val sessionId: Long, val videoEpoch: Long, val width: Int, val height: Int,
         val sourceState: String, val inputReady: Boolean, val frame: Frame?, val source: WebVideoSource?,
         val sourceId: String? = null, val sourceName: String? = null, val maxTouchContacts: Int = 0,
-        val pointerInput: Boolean = false, val keyboardInput: Boolean = false,
+        val pointerInput: Boolean = false, val keyboardInput: Boolean = false, val backButton: Boolean = false,
+        val sessionPhase: String = "stopped", val errorCategory: String? = null,
     )
 
     private var mediaSessionId = SecureRandom().nextLong().ushr(11)
     private var mediaEnded = true
 
     /** One coherent configuration; a static source need not publish new frames. */
-    @Synchronized fun mediaSnapshot(): MediaSnapshot = MediaSnapshot(
+    @Synchronized fun mediaSnapshot(): MediaSnapshot {
+        val runtime = projectionSessions.stateSnapshot()
+        return MediaSnapshot(
         mediaSessionId, generation, width, height,
         when {
             mediaEnded -> "stopped"
@@ -52,7 +56,11 @@ internal object WebSession {
         inputSession?.descriptor?.id, inputSession?.descriptor?.displayName,
         inputSession?.capabilities?.maxTouchContacts ?: 0,
         inputSession?.capabilities?.pointerInput == true, inputSession?.capabilities?.keyboardInput == true,
+        inputSession?.capabilities?.backButton == true,
+        runtime.phase.name.lowercase(),
+        runtime.failure?.category?.name?.lowercase(),
     )
+    }
 
     @Synchronized fun mediaMatches(sessionId: Long, epoch: Long): Boolean =
         !mediaEnded && videoActive && sessionId == mediaSessionId && epoch == generation
@@ -66,6 +74,10 @@ internal object WebSession {
     }
     @Synchronized fun mediaInput(client: Any, sessionId: Long, epoch: Long,
         event: ProjectionInput, at: Long): Boolean {
+        if (event == ProjectionInput.Release) {
+            if (mediaEnded || sessionId != mediaSessionId || epoch != generation) return false
+            return touch.input(client, event, at)
+        }
         if (!mediaMatches(sessionId, epoch) || !projectionSessions.inputReady(inputSession)) return false
         return touch.input(client, event, at)
     }
@@ -88,6 +100,7 @@ internal object WebSession {
     fun stageDetail(context: Context): String = stageText.resolve(context)
 
     fun stage(context: Context): String {
+        projectionSessions.stateSnapshot().failure?.let { return it.message(context) }
         val session = projectionSessions.snapshot()
         return when {
             session == null -> stageText.resolve(context)
@@ -147,7 +160,7 @@ internal object WebSession {
     val maxTouchContacts get() = projectionSessions.snapshot()?.capabilities?.maxTouchContacts ?: 0
     val touch = TouchLease(maxContacts = { maxTouchContacts }, sendInput = { event ->
         inputSession?.let { projectionSessions.input(it, event) } ?: false
-    }) { contacts ->
+    }, cancelInput = { reason -> inputSession?.let { projectionSessions.cancelInput(it, reason) } ?: false }) { contacts ->
         val target = inputSession
         target != null && projectionSessions.touch(target, contacts)
     }

@@ -30,6 +30,9 @@ data class ProjectionCapabilities(
     val browserMicrophone: Boolean = microphone,
     val pointerInput: Boolean = false,
     val keyboardInput: Boolean = false,
+    /** Discrete Android Back; does not imply general keyboard/text support. */
+    val backButton: Boolean = false,
+    val cancellation: ProjectionCancellation = ProjectionCancellation.RELEASE_ONLY,
 ) {
     init {
         require(maxTouchContacts in 0..10)
@@ -41,7 +44,7 @@ data class ProjectionCapabilities(
 data class SourceDescriptor(val id: String, val displayName: String)
 sealed class SourceAvailability {
     data object Ready : SourceAvailability()
-    data class Unavailable(val reason: String) : SourceAvailability()
+    data class Unavailable(val reason: String, val failure: ProjectionFailure = ProjectionFailure(ProjectionErrorCategory.UNAVAILABLE, reason)) : SourceAvailability()
 }
 
 /** One connection attempt. Implementations must capture their own transport, never look up another source. */
@@ -50,6 +53,8 @@ interface ProjectionSession {
     val capabilities: ProjectionCapabilities
     val inputReady: Boolean
     val statusText: String? get() = null
+    val state: ProjectionSessionState get() = ProjectionSessionState(
+        if (inputReady) ProjectionPhase.RUNNING else ProjectionPhase.CONNECTING, capabilities, inputReady)
     val media: MediaControlSource? get() = null
     val mediaOutput: MediaOutputControl? get() = null
     /** Called after runtime admission. Start asynchronous producers here; stop may race activation. */
@@ -57,6 +62,12 @@ interface ProjectionSession {
     /** Nonblocking admission; true means accepted, not acknowledged by the remote device. */
     fun touch(contacts: List<ProjectionContact>): Boolean
     fun input(event: ProjectionInput): Boolean = false
+    /** Nonblocking cancellation admission; normal touch(emptyList()) still means finger-up. */
+    fun cancelInput(reason: ProjectionCancelReason): Boolean {
+        val touchReleased = touch(emptyList())
+        val keysReleased = input(ProjectionInput.Release)
+        return touchReleased || keysReleased
+    }
     fun setNightMode(night: Boolean): ProjectionCommandResult = ProjectionCommandResult.UNSUPPORTED
     /** Completes only after transport, media producers and platform resources have stopped. */
     fun stop(): CompletableFuture<Unit>
@@ -72,4 +83,9 @@ interface ProjectionSourceProvider {
     fun probe(): SourceAvailability
     /** Failure completes only after partial startup resources have been cleaned up. */
     fun open(): CompletableFuture<ProjectionSession>
+    /** Complete only after acquisition or failed/cancelled acquisition cleanup. Runtime disposes late sessions without activation. */
+    fun open(startup: ProjectionStartup): CompletableFuture<ProjectionSession> {
+        startup.checkActive()
+        return open()
+    }
 }
