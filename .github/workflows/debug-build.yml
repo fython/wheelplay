@@ -2,6 +2,11 @@ name: Android Debug Build
 
 on:
   push:
+    # PR branches are verified by pull_request; use workflow_dispatch before opening a PR.
+    branches:
+      - main
+    tags:
+      - '**'
     paths-ignore:
       - '**.md'
       - 'website/**'
