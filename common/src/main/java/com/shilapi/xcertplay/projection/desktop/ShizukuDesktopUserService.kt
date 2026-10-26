@@ -28,7 +28,7 @@ import java.util.concurrent.TimeUnit
 /** Shizuku constructs this Binder in its shell/root app_process, not an Android Service. */
 @Keep
 @RequiresApi(29)
-class DesktopUserService(context: Context) : IDesktopService.Stub() {
+class ShizukuDesktopUserService(context: Context) : IDesktopService.Stub() {
     private val hostUid = context.applicationInfo.uid
     private val shellContext = context.createPackageContext("com.android.shell", Context.CONTEXT_IGNORE_SECURITY)
     private val displays = DisplayManager::class.java.getDeclaredConstructor(Context::class.java).apply {

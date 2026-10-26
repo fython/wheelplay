@@ -45,7 +45,7 @@ internal class ShizukuDesktopBackend(private val context: Context) : DesktopBack
             result.completeExceptionally(IllegalStateException(availability.reason)); return result
         }
         val version = context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode.toInt()
-        val args = Shizuku.UserServiceArgs(ComponentName(context, DesktopUserService::class.java))
+        val args = Shizuku.UserServiceArgs(ComponentName(context, ShizukuDesktopUserService::class.java))
             .tag("wheelplay-desktop-v${DesktopProtocol.VERSION}-${android.os.Process.myUid()}-${UUID.randomUUID()}")
             .version(version).daemon(false).processNameSuffix("desktop")
         val main = Handler(Looper.getMainLooper())
