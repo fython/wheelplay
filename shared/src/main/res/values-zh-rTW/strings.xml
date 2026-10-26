@@ -632,6 +632,17 @@
     <string name="desktop_dpi">密度（DPI）</string>
     <string name="desktop_display_invalid">寬度和高度均須為 %1$d–%2$d 像素，總像素數不得超過 %3$d；DPI 須為 %4$d–%5$d。請輸入整數。</string>
     <string name="desktop_display_reset">恢復預設值</string>
+    <string name="desktop_error_protocol">桌面助手協定不相容，請重新啟動 WheelPlay 後重新連線。</string>
+    <string name="desktop_error_permission">桌面助手權限遭拒，請檢查 Shizuku 授權和裝置限制。</string>
+    <string name="desktop_error_request">桌面助手拒絕了請求參數，請檢查虛擬螢幕設定後重新連線。</string>
+    <string name="desktop_error_session">桌面工作階段已失效，請停止後重新連線。</string>
+    <string name="desktop_error_capability">桌面助手不支援所請求的功能。</string>
+    <string name="desktop_error_app">所選應用程式無法啟動，請選擇已安裝且已啟用的應用程式。</string>
+    <string name="desktop_error_display">無法建立虛擬螢幕，請嘗試較小尺寸或檢查裝置相容性。</string>
+    <string name="desktop_error_launch">應用程式未能在虛擬螢幕上啟動，請嘗試其他應用程式。</string>
+    <string name="desktop_error_layout">虛擬螢幕的尺寸、密度或方向已改變，請重新連線。</string>
+    <string name="desktop_error_input">虛擬桌面輸入失敗，請停止工作階段後重新連線。</string>
+    <string name="desktop_error_internal">虛擬桌面發生非預期錯誤，請停止工作階段後重新連線。</string>
     <string name="desktop_summary">實驗性 · 透過 Shizuku 在獨立顯示螢幕執行本機應用程式</string>
     <string name="desktop_hint">實驗性功能，需實機驗證。可設定畫面尺寸和 DPI，使用圖像輸出，僅支援觸控與返回。音訊保留手機原有行為；不支援瀏覽器音訊、麥克風、鍵盤和 Home。這與手機共用系統和應用程式資料；部分應用程式可能從主螢幕移動過來或拒絕副螢幕，受保護內容可能黑屏。旋轉後需重新連線。</string>
     <string name="desktop_not_installed">尚未安裝 Shizuku。請先安裝並啟動，再授權 WheelPlay。</string>

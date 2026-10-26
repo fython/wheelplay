@@ -3,6 +3,7 @@ package com.shilapi.xcertplay.projection.desktop
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import com.shilapi.xcertplay.shared.R
 import com.shilapi.xcertplay.projection.*
 import com.shilapi.xcertplay.web.WebSession
@@ -27,6 +28,8 @@ internal class AndroidDesktopSource(
     override val resources = setOf(ProjectionResource.DISPLAY)
     private val preferences = context.getSharedPreferences("android-desktop", Context.MODE_PRIVATE)
     @Volatile var lastFailure: String? = null
+        private set
+    @Volatile var lastError: DesktopException? = null
         private set
     @Volatile var preparing = false
         private set
@@ -56,21 +59,29 @@ internal class AndroidDesktopSource(
         val target = selectedApp()
         val config = displayConfig()
         lastFailure = null
+        lastError = null
         preparing = true
         val pending = try { backend.connect() } catch (error: Throwable) {
-            preparing = false; lastFailure = error.message
+            preparing = false; recordFailure(error)
             return CompletableFuture<ProjectionSession>().also { it.completeExceptionally(error) }
         }
         return pending.thenApply<ProjectionSession> { Session(it, target, config) }.whenComplete { _, failure ->
             preparing = false
-            if (failure != null) lastFailure = failure.cause?.message ?: failure.message
+            if (failure != null) recordFailure(failure)
         }
+    }
+
+    private fun recordFailure(error: Throwable): String {
+        val failure = desktopFailure(error)
+        lastError = failure
+        Log.w("AndroidDesktop", "Desktop error ${failure.code}: ${failure.diagnostic}", failure)
+        return context.getString(failure.category.message).also { lastFailure = it }
     }
 
     private inner class Session(private val connection: DesktopConnection, private val target: String,
         private val config: DesktopDisplayConfig) : ProjectionSession {
         override val descriptor = this@AndroidDesktopSource.descriptor
-        override val capabilities = ProjectionCapabilities(setOf(VideoIngressKind.SURFACE), maxTouchContacts = 10, backButton = true)
+        override val capabilities = connection.capabilities
         private val stopped = AtomicBoolean()
         private val activated = AtomicBoolean()
         private val completion = CompletableFuture<Unit>()
@@ -102,14 +113,16 @@ internal class AndroidDesktopSource(
             try { monitor.scheduleWithFixedDelay({
                 if (stopped.get()) return@scheduleWithFixedDelay
                 if (System.nanoTime() - lastProgress > TimeUnit.SECONDS.toNanos(15)) {
-                    fail(IllegalStateException(context.getString(R.string.desktop_disconnected)))
+                    fail(DesktopException(DesktopErrorCode.DISCONNECTED, "No IPC progress for 15 seconds"))
                 } else enqueue {
                     if (!started) return@enqueue
                     val dependency = backend.probe()
-                    check(dependency is SourceAvailability.Ready) { (dependency as SourceAvailability.Unavailable).reason }
-                    check(connection.healthy()) { context.getString(R.string.desktop_disconnected) }
-                    check(video?.hasFrame == true || System.nanoTime() - startedAt < TimeUnit.SECONDS.toNanos(15)) {
-                        context.getString(R.string.desktop_no_frame)
+                    desktopCheck(dependency is SourceAvailability.Ready, DesktopErrorCode.DISCONNECTED) {
+                        (dependency as SourceAvailability.Unavailable).reason
+                    }
+                    desktopCheck(connection.healthy(), DesktopErrorCode.DISCONNECTED) { "Helper is not healthy" }
+                    desktopCheck(video?.hasFrame == true || System.nanoTime() - startedAt < TimeUnit.SECONDS.toNanos(15), DesktopErrorCode.NO_FRAME) {
+                        "No Surface frame within 15 seconds"
                     }
                 }
             }, 500, 500, TimeUnit.MILLISECONDS) } catch (error: RejectedExecutionException) {
@@ -125,19 +138,20 @@ internal class AndroidDesktopSource(
                 }
                 true
             } catch (_: RejectedExecutionException) {
-                if (!stopped.get()) fail(IllegalStateException("Desktop input queue overflow"))
+                if (!stopped.get()) fail(DesktopException(DesktopErrorCode.INPUT_QUEUE_FULL, "Desktop input queue overflow"))
                 false
             }
         }
         override fun touch(contacts: List<ProjectionContact>): Boolean {
-            if ((!inputReady && contacts.isNotEmpty()) || contacts.size > 10 || contacts.map { it.id }.distinct().size != contacts.size ||
+            if (capabilities.maxTouchContacts == 0 || (!inputReady && contacts.isNotEmpty()) ||
+                contacts.size > capabilities.maxTouchContacts || contacts.map { it.id }.distinct().size != contacts.size ||
                 contacts.any { it.id !in 0..31 || !it.x.isFinite() || !it.y.isFinite() || it.x !in 0.0..1.0 || it.y !in 0.0..1.0 }) return false
             val copy = contacts.toList()
             return enqueue { if (started) connection.touch(copy) }
         }
         override fun input(event: ProjectionInput): Boolean = when {
             event == ProjectionInput.Release -> touch(emptyList())
-            event is ProjectionInput.Key && event.key == "BrowserBack" && inputReady ->
+            event is ProjectionInput.Key && event.key == "BrowserBack" && capabilities.backButton && inputReady ->
                 if (event.down) enqueue { connection.back() } else true
             else -> false
         }
@@ -145,11 +159,10 @@ internal class AndroidDesktopSource(
             // A failed video constructor may already have lost its object reference while
             // retaining a GL thread/Surface. Never release runtime ownership in that case.
             if (generateSequence(error) { it.cause }.any { it is ProjectionCleanupException }) startupCleanupFailure = error
-            failure = context.getString(R.string.projection_failed, error.message ?: error.javaClass.simpleName)
-            lastFailure = failure
+            failure = recordFailure(error)
             stop().whenComplete { _, cleanup ->
                 if (cleanup == null) projectionSessions.ended(this)
-                else { failure = context.getString(R.string.desktop_cleanup_failed); lastFailure = failure }
+                else { failure = recordFailure(DesktopException(DesktopErrorCode.CLEANUP_FAILED, cleanup.toString(), cleanup)) }
             }
         }
         override fun stop(): CompletableFuture<Unit> {
@@ -166,8 +179,7 @@ internal class AndroidDesktopSource(
                     startupCleanupFailure?.let { throw it }
                     completion.complete(Unit)
                 } catch (error: Throwable) {
-                    failure = context.getString(R.string.desktop_cleanup_failed)
-                    lastFailure = failure
+                    failure = recordFailure(DesktopException(DesktopErrorCode.CLEANUP_FAILED, error.toString(), error))
                     completion.completeExceptionally(ProjectionCleanupException("Virtual desktop cleanup unconfirmed", error))
                 }
             }

@@ -28,13 +28,58 @@
 `DesktopBackend` / `DesktopConnection` 是 Android 平台层接口，将可用性、连接、身份能力与停止同 Shizuku 解耦；共享 `ProjectionSourceProvider` 不暴露 Binder/ADB 类型。
 
 - 固定依赖 `dev.rikka.shizuku:api` 和 `provider` **13.1.5**。只接受实际 UID 2000（shell）或 0（root），状态页展示实际身份；二者不等价。
-- `IDesktopService` 协议版本 2，仅包含协商、带尺寸/DPI 的显示启动、触控、返回、健康检查、停止和销毁。主进程与助手共用参数范围校验，助手在创建显示前再次校验。不接收命令行、任意 Intent 或任意系统调用。
+- `IDesktopService` 协议版本 3，仅包含协商、带尺寸/DPI 的显示启动、触控、返回、健康检查、停止和销毁。主进程与助手共用参数范围校验，助手在创建显示前再次校验。不接收命令行、任意 Intent 或任意系统调用。
 - 每次连接使用独立 Shizuku tag，携带应用版本，避免旧绑定回调解除新会话。设置 `daemon(false)`，正常停止同时等待助手 Binder 死亡，按 UserService 协议实现销毁事务 `16777115` 和进程退出。
 - 每个入口验证宿主 UID；每个会话绑定随机 token、客户端 Binder 和布局版本。输入必须显式设置属于本助手且大于 0 的 displayId，设置失败即拒绝，绝不回退到默认显示屏。
 - 主进程输入工作队列上限 64，满队列即停止会话，不静默丢弃抬手；公共浏览器控制租约负责失焦、断网、过期、切源时释放触点。返回键的按下/抬起在助手同一调用内完成。
 - 正常停止：拒绝新输入 → 清空未执行输入并等待正在执行调用 → 助手取消触点、销毁显示/任务、释放收到的 Surface 副本 → 助手退出 → 主进程关闭 Surface/GL → runtime 释放资源。无法确认任何步骤时保留资源所有权。
 - 主进程 Binder 死亡立即触发助手清理/退出；健康检查续期独立看门狗（10 秒，未启动助手 30 秒）。Shizuku/助手死亡或授权失效由会话监测触发清理，不依赖 Activity 销毁。
 - UserService 不是常规应用进程。显示使用 shell 包上下文创建 `DisplayManager`；启动 Activity 走无应用线程 caller 的系统接口；隐藏 API 仅在 shell/root 助手进程中反射调用。接口变化/厂商拒绝均显式失败。
+
+## Binder 协议
+
+握手请求传协议版本和宿主支持的功能位，响应 `DesktopHandshakeResult` 包含状态与 `DesktopServiceInfo`：助手 UID、协议版本、助手支持位、双方启用位、最大触点数、宽高/DPI/总像素范围。主进程验证返回值后，将协商结果转换为公共 `ProjectionCapabilities`；会话及助手均拒绝未启用的输入操作。功能位使用固定数值，不使用 enum ordinal；未知功能位忽略，缺少必需的 Surface 视频或屏幕配置能力时明确失败。同一 APK 内仍要求协议版本完全匹配；同一版本内通过功能位协商可选能力。
+
+| 功能位 | 语义 |
+| --- | --- |
+| 0 / 1 / 2 | Surface / 编码视频 / framebuffer 视频输入 |
+| 3 | 触控，数量另由 `maxTouchContacts` 表达 |
+| 4 / 5 | 鼠标指针及滚轮 / 键盘 |
+| 6 / 7 | 独立 Back / 夜间模式 |
+| 8 / 9 | 源管理的本机音频播放 / 麦克风采集 |
+| 10 / 11 | 浏览器音频 / 浏览器麦克风路由，分别依赖位 8 / 9 |
+| 12 / 13 | 启动时配置尺寸及 DPI / 会话内动态调整显示 |
+| 14 | Home，独立于 Back 和通用键盘 |
+
+当前双方仅声明 **0、3、6、12**，最多 10 个触点。其余位仅定义语义，未实现对应传输和控制方法，也不会因为本机应用自行播放声音而声明音频管线可用。能力声明表示已实现的协议功能，不保证厂商系统或具体应用兼容。
+
+`touch(token, DesktopTouchFrame)` 继续使用同步 Binder 调用，保留错误反馈及原有有界输入队列。帧是完整触点快照：缺席 ID 释放、`down=false` 携带最终抬起坐标，空帧释放全部触点；坐标相对画面内容归一化。手写 Parcelable 编码为布局版本、触点数，再逐个写入 ID/x/y/down 基本类型，避免每个触点的 Parcelable 标记或类名。解码在分配数组前限制数量并检查剩余长度。
+
+触控请求相较原来的四个平行数组减少 8 字节；新增成功 `DesktopStatus` 响应（存在标记和状态码）增加 8 字节，请求与响应的应用层 Parcel 总大小不变。成功状态复用单例，不发送诊断字符串；失败才携带诊断。此结论由 0/1/2/10 触点的 Parcel 序列化回归验证，不等同于真机 Binder 吞吐或延迟基准。
+
+`DesktopStatus.code == 0` 表示成功；启动结果还包含 displayId。业务失败返回固定错误码和最多 1024 字符的独立诊断，不依赖隐藏异常 API。宿主在 `lastError` 中保留原始错误码（包括未知新码）、诊断和本地异常原因，并写入 `AndroidDesktop` Logcat 日志；UI 只按错误类别显示本地化提示，不解析或直接展示诊断。Binder 断连、权限异常和损坏 Parcel 仍使用 Android 的标准传输异常；Shizuku 保留的 `destroy` 事务保持原签名。
+
+| 错误码 | 名称 |
+| --- | --- |
+| 1 | PROTOCOL_MISMATCH |
+| 2 | PERMISSION_DENIED |
+| 3 | INVALID_ARGUMENT |
+| 4 | INVALID_STATE |
+| 5 | UNSUPPORTED_CAPABILITY |
+| 6 | APP_UNAVAILABLE |
+| 7 | DISPLAY_FAILED |
+| 8 | LAUNCH_FAILED |
+| 9 | STALE_SESSION |
+| 10 | LAYOUT_CHANGED |
+| 11 | INPUT_FAILED |
+| 12 | CLEANUP_FAILED |
+| 13 | INTERNAL |
+| 14 | DISCONNECTED |
+| 15 | BIND_TIMEOUT |
+| 16 | NO_FRAME |
+| 17 | INPUT_QUEUE_FULL |
+
+每个助手只握手一次、启动一次，会话参数不可变。`healthy` 成功确认布局并续期看门狗，失败不续期；`stop` 释放后幂等，成功只确认 producer 释放。宿主仍需调用 `destroy` 并等待 Binder 死亡，才能确认助手退出并释放 consumer Surface。
 
 ## 验证与设备记录
 

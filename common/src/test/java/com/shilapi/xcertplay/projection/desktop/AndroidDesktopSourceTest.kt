@@ -24,6 +24,7 @@ class AndroidDesktopSourceTest {
     private var touchGate: CountDownLatch? = null
     private var closeFailure = false
     private var startFailure = false
+    private var startError: DesktopException? = null
     private var appExists = true
     private var pendingConnection: CompletableFuture<DesktopConnection>? = null
     private var startedConfig: DesktopDisplayConfig? = null
@@ -31,9 +32,11 @@ class AndroidDesktopSourceTest {
     @Volatile private var available: SourceAvailability = SourceAvailability.Ready
     private val connection = object : DesktopConnection {
         override val uid = 2000
+        override var capabilities = ProjectionCapabilities(setOf(VideoIngressKind.SURFACE), 10, backButton = true)
         override fun start(surface: Surface, component: String, config: DesktopDisplayConfig): Int {
             startedConfig = config
             events += "start:$component"; started.countDown()
+            startError?.let { throw it }
             if (startFailure) error("display rejected")
             return 12
         }
@@ -64,6 +67,33 @@ class AndroidDesktopSourceTest {
         while (!session.inputReady && System.nanoTime() < deadline) Thread.yield()
         assertTrue(session.inputReady)
     }
+    @Test fun sessionAdvertisesAndEnforcesNegotiatedInputCapabilities() {
+        connection.capabilities = ProjectionCapabilities(setOf(VideoIngressKind.SURFACE), 2, backButton = false)
+        val session = source().open().get()
+        try {
+            session.activate(); ready(session)
+            assertEquals(2, session.capabilities.maxTouchContacts)
+            assertFalse(session.capabilities.backButton)
+            assertFalse(session.touch(List(3) { ProjectionContact(it, .5, .5, true) }))
+            assertFalse(session.input(ProjectionInput.Key("BrowserBack", true)))
+            assertTrue(session.touch(listOf(ProjectionContact(0, .5, .5, true))))
+            assertTrue(firstTouch.await(3, TimeUnit.SECONDS))
+            assertFalse(events.contains("back"))
+        } finally { session.stop().get(3, TimeUnit.SECONDS) }
+    }
+
+    @Test fun unknownErrorRetainsDiagnosticsWithoutExposingThemAsUiCopy() {
+        startError = DesktopException(9001, "device diagnostic that must not become UI text")
+        val provider = source()
+        val session = provider.open().get()
+        session.activate()
+        assertTrue(finished.await(3, TimeUnit.SECONDS))
+        assertEquals(9001, provider.lastError!!.code)
+        assertEquals(startError!!.diagnostic, provider.lastError!!.diagnostic)
+        assertEquals(RuntimeEnvironment.getApplication().getString(com.shilapi.xcertplay.shared.R.string.desktop_error_internal), provider.lastFailure)
+        assertFalse(provider.lastFailure!!.contains("device diagnostic"))
+    }
+
     @Test fun displaySettingsPersistAndInvalidStoredDimensionsFallBackToDefaults() {
         val provider = source()
         assertEquals(DesktopDisplayConfig(1280, 720, 160), provider.displayConfig())
@@ -160,7 +190,8 @@ class AndroidDesktopSourceTest {
         available = SourceAvailability.Unavailable("permission revoked")
         assertTrue(finished.await(3, TimeUnit.SECONDS))
         assertFalse(session.inputReady)
-        assertTrue(provider.lastFailure!!.contains("permission revoked"))
+        assertTrue(provider.lastError!!.diagnostic.contains("permission revoked"))
+        assertFalse(provider.lastFailure!!.contains("permission revoked"))
         assertEquals(listOf("release-display", "release-surface"), events.takeLast(2))
     }
 

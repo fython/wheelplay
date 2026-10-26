@@ -632,6 +632,17 @@
     <string name="desktop_dpi">Density (DPI)</string>
     <string name="desktop_display_invalid">Width and height must each be %1$d–%2$d pixels, with at most %3$d pixels in total. DPI must be %4$d–%5$d. Enter whole numbers.</string>
     <string name="desktop_display_reset">Restore defaults</string>
+    <string name="desktop_error_protocol">The desktop helper protocol is incompatible. Restart WheelPlay and reconnect.</string>
+    <string name="desktop_error_permission">The desktop helper was denied permission. Check Shizuku authorization and device restrictions.</string>
+    <string name="desktop_error_request">The desktop helper rejected the request parameters. Check the display settings and reconnect.</string>
+    <string name="desktop_error_session">The desktop session is no longer valid. Stop it and reconnect.</string>
+    <string name="desktop_error_capability">The desktop helper does not support the requested capability.</string>
+    <string name="desktop_error_app">The selected app cannot be launched. Choose an installed, enabled app.</string>
+    <string name="desktop_error_display">Could not create the virtual display. Try a smaller size or check device compatibility.</string>
+    <string name="desktop_error_launch">The app did not launch on the virtual display. Try another app.</string>
+    <string name="desktop_error_layout">The virtual display size, density or rotation changed. Reconnect to continue.</string>
+    <string name="desktop_error_input">Virtual desktop input failed. Stop the session and reconnect.</string>
+    <string name="desktop_error_internal">The virtual desktop encountered an unexpected error. Stop the session and reconnect.</string>
     <string name="desktop_summary">Experimental · run a local app on a separate display using Shizuku</string>
     <string name="desktop_hint">Experimental, device validation required. Configurable display size and DPI, image output, touch and Back only. Audio stays on this phone; browser audio, microphone, keyboard and Home are unavailable. This shares your Android system and app data. Some apps may move from the main screen or refuse secondary displays. Protected content may be blank. Rotation requires reconnecting.</string>
     <string name="desktop_not_installed">Shizuku is not installed. Install and start it, then authorize WheelPlay.</string>

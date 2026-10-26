@@ -3,6 +3,7 @@ package com.shilapi.xcertplay.projection.desktop
 import com.shilapi.xcertplay.projection.ProjectionSourceIds
 import android.view.Surface
 import com.shilapi.xcertplay.projection.ProjectionContact
+import com.shilapi.xcertplay.projection.ProjectionCapabilities
 import com.shilapi.xcertplay.projection.SourceAvailability
 import java.util.concurrent.CompletableFuture
 
@@ -14,6 +15,7 @@ internal interface DesktopBackend {
 
 internal interface DesktopConnection : AutoCloseable {
     val uid: Int
+    val capabilities: ProjectionCapabilities
     fun start(surface: Surface, component: String, config: DesktopDisplayConfig): Int
     fun touch(contacts: List<ProjectionContact>)
     fun back()
@@ -24,7 +26,7 @@ internal interface DesktopConnection : AutoCloseable {
 }
 
 internal object DesktopProtocol {
-    const val VERSION = 2
+    const val VERSION = 3
     const val LAYOUT = 1
     const val SOURCE_ID = ProjectionSourceIds.ANDROID_DESKTOP
 }

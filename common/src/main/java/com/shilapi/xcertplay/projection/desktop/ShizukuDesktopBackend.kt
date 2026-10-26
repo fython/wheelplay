@@ -42,7 +42,7 @@ internal class ShizukuDesktopBackend(private val context: Context) : DesktopBack
         val result = CompletableFuture<DesktopConnection>()
         val availability = probe()
         if (availability is SourceAvailability.Unavailable) {
-            result.completeExceptionally(IllegalStateException(availability.reason)); return result
+            result.completeExceptionally(DesktopException(DesktopErrorCode.DISCONNECTED, availability.reason)); return result
         }
         val version = context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode.toInt()
         val args = Shizuku.UserServiceArgs(ComponentName(context, ShizukuDesktopUserService::class.java))
@@ -52,7 +52,7 @@ internal class ShizukuDesktopBackend(private val context: Context) : DesktopBack
         lateinit var binding: ServiceConnection
         fun unbind() { runCatching { Shizuku.unbindUserService(args, binding, true) } }
         val timeout = Runnable {
-            if (result.completeExceptionally(IllegalStateException(context.getString(R.string.desktop_bind_timeout)))) unbind()
+            if (result.completeExceptionally(DesktopException(DesktopErrorCode.BIND_TIMEOUT, "Helper bind/handshake exceeded 10 seconds"))) unbind()
         }
         binding = object : ServiceConnection {
             override fun onServiceConnected(name: ComponentName, binder: IBinder) {
@@ -70,7 +70,7 @@ internal class ShizukuDesktopBackend(private val context: Context) : DesktopBack
                 }
             }
             override fun onServiceDisconnected(name: ComponentName) {
-                if (result.completeExceptionally(IllegalStateException(context.getString(R.string.desktop_disconnected)))) {
+                if (result.completeExceptionally(DesktopException(DesktopErrorCode.DISCONNECTED, "Helper disconnected while binding"))) {
                     main.removeCallbacks(timeout); unbind()
                 }
             }
@@ -82,46 +82,66 @@ internal class ShizukuDesktopBackend(private val context: Context) : DesktopBack
         return result
     }
 
-    private class Connection(private val service: IDesktopService, private val unbind: () -> Unit) : DesktopConnection {
+    internal class Connection(private val service: IDesktopService, private val unbind: () -> Unit) : DesktopConnection {
         private val token = UUID.randomUUID().toString()
         private val owner = Binder()
         private val dead = CountDownLatch(1)
         private val death = IBinder.DeathRecipient { dead.countDown() }
         private var started = false
         private var closed = false
-        override var uid = -1
+        private lateinit var info: DesktopServiceInfo
+        override val uid get() = info.uid
+        override lateinit var capabilities: ProjectionCapabilities
             private set
         fun handshake() {
-            service.asBinder().linkToDeath(death, 0)
-            uid = service.hello(DesktopProtocol.VERSION)
-            check(uid == 2000 || uid == 0) { "Unsupported helper identity" }
+            desktopRemoteCall {
+                service.asBinder().linkToDeath(death, 0)
+                val reply = service.hello(DesktopProtocol.VERSION, DesktopFeatures.HOST_SUPPORTED)
+                reply.status.throwIfError()
+                info = reply.info ?: throw DesktopException(DesktopErrorCode.PROTOCOL_MISMATCH, "Handshake omitted service info")
+                DesktopServiceInfo.validate(info)
+                capabilities = DesktopFeatures.projection(info.enabledFeatures, info.maxTouchContacts)
+            }
         }
         override fun start(surface: Surface, component: String, config: DesktopDisplayConfig): Int {
             check(!closed && !started)
+            desktopCheck(info.accepts(config), DesktopErrorCode.INVALID_ARGUMENT) { "Display configuration exceeds helper limits" }
             started = true
-            return service.start(token, owner, surface, component, config.width, config.height, config.dpi)
-                .also { check(it > 0) { "Invalid virtual display" } }
+            return desktopRemoteCall {
+                val reply = service.start(token, owner, surface, component, config.width, config.height, config.dpi)
+                reply.status.throwIfError()
+                reply.displayId
+            }.also { desktopCheck(it > 0, DesktopErrorCode.DISPLAY_FAILED) { "Invalid virtual display" } }
         }
         override fun touch(contacts: List<ProjectionContact>) {
             check(!closed)
-            service.touch(token, DesktopProtocol.LAYOUT, contacts.map { it.id }.toIntArray(),
-                contacts.map { it.x.toFloat() }.toFloatArray(), contacts.map { it.y.toFloat() }.toFloatArray(),
-                contacts.map { it.down }.toBooleanArray())
+            desktopCheck(capabilities.maxTouchContacts > 0, DesktopErrorCode.UNSUPPORTED_CAPABILITY) { "Touch was not negotiated" }
+            desktopCheck(contacts.size <= capabilities.maxTouchContacts, DesktopErrorCode.INVALID_ARGUMENT) { "Too many contacts" }
+            desktopRemoteCall { service.touch(token, DesktopTouchFrame.from(contacts)).throwIfError() }
         }
-        override fun back() { check(!closed); service.back(token, DesktopProtocol.LAYOUT) }
-        override fun healthy() = !closed && service.asBinder().isBinderAlive && service.healthy(token, DesktopProtocol.LAYOUT)
+        override fun back() {
+            check(!closed)
+            desktopCheck(capabilities.backButton, DesktopErrorCode.UNSUPPORTED_CAPABILITY) { "Back was not negotiated" }
+            desktopRemoteCall { service.back(token, DesktopProtocol.LAYOUT).throwIfError() }
+        }
+        override fun healthy(): Boolean {
+            if (closed || !service.asBinder().isBinderAlive) return false
+            desktopRemoteCall { service.healthy(token, DesktopProtocol.LAYOUT).throwIfError() }
+            return true
+        }
         override fun close() {
             if (closed) return
             try {
                 if (service.asBinder().isBinderAlive) {
-                    try { if (started) service.stop(token) } finally { runCatching { service.destroy() } }
+                    try { if (started) service.stop(token).throwIfError() } finally { runCatching { service.destroy() } }
                 }
             } catch (_: Exception) {
                 // A revoked Shizuku grant still permits the owning app to destroy its own helper Binder.
                 runCatching { service.destroy() }
             } finally { unbind() }
             if (service.asBinder().isBinderAlive && !dead.await(5, TimeUnit.SECONDS))
-                throw ProjectionCleanupException("Virtual desktop helper did not exit")
+                throw ProjectionCleanupException("Virtual desktop helper did not exit",
+                    DesktopException(DesktopErrorCode.CLEANUP_FAILED, "Helper Binder remained alive after destroy"))
             closed = true
             runCatching { service.asBinder().unlinkToDeath(death, 0) }
         }
