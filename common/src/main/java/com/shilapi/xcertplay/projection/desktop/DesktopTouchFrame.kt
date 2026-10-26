@@ -41,13 +41,17 @@ class DesktopTouchFrame internal constructor(
                     if (state !in 0..1) throw BadParcelableException("Invalid desktop contact state")
                     down[i] = state == 1
                 }
-                return DesktopTouchFrame(layout, ids, xs, ys, down)
+                return DesktopTouchFrame(layout = layout, ids = ids, xs = xs, ys = ys, down = down)
             }
             override fun newArray(size: Int) = arrayOfNulls<DesktopTouchFrame>(size)
         }
 
-        internal fun from(contacts: List<ProjectionContact>) = DesktopTouchFrame(DesktopProtocol.LAYOUT,
-            IntArray(contacts.size) { contacts[it].id }, FloatArray(contacts.size) { contacts[it].x.toFloat() },
-            FloatArray(contacts.size) { contacts[it].y.toFloat() }, BooleanArray(contacts.size) { contacts[it].down })
+        internal fun from(contacts: List<ProjectionContact>) = DesktopTouchFrame(
+            layout = DesktopProtocol.LAYOUT,
+            ids = IntArray(contacts.size) { contacts[it].id },
+            xs = FloatArray(contacts.size) { contacts[it].x.toFloat() },
+            ys = FloatArray(contacts.size) { contacts[it].y.toFloat() },
+            down = BooleanArray(contacts.size) { contacts[it].down },
+        )
     }
 }

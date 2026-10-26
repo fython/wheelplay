@@ -6,7 +6,7 @@ import com.shilapi.xcertplay.projection.desktop.DesktopStartResult;
 import com.shilapi.xcertplay.projection.desktop.DesktopStatus;
 import com.shilapi.xcertplay.projection.desktop.DesktopTouchFrame;
 
-/** Version 4. One handshake and one immutable display per helper; session calls require the host UID.
+/** Version 5. One handshake and one immutable display per helper; session calls require the host UID.
  * Control results carry DesktopStatus: zero for success, stable DesktopErrorCode plus diagnostics on failure.
  * Malformed Parcel data and Binder transport failures use Android's standard exceptions.
  */

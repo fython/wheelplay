@@ -21,17 +21,25 @@ class DesktopBinderProtocolTest {
         var status = DesktopStatus.OK
         var config: DesktopDisplayConfig? = null
         var frame: DesktopTouchFrame? = null
+        var omitStatus = false
         var backCalls = 0
         var touchFlags = 0
         var touchReplyWasNull = false
         override fun hello(version: Int, hostFeatures: Long): DesktopHandshakeResult {
             val enabled = offered and hostFeatures
-            val info = DesktopServiceInfo.negotiate(version, enabled, 2000).copy(supportedFeatures = offered)
-            return DesktopHandshakeResult(status, if (status.code == 0) info else null)
+            val serviceInfo = DesktopNegotiation.negotiate(version = version, requested = enabled, helperUid = 2000)
+                .apply { supportedFeatures = offered }
+            return DesktopHandshakeResult().apply {
+                status = if (omitStatus) null else this@Helper.status
+                info = if (this@Helper.status.code == 0) serviceInfo else null
+            }
         }
         override fun start(token: String, owner: IBinder, surface: Surface, component: String, width: Int, height: Int, dpi: Int): DesktopStartResult {
             config = DesktopDisplayConfig(width, height, dpi)
-            return DesktopStartResult(status, if (status.code == 0) 42 else 0)
+            return DesktopStartResult().apply {
+                status = if (omitStatus) null else this@Helper.status
+                displayId = if (this@Helper.status.code == 0) 42 else 0
+            }
         }
         override fun touch(token: String, frame: DesktopTouchFrame) { this.frame = frame }
         override fun back(token: String, layout: Int): DesktopStatus { backCalls++; return status }
@@ -101,5 +109,20 @@ class DesktopBinderProtocolTest {
         val error = assertThrows(DesktopException::class.java) { connect(helper) }
         assertEquals(DesktopErrorCode.PROTOCOL_MISMATCH, error.category)
         assertEquals("incompatible helper", error.diagnostic)
+    }
+
+    @Test fun missingStructuredStatusIsRejectedForHandshakeAndStart() {
+        assertEquals(DesktopErrorCode.PROTOCOL_MISMATCH, assertThrows(DesktopException::class.java) {
+            connect(Helper().apply { omitStatus = true })
+        }.category)
+        val helper = Helper()
+        val connection = connect(helper)
+        helper.omitStatus = true
+        val surface = Surface(SurfaceTexture(0))
+        try {
+            assertEquals(DesktopErrorCode.PROTOCOL_MISMATCH, assertThrows(DesktopException::class.java) {
+                connection.start(surface, "test.app/.Main", DesktopDisplayConfig())
+            }.category)
+        } finally { surface.release() }
     }
 }

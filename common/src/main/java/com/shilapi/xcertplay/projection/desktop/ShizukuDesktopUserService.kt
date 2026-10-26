@@ -72,14 +72,13 @@ class ShizukuDesktopUserService(context: Context) : IDesktopService.Stub() {
 
     private fun statusCall(block: () -> Unit) = desktopServiceStatus { hostCall(block) }
 
-    override fun hello(version: Int, hostFeatures: Long): DesktopHandshakeResult {
-        var info: DesktopServiceInfo? = null
-        val status = statusCall {
+    override fun hello(version: Int, hostFeatures: Long): DesktopHandshakeResult = DesktopHandshakeResult().apply {
+        status = statusCall {
             desktopCheck(negotiated == null && !used, DesktopErrorCode.INVALID_STATE) { "Handshake already completed" }
             desktopCheck(Build.VERSION.SDK_INT >= 29, DesktopErrorCode.UNSUPPORTED_CAPABILITY) { "Android 10 or later required" }
-            info = DesktopServiceInfo.negotiate(version, hostFeatures, Process.myUid()).also { negotiated = it }
+            info = DesktopNegotiation.negotiate(version = version, requested = hostFeatures, helperUid = Process.myUid())
+                .also { negotiated = it }
         }
-        return DesktopHandshakeResult(status, info)
     }
 
     private fun requireFeature(feature: Long) {
@@ -88,67 +87,69 @@ class ShizukuDesktopUserService(context: Context) : IDesktopService.Stub() {
     }
 
     override fun start(session: String, client: IBinder, target: Surface, component: String,
-        width: Int, height: Int, dpi: Int): DesktopStartResult {
-        var id = 0
-        val status = desktopServiceStatus { id = startDisplay(session, client, target, component, width, height, dpi) }
-        return DesktopStartResult(status, id)
+        width: Int, height: Int, dpi: Int): DesktopStartResult = DesktopStartResult().apply {
+        status = desktopServiceStatus {
+            displayId = startDisplay(session, client, target, component, width, height, dpi)
+        }
     }
 
     private fun startDisplay(session: String, client: IBinder, target: Surface, component: String,
         width: Int, height: Int, dpi: Int): Int = hostCall {
         desktopCheck(negotiated != null && !used && token == null, DesktopErrorCode.INVALID_STATE) { "Handshake required; helper may only start once" }
-        val requested = DesktopDisplayConfig(width, height, dpi)
+        val capabilities = checkNotNull(negotiated)
+        val requested = DesktopDisplayConfig(width = width, height = height, dpi = dpi)
         require(session.length in 16..128 && target.isValid)
         val activity = requireNotNull(ComponentName.unflattenFromString(component))
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setComponent(activity)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
         val info = shellContext.packageManager.resolveActivity(intent, 0)?.activityInfo
-        desktopCheck(info != null && info.exported && info.enabled && info.applicationInfo.enabled, DesktopErrorCode.APP_UNAVAILABLE) { "Application cannot be launched" }
+        desktopCheck(info?.isDesktopLaunchable == true, DesktopErrorCode.APP_UNAVAILABLE) { "Application cannot be launched" }
         used = true; token = session; owner = client; surface = target
         config = requested
-        touches = DesktopTouch(requested, ::inject)
+        val touchInput = DesktopTouch(requested, ::inject).also { touches = it }
         try {
             client.linkToDeath(death, 0)
             var flags = DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY or
                 (1 shl 6) or (1 shl 8) // SUPPORTS_TOUCH, DESTROY_CONTENT_ON_REMOVAL; never AUTO_MIRROR or SECURE.
             if (Build.VERSION.SDK_INT >= 33) flags = flags or (1 shl 10) or (1 shl 11) // TRUSTED, OWN_DISPLAY_GROUP
             if (Build.VERSION.SDK_INT >= 34) flags = flags or (1 shl 14) // OWN_FOCUS
-            display = desktopOperation(DesktopErrorCode.DISPLAY_FAILED) {
+            val virtualDisplay = desktopOperation(DesktopErrorCode.DISPLAY_FAILED) {
                 requireNotNull(displays.createVirtualDisplay("WheelPlay Android desktop", requested.width,
                     requested.height, requested.dpi, target, flags)) { "Virtual displays are unsupported" }
-            }
-            desktopCheck(display!!.display.displayId > 0, DesktopErrorCode.DISPLAY_FAILED) { "Refusing the default display" }
+            }.also { display = it }
+            val displayId = virtualDisplay.display.displayId
+            desktopCheck(displayId > 0, DesktopErrorCode.DISPLAY_FAILED) { "Refusing the default display" }
             desktopCheck(layoutValid(), DesktopErrorCode.LAYOUT_CHANGED) { "Unsupported display layout" }
-            val options = ActivityOptions.makeBasic().apply { launchDisplayId = display!!.display.displayId }
+            val options = ActivityOptions.makeBasic().apply { launchDisplayId = displayId }
             desktopOperation(DesktopErrorCode.LAUNCH_FAILED) { startActivity(intent, options.toBundle()) }
             // Some single-task apps ignore the requested display. Do not report their blank
             // virtual display as a successful launch or send input to the main-screen task.
             val activities = shellContext.getSystemService(ActivityManager::class.java)
             val deadline = SystemClock.elapsedRealtime() + 2_000
             while (activities.getRunningTasks(100).none { task ->
-                taskDisplayId.getInt(task) == display!!.display.displayId && task.baseActivity?.packageName == activity.packageName
+                taskDisplayId.getInt(task) == displayId && task.baseActivity?.packageName == activity.packageName
             }) {
                 desktopCheck(SystemClock.elapsedRealtime() < deadline, DesktopErrorCode.LAUNCH_FAILED) { "Application did not start on the virtual display" }
                 Thread.sleep(50)
             }
             lastHeartbeat = SystemClock.elapsedRealtime()
-            if (negotiated!!.enabledFeatures and DesktopFeatures.TOUCH != 0L) {
+            if (capabilities.enabledFeatures and DesktopFeatures.TOUCH != 0L) {
                 touchQueue = DesktopTouchQueue(
                     process = { frame -> synchronized(lock) {
                         // A synchronous stop can overtake pending oneway calls. Never inject after release.
                         if (token == session && display != null) {
                             owned(session, frame.layout)
                             requireFeature(DesktopFeatures.TOUCH)
-                            require(frame.ids.size <= negotiated!!.maxTouchContacts)
-                            touches!!.update(frame.ids, frame.xs, frame.ys, frame.down)
+                            require(frame.ids.size <= capabilities.maxTouchContacts)
+                            touchInput.update(frame.ids, frame.xs, frame.ys, frame.down)
                         }
                     } },
-                    cancel = { synchronized(lock) { if (token == session && display != null) touches?.cancel(); Unit } },
+                    cancel = { synchronized(lock) { if (token == session && display != null) touchInput.cancel() } },
                     diagnose = { Log.w("ShizukuDesktop", "Touch error ${it.code}: ${it.diagnostic}", it) },
                     operationLock = lock,
                 )
             }
-            display!!.display.displayId
+            displayId
         } catch (failure: Throwable) {
             try { release() } catch (cleanup: Throwable) { cleanup.addSuppressed(failure); throw cleanup }
             throw failure

@@ -1,3 +1,9 @@
 package com.shilapi.xcertplay.projection.desktop;
-// Custom Parcelable: fields and wire format are implemented in the matching Kotlin class.
-parcelable DesktopStartResult;
+import com.shilapi.xcertplay.projection.desktop.DesktopStatus;
+
+@JavaDerive(equals=true, toString=true)
+parcelable DesktopStartResult {
+    @nullable DesktopStatus status;
+    // Success must identify an owned, non-default display (> 0).
+    int displayId = 0;
+}

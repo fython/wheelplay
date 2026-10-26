@@ -97,9 +97,9 @@ internal class ShizukuDesktopBackend(private val context: Context) : DesktopBack
             desktopRemoteCall {
                 service.asBinder().linkToDeath(death, 0)
                 val reply = service.hello(DesktopProtocol.VERSION, DesktopFeatures.HOST_SUPPORTED)
-                reply.status.throwIfError()
+                reply.status.checkSuccess()
                 info = reply.info ?: throw DesktopException(DesktopErrorCode.PROTOCOL_MISMATCH, "Handshake omitted service info")
-                DesktopServiceInfo.validate(info)
+                info.validate()
                 capabilities = DesktopFeatures.projection(info.enabledFeatures, info.maxTouchContacts)
             }
         }
@@ -109,7 +109,7 @@ internal class ShizukuDesktopBackend(private val context: Context) : DesktopBack
             started = true
             return desktopRemoteCall {
                 val reply = service.start(token, owner, surface, component, config.width, config.height, config.dpi)
-                reply.status.throwIfError()
+                reply.status.checkSuccess()
                 reply.displayId
             }.also { desktopCheck(it > 0, DesktopErrorCode.DISPLAY_FAILED) { "Invalid virtual display" } }
         }
@@ -122,18 +122,18 @@ internal class ShizukuDesktopBackend(private val context: Context) : DesktopBack
         override fun back() {
             check(!closed)
             desktopCheck(capabilities.backButton, DesktopErrorCode.UNSUPPORTED_CAPABILITY) { "Back was not negotiated" }
-            desktopRemoteCall { service.back(token, DesktopProtocol.LAYOUT).throwIfError() }
+            desktopRemoteCall { service.back(token, DesktopProtocol.LAYOUT).checkSuccess() }
         }
         override fun healthy(): Boolean {
             if (closed || !service.asBinder().isBinderAlive) return false
-            desktopRemoteCall { service.healthy(token, DesktopProtocol.LAYOUT).throwIfError() }
+            desktopRemoteCall { service.healthy(token, DesktopProtocol.LAYOUT).checkSuccess() }
             return true
         }
         override fun close() {
             if (closed) return
             try {
                 if (service.asBinder().isBinderAlive) {
-                    try { if (started) service.stop(token).throwIfError() } finally { runCatching { service.destroy() } }
+                    try { if (started) service.stop(token).checkSuccess() } finally { runCatching { service.destroy() } }
                 }
             } catch (_: Exception) {
                 // A revoked Shizuku grant still permits the owning app to destroy its own helper Binder.

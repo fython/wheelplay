@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import androidx.core.content.edit
 import com.shilapi.xcertplay.shared.R
 import com.shilapi.xcertplay.projection.*
 import com.shilapi.xcertplay.web.WebSession
@@ -19,8 +20,7 @@ internal class AndroidDesktopSource(
     private val targetAvailable: (String) -> Boolean = { component ->
         val target = ComponentName.unflattenFromString(component)
         target != null && context.packageManager.queryIntentActivities(launcherIntent(), 0).any {
-            it.activityInfo.let { info -> info.exported && info.enabled && info.applicationInfo.enabled &&
-                ComponentName(info.packageName, info.name) == target }
+            it.activityInfo.run { isDesktopLaunchable && desktopComponent == target }
         }
     },
 ) : ProjectionSourceProvider {
@@ -34,15 +34,25 @@ internal class AndroidDesktopSource(
     @Volatile var preparing = false
         private set
     fun selectedApp(): String = preferences.getString("component", "").orEmpty()
-    fun selectApp(component: String) { require(targetAvailable(component)); preferences.edit().putString("component", component).apply() }
+    fun selectApp(component: String) {
+        require(targetAvailable(component))
+        preferences.edit { putString("component", component) }
+    }
     fun displayConfig(): DesktopDisplayConfig = runCatching {
         val saved = preferences.all
         val defaults = DesktopDisplayConfig()
-        DesktopDisplayConfig(saved["width"] as? Int ?: defaults.width,
-            saved["height"] as? Int ?: defaults.height, saved["dpi"] as? Int ?: defaults.dpi)
+        DesktopDisplayConfig(
+            width = saved["width"] as? Int ?: defaults.width,
+            height = saved["height"] as? Int ?: defaults.height,
+            dpi = saved["dpi"] as? Int ?: defaults.dpi,
+        )
     }.getOrDefault(DesktopDisplayConfig())
     fun configureDisplay(config: DesktopDisplayConfig) {
-        preferences.edit().putInt("width", config.width).putInt("height", config.height).putInt("dpi", config.dpi).apply()
+        preferences.edit {
+            putInt("width", config.width)
+            putInt("height", config.height)
+            putInt("dpi", config.dpi)
+        }
     }
     fun dependencyStatus() = backend.probe()
     override fun probe(): SourceAvailability {
@@ -105,8 +115,8 @@ internal class AndroidDesktopSource(
         override fun activate() {
             if (stopped.get() || !activated.compareAndSet(false, true)) return
             enqueue {
-                video = output(config)
-                connection.start(video!!.surface, target, config)
+                val output = output(config).also { video = it }
+                connection.start(output.surface, target, config)
                 startedAt = System.nanoTime()
                 started = true
             }

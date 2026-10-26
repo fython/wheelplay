@@ -28,7 +28,7 @@
 `DesktopBackend` / `DesktopConnection` 是 Android 平台层接口，将可用性、连接、身份能力与停止同 Shizuku 解耦；共享 `ProjectionSourceProvider` 不暴露 Binder/ADB 类型。
 
 - 固定依赖 `dev.rikka.shizuku:api` 和 `provider` **13.1.5**。只接受实际 UID 2000（shell）或 0（root），状态页展示实际身份；二者不等价。
-- `IDesktopService` 协议版本 4，仅包含协商、带尺寸/DPI 的显示启动、触控、返回、健康检查、停止和销毁。主进程与助手共用参数范围校验，助手在创建显示前再次校验。不接收命令行、任意 Intent 或任意系统调用。
+- `IDesktopService` 协议版本 5，仅包含协商、带尺寸/DPI 的显示启动、触控、返回、健康检查、停止和销毁。主进程与助手共用参数范围校验，助手在创建显示前再次校验。不接收命令行、任意 Intent 或任意系统调用。
 - 每次连接使用独立 Shizuku tag，携带应用版本，避免旧绑定回调解除新会话。设置 `daemon(false)`，正常停止同时等待助手 Binder 死亡，按 UserService 协议实现销毁事务 `16777115` 和进程退出。
 - 每个入口验证宿主 UID；每个会话绑定随机 token、客户端 Binder 和布局版本。输入必须显式设置属于本助手且大于 0 的 displayId，设置失败即拒绝，绝不回退到默认显示屏。
 - 主进程输入工作队列上限 64，满队列即停止会话，不静默丢弃抬手；公共浏览器控制租约负责失焦、断网、过期、切源时释放触点。返回键的按下/抬起在助手同一调用内完成。
@@ -61,11 +61,13 @@
 
 触控处理和显示释放共用锁。同步 `stop` 即使先于尚未执行的单向调用到达，也会关闭队列、清空待处理项并取消手势；已取出但还未获得显示锁的帧也无法在释放后注入。单向提交成功只表示事务已提交，不保证触控已执行。
 
-### 为什么部分 AIDL 文件没有字段
+### Structured 与自定义 Parcelable
 
-`parcelable DesktopTouchFrame;` 等是自定义（非 structured）Parcelable 的声明：告知 AIDL 编译器使用同名 Kotlin/Java 类，实际字段和 wire format 由该类的 `writeToParcel` 与 `CREATOR` 实现，因此 `.aidl` 只包含类型声明是预期行为。触控帧手写序列化用于紧凑布局、解码前长度校验；普通握手/状态类型也沿用显式 Parcelable，并有往返测试。
+`DesktopServiceInfo`、`DesktopHandshakeResult` 和 `DesktopStartResult` 使用 structured parcelable：字段、缺省值和可空性声明在 `.aidl` 中，由编译器生成 Java 类、`CREATOR` 和序列化实现。Kotlin 通过 `apply` 构建响应，`DesktopNegotiation` 和扩展函数负责能力协商、参数范围及响应校验。生成类型是可变字段对象，构建完成后在会话内按只读快照使用。
 
-另一种是 structured parcelable，在 `.aidl` 中声明字段，由编译器生成类和序列化代码，适合减少普通 DTO 的手写代码。两种方式不能同时为同一类型生成/提供实现。当前字段顺序由手写代码决定，也未启用 Stable AIDL 的接口版本和兼容性检查；字段顺序或方法签名变化必须升级协议版本；本次升级为 4，握手仍要求版本完全匹配。
+生成器使用对象长度头，能够跳过未知尾字段并为缺失字段提供缺省值；这不代替业务校验。缺少 `status` 视为协议错误，缺少版本/UID/必要显示范围的握手结果也会被拒绝。该迁移改变了线格式，协议升级为 **v5**，仍严格拒绝 v4 等版本；未启用 Stable AIDL 的接口冻结和兼容性检查。
+
+`DesktopTouchFrame` 和 `DesktopStatus` 继续使用自定义 Parcelable。它们的 `.aidl` 只声明类型，字段和读写实现分别位于同名 Kotlin 类：前者保留紧凑触控格式及解码前长度校验，后者保留仅失败时传输诊断及成功单例。生成类不应提交到源码或再由同名 Kotlin 类实现。测试覆盖 structured 类型及嵌套自定义状态的往返、未知尾字段、无效长度头和缺失状态拒绝。
 
 `DesktopStatus.code == 0` 表示成功；启动结果还包含 displayId。控制调用的业务失败返回固定错误码和最多 1024 字符的独立诊断；单向触控的瞬时失败只写助手日志，会话故障通过健康检查返回错误码和诊断，不依赖隐藏异常 API。宿主在 `lastError` 中保留原始错误码（包括未知新码）、诊断和本地异常原因，并写入 `AndroidDesktop` Logcat 日志；UI 只按错误类别显示本地化提示，不解析或直接展示诊断。Binder 断连、权限异常和损坏 Parcel 仍使用 Android 的标准传输异常；Shizuku 保留的 `destroy` 事务保持原签名。
 

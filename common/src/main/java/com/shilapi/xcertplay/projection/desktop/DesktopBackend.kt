@@ -26,7 +26,7 @@ internal interface DesktopConnection : AutoCloseable {
 }
 
 internal object DesktopProtocol {
-    const val VERSION = 4
+    const val VERSION = 5
     const val LAYOUT = 1
     const val SOURCE_ID = ProjectionSourceIds.ANDROID_DESKTOP
 }

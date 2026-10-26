@@ -1,3 +1,10 @@
 package com.shilapi.xcertplay.projection.desktop;
-// Custom Parcelable: fields and wire format are implemented in the matching Kotlin class.
-parcelable DesktopHandshakeResult;
+import com.shilapi.xcertplay.projection.desktop.DesktopStatus;
+import com.shilapi.xcertplay.projection.desktop.DesktopServiceInfo;
+
+@JavaDerive(equals=true, toString=true)
+parcelable DesktopHandshakeResult {
+    // A missing status is a malformed response, never an implicit success.
+    @nullable DesktopStatus status;
+    @nullable DesktopServiceInfo info;
+}

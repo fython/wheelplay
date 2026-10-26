@@ -63,10 +63,13 @@ internal class DesktopTouchQueue(
             // Validation precedes mutation in DesktopTouch. Malformed frames cannot change a gesture.
         } catch (error: Exception) {
             val failure = desktopFailure(error)
-            if (failure.category == DesktopErrorCode.STALE_SESSION || failure.category == DesktopErrorCode.UNSUPPORTED_CAPABILITY) return@synchronized
-            if (!cancelGesture()) return@synchronized
-            if (failure.category != DesktopErrorCode.INPUT_FAILED || ++failures >= 3) fail(failure)
-            else diagnose(failure)
+            when (failure.category) {
+                DesktopErrorCode.STALE_SESSION, DesktopErrorCode.UNSUPPORTED_CAPABILITY -> Unit
+                DesktopErrorCode.INPUT_FAILED -> if (cancelGesture()) {
+                    if (++failures >= 3) fail(failure) else diagnose(failure)
+                }
+                else -> if (cancelGesture()) fail(failure)
+            }
         }
     }
 

@@ -32,7 +32,7 @@ class DesktopTouchQueueTest {
             if (it.actionMasked == MotionEvent.ACTION_UP) nextUp.countDown()
         }
         val queue = DesktopTouchQueue({ touch.update(it.ids, it.xs, it.ys, it.down) }, touch::cancel, {})
-        try {
+        queue.use {
             queue.offer(frame()); queue.offer(frame(false))
             await(cancel)
             assertNull(queue.fault)
@@ -40,7 +40,7 @@ class DesktopTouchQueueTest {
             queue.offer(frame()); queue.offer(frame(false)); await(nextUp)
             assertEquals(2, actions.count { it == MotionEvent.ACTION_DOWN })
             assertNull(queue.fault)
-        } finally { queue.close() }
+        }
     }
 
     @Test fun cancellationFailureLatchesFaultAndDiscardsSubsequentFrames() {
@@ -49,13 +49,13 @@ class DesktopTouchQueueTest {
             process = { calls.incrementAndGet(); throw DesktopException(DesktopErrorCode.INPUT_FAILED, "input rejected") },
             cancel = { error("cancel rejected") }, diagnose = { reported.countDown() },
         )
-        try {
+        queue.use {
             queue.offer(frame()); await(reported)
             assertEquals(DesktopErrorCode.INPUT_FAILED, queue.fault!!.category)
             assertTrue(queue.fault!!.diagnostic.contains("cancel rejected"))
             queue.offer(frame()); queue.close()
             assertEquals(1, calls.get())
-        } finally { queue.close() }
+        }
     }
 
     @Test fun repeatedInputFailuresAndFatalLayoutErrorsAreAvailableToHealthChecks() {
@@ -67,12 +67,12 @@ class DesktopTouchQueueTest {
                 process = { calls.incrementAndGet(); throw DesktopException(code, "rejected") },
                 cancel = { canceled.incrementAndGet() }, diagnose = { if (queue.fault != null) done.countDown() },
             )
-            try {
+            queue.use {
                 repeat(4) { queue.offer(frame()) }
                 await(done); queue.close()
                 assertEquals(code, queue.fault!!.category)
                 assertEquals(expectedCalls, calls.get()); assertEquals(expectedCalls, canceled.get())
-            } finally { queue.close() }
+            }
         }
     }
 
@@ -88,17 +88,19 @@ class DesktopTouchQueueTest {
                 if (it.ids.isEmpty()) ended.countDown()
             }, cancel = touch::cancel, diagnose = {}, capacity = 2,
         )
-        try {
-            queue.offer(frame()); await(entered)
-            CompletableFuture.runAsync {
-                repeat(100) { queue.offer(frame()) }
-                queue.offer(DesktopTouchFrame.from(emptyList()))
-            }.get(1, TimeUnit.SECONDS)
-            gate.countDown(); await(ended); queue.close()
-            assertTrue(actions.contains(MotionEvent.ACTION_CANCEL))
-            assertTrue(actions.last() in listOf(MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_UP))
-            assertNull(queue.fault)
-        } finally { gate.countDown(); queue.close() }
+        queue.use {
+            try {
+                queue.offer(frame()); await(entered)
+                CompletableFuture.runAsync {
+                    repeat(100) { queue.offer(frame()) }
+                    queue.offer(DesktopTouchFrame.from(emptyList()))
+                }.get(1, TimeUnit.SECONDS)
+                gate.countDown(); await(ended); queue.close()
+                assertTrue(actions.contains(MotionEvent.ACTION_CANCEL))
+                assertTrue(actions.last() in listOf(MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_UP))
+                assertNull(queue.fault)
+            } finally { gate.countDown() }
+        }
     }
 
     @Test fun stopDiscardsWorkWaitingForTheDisplayLockAndLateFrames() {
@@ -124,9 +126,9 @@ class DesktopTouchQueueTest {
                 }
             }, cancel = { canceled.incrementAndGet() }, diagnose = {},
         )
-        try {
+        queue.use {
             repeat(3) { queue.offer(frame()) }; await(done); queue.close()
             assertNull(queue.fault); assertEquals(0, canceled.get())
-        } finally { queue.close() }
+        }
     }
 }

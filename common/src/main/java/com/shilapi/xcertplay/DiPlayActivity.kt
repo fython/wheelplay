@@ -12,6 +12,7 @@ import moe.feng.wheelplay.plugin.ProjectionPlugin
 import com.shilapi.xcertplay.projection.registerProjectionSources
 import com.shilapi.xcertplay.projection.androidauto.LocalAndroidAuto
 import com.shilapi.xcertplay.projection.desktop.*
+import androidx.core.view.isVisible
 import com.shilapi.xcertplay.projection.SourceAvailability
 import rikka.shizuku.Shizuku
 import com.shilapi.xcertplay.projection.vnc.VncSource
@@ -845,7 +846,7 @@ class DiPlayActivity : AppCompatActivity() {
         val dpi = field(UiR.string.desktop_dpi, config.dpi)
         val error = label(getString(UiR.string.desktop_display_invalid, DesktopDisplayConfig.MIN_SIZE,
             DesktopDisplayConfig.MAX_SIZE, DesktopDisplayConfig.MAX_PIXELS, DesktopDisplayConfig.MIN_DPI,
-            DesktopDisplayConfig.MAX_DPI), 14, MUTED).apply { visibility = View.GONE; fields.addView(this) }
+            DesktopDisplayConfig.MAX_DPI), 14, MUTED).apply { isVisible = false; fields.addView(this) }
         desktopDialog?.dismiss()
         val dialog = android.app.AlertDialog.Builder(this).setTitle(UiR.string.desktop_display_settings)
             .setMessage(UiR.string.desktop_display_hint).setView(ScrollView(this).apply { addView(fields) })
@@ -857,12 +858,17 @@ class DiPlayActivity : AppCompatActivity() {
         dialog.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
             val defaults = DesktopDisplayConfig()
             width.setText(defaults.width.toString()); height.setText(defaults.height.toString()); dpi.setText(defaults.dpi.toString())
-            error.visibility = View.GONE
+            error.isVisible = false
         }
         dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-            val selected = runCatching { DesktopDisplayConfig(width.text.toString().toInt(),
-                height.text.toString().toInt(), dpi.text.toString().toInt()) }.getOrNull()
-            if (selected == null) { error.visibility = View.VISIBLE; return@setOnClickListener }
+            val selected = runCatching {
+                DesktopDisplayConfig(
+                    width = width.text.toString().toInt(),
+                    height = height.text.toString().toInt(),
+                    dpi = dpi.text.toString().toInt(),
+                )
+            }.getOrNull()
+            if (selected == null) { error.isVisible = true; return@setOnClickListener }
             source.configureDisplay(selected)
             dialog.dismiss()
             refreshPhone()
@@ -871,14 +877,14 @@ class DiPlayActivity : AppCompatActivity() {
 
     private fun chooseDesktopApp() {
         val apps = packageManager.queryIntentActivities(AndroidDesktopSource.launcherIntent(), 0)
-            .filter { it.activityInfo.let { info -> info.exported && info.enabled && info.applicationInfo.enabled } }
-            .distinctBy { android.content.ComponentName(it.activityInfo.packageName, it.activityInfo.name) }
+            .filter { it.activityInfo.isDesktopLaunchable }
+            .distinctBy { it.activityInfo.desktopComponent }
             .sortedBy { it.loadLabel(packageManager).toString().lowercase() }
         if (apps.isEmpty()) { toast(getString(UiR.string.desktop_no_apps)); return }
         android.app.AlertDialog.Builder(this).setTitle(UiR.string.desktop_choose_app)
             .setItems(apps.map { "${it.loadLabel(packageManager)} (${it.activityInfo.packageName})" }.toTypedArray()) { _, index ->
                 val info = apps[index].activityInfo
-                runCatching { desktopProvider().selectApp(android.content.ComponentName(info.packageName, info.name).flattenToString()) }
+                runCatching { desktopProvider().selectApp(info.desktopComponent.flattenToString()) }
                     .onFailure { toast(getString(UiR.string.desktop_choose_app)) }
                 refreshPhone()
             }.setNegativeButton(android.R.string.cancel, null).show()
