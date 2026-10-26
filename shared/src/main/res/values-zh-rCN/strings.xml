@@ -624,8 +624,16 @@
     <string name="vnc_password_hint">密码最多包含 8 个 Latin-1 字符。</string>
 
     <string name="desktop_title">Android 虚拟桌面</string>
+    <string name="desktop_display_settings">虚拟屏设置</string>
+    <string name="desktop_display_summary">画面：%1$d × %2$d · %3$d DPI</string>
+    <string name="desktop_display_hint">修改将在下次启动虚拟桌面时生效。提高分辨率会增加运算和内存开销；提高 DPI 会放大文字和控件。</string>
+    <string name="desktop_width">宽度（像素）</string>
+    <string name="desktop_height">高度（像素）</string>
+    <string name="desktop_dpi">密度（DPI）</string>
+    <string name="desktop_display_invalid">宽度和高度均须为 %1$d–%2$d 像素，总像素数不得超过 %3$d；DPI 须为 %4$d–%5$d。请输入整数。</string>
+    <string name="desktop_display_reset">恢复默认值</string>
     <string name="desktop_summary">实验性 · 通过 Shizuku 在独立显示屏运行本机应用</string>
-    <string name="desktop_hint">实验性功能，需真机验证。固定 1280 × 720 / 160 dpi，使用图像输出，仅支持触控与返回。音频保留手机原有行为；不支持浏览器音频、麦克风、键盘和 Home。这与手机共享系统和应用数据；部分应用可能从主屏移动过来或拒绝副屏，受保护内容可能黑屏。旋转后需重新连接。</string>
+    <string name="desktop_hint">实验性功能，需真机验证。可设置画面尺寸和 DPI，使用图像输出，仅支持触控与返回。音频保留手机原有行为；不支持浏览器音频、麦克风、键盘和 Home。这与手机共享系统和应用数据；部分应用可能从主屏移动过来或拒绝副屏，受保护内容可能黑屏。旋转后需重新连接。</string>
     <string name="desktop_not_installed">未安装 Shizuku。请先安装并启动，再授权 WheelPlay。</string>
     <string name="desktop_not_running">Shizuku 未启动。手机重启后通常需再次启动；Android 11 及以上可使用本机无线调试，旧版本需要电脑。</string>
     <string name="desktop_not_authorized">WheelPlay 未获授权。请允许 Shizuku 访问；如曾拒绝，请在 Shizuku 的应用授权设置中修改。</string>

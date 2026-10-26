@@ -25,10 +25,14 @@ class AndroidDesktopSourceTest {
     private var closeFailure = false
     private var startFailure = false
     private var appExists = true
+    private var pendingConnection: CompletableFuture<DesktopConnection>? = null
+    private var startedConfig: DesktopDisplayConfig? = null
+    private var outputConfig: DesktopDisplayConfig? = null
     @Volatile private var available: SourceAvailability = SourceAvailability.Ready
     private val connection = object : DesktopConnection {
         override val uid = 2000
-        override fun start(surface: Surface, component: String): Int {
+        override fun start(surface: Surface, component: String, config: DesktopDisplayConfig): Int {
+            startedConfig = config
             events += "start:$component"; started.countDown()
             if (startFailure) error("display rejected")
             return 12
@@ -40,7 +44,7 @@ class AndroidDesktopSourceTest {
     }
     private val backend = object : DesktopBackend {
         override fun probe() = available
-        override fun connect(): CompletableFuture<DesktopConnection> { events += "bind"; return CompletableFuture.completedFuture(connection) }
+        override fun connect(): CompletableFuture<DesktopConnection> { events += "bind"; return pendingConnection ?: CompletableFuture.completedFuture(connection) }
     }
     private val output = object : ProjectionVideoOutput {
         override val surface = Surface(SurfaceTexture(0))
@@ -52,7 +56,7 @@ class AndroidDesktopSourceTest {
         override fun close() { events += "release-surface"; surface.release(); finished.countDown() }
     }
     private fun source() = AndroidDesktopSource(RuntimeEnvironment.getApplication(), backend,
-        { events += "surface"; output }, { appExists && it == "test.app/.Main" }).apply { selectApp("test.app/.Main") }
+        { outputConfig = it; events += "surface"; output }, { appExists && it == "test.app/.Main" }).apply { selectApp("test.app/.Main") }
     private fun ready(session: ProjectionSession) {
         assertTrue(started.await(3, TimeUnit.SECONDS))
         output.hasFrame = true
@@ -60,6 +64,37 @@ class AndroidDesktopSourceTest {
         while (!session.inputReady && System.nanoTime() < deadline) Thread.yield()
         assertTrue(session.inputReady)
     }
+    @Test fun displaySettingsPersistAndInvalidStoredDimensionsFallBackToDefaults() {
+        val provider = source()
+        assertEquals(DesktopDisplayConfig(1280, 720, 160), provider.displayConfig())
+        val custom = DesktopDisplayConfig(1080, 1920, 320)
+        provider.configureDisplay(custom)
+        assertEquals(custom, source().displayConfig())
+        RuntimeEnvironment.getApplication().getSharedPreferences("android-desktop", 0)
+            .edit().putInt("width", Int.MAX_VALUE).apply()
+        assertEquals(DesktopDisplayConfig(), provider.displayConfig())
+        assertTrue(events.isEmpty())
+        output.close()
+    }
+
+    @Test fun pendingSessionKeepsItsDisplayConfigWhenSettingsChange() {
+        val provider = source()
+        val original = DesktopDisplayConfig(1920, 1080, 240)
+        val next = DesktopDisplayConfig(720, 1280, 320)
+        provider.configureDisplay(original)
+        pendingConnection = CompletableFuture()
+        val opening = provider.open()
+        provider.configureDisplay(next)
+        pendingConnection!!.complete(connection)
+        val session = opening.get(3, TimeUnit.SECONDS)
+        try {
+            session.activate(); ready(session)
+            assertEquals(original, outputConfig)
+            assertEquals(original, startedConfig)
+            assertEquals(next, source().displayConfig())
+        } finally { session.stop().get(3, TimeUnit.SECONDS) }
+    }
+
     @Test fun missingDependenciesDoNotStopTheCurrentSourceOrBindHelper() {
         val runtime = ProjectionRuntime()
         val old = object : ProjectionSession {

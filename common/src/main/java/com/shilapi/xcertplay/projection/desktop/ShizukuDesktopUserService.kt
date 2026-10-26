@@ -46,7 +46,8 @@ class ShizukuDesktopUserService(context: Context) : IDesktopService.Stub() {
     private val inputManager = inputClass.getDeclaredMethod("getInstance").invoke(null)
     private val injectMethod = inputClass.getMethod("injectInputEvent", InputEvent::class.java, Int::class.javaPrimitiveType)
     private val setDisplay = InputEvent::class.java.getMethod("setDisplayId", Int::class.javaPrimitiveType)
-    private val touches = DesktopTouch(::inject)
+    private var config: DesktopDisplayConfig? = null
+    private var touches: DesktopTouch? = null
     private val death = IBinder.DeathRecipient { terminate() }
     private val watchdog = Executors.newSingleThreadScheduledExecutor()
 
@@ -71,8 +72,10 @@ class ShizukuDesktopUserService(context: Context) : IDesktopService.Stub() {
         Process.myUid()
     }
 
-    override fun start(session: String, client: IBinder, target: Surface, component: String): Int = hostCall {
+    override fun start(session: String, client: IBinder, target: Surface, component: String,
+        width: Int, height: Int, dpi: Int): Int = hostCall {
         check(!used && token == null) { "Helper already used" }
+        val requested = DesktopDisplayConfig(width, height, dpi)
         require(session.length in 16..128 && target.isValid)
         val activity = requireNotNull(ComponentName.unflattenFromString(component))
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setComponent(activity)
@@ -80,14 +83,16 @@ class ShizukuDesktopUserService(context: Context) : IDesktopService.Stub() {
         val info = shellContext.packageManager.resolveActivity(intent, 0)?.activityInfo
         require(info != null && info.exported && info.enabled && info.applicationInfo.enabled) { "Application cannot be launched" }
         used = true; token = session; owner = client; surface = target
+        config = requested
+        touches = DesktopTouch(requested, ::inject)
         try {
             client.linkToDeath(death, 0)
             var flags = DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY or
                 (1 shl 6) or (1 shl 8) // SUPPORTS_TOUCH, DESTROY_CONTENT_ON_REMOVAL; never AUTO_MIRROR or SECURE.
             if (Build.VERSION.SDK_INT >= 33) flags = flags or (1 shl 10) or (1 shl 11) // TRUSTED, OWN_DISPLAY_GROUP
             if (Build.VERSION.SDK_INT >= 34) flags = flags or (1 shl 14) // OWN_FOCUS
-            display = requireNotNull(displays.createVirtualDisplay("WheelPlay Android desktop", DesktopProtocol.WIDTH,
-                DesktopProtocol.HEIGHT, DesktopProtocol.DPI, target, flags)) { "Virtual displays are unsupported" }
+            display = requireNotNull(displays.createVirtualDisplay("WheelPlay Android desktop", requested.width,
+                requested.height, requested.dpi, target, flags)) { "Virtual displays are unsupported" }
             check(display!!.display.displayId > 0) { "Refusing the default display" }
             check(layoutValid()) { "Unsupported display layout" }
             val options = ActivityOptions.makeBasic().apply { launchDisplayId = display!!.display.displayId }
@@ -125,23 +130,24 @@ class ShizukuDesktopUserService(context: Context) : IDesktopService.Stub() {
     private fun owned(session: String, layout: Int) {
         check(token == session && layout == DesktopProtocol.LAYOUT && display != null) { "Stale desktop session/layout" }
         if (!layoutValid()) {
-            touches.cancel()
+            touches?.cancel()
             error("Display layout changed; reconnect the virtual desktop")
         }
     }
 
     private fun layoutValid(): Boolean {
+        val expected = config ?: return false
         val screen = display?.display ?: return false
         if (screen.displayId <= 0 || !screen.isValid || screen.rotation != Surface.ROTATION_0) return false
         val metrics = DisplayMetrics()
         @Suppress("DEPRECATION") screen.getRealMetrics(metrics)
-        return metrics.widthPixels == DesktopProtocol.WIDTH && metrics.heightPixels == DesktopProtocol.HEIGHT &&
-            metrics.densityDpi == DesktopProtocol.DPI
+        return metrics.widthPixels == expected.width && metrics.heightPixels == expected.height &&
+            metrics.densityDpi == expected.dpi
     }
 
     override fun touch(session: String, layout: Int, ids: IntArray, xs: FloatArray, ys: FloatArray, down: BooleanArray) = hostCall {
         owned(session, layout)
-        try { touches.update(ids, xs, ys, down) } catch (failure: Throwable) { runCatching { touches.cancel() }; throw failure }
+        try { checkNotNull(touches).update(ids, xs, ys, down) } catch (failure: Throwable) { runCatching { touches?.cancel() }; throw failure }
     }
 
     override fun back(session: String, layout: Int) = hostCall {
@@ -171,9 +177,10 @@ class ShizukuDesktopUserService(context: Context) : IDesktopService.Stub() {
 
     private fun release() {
         // Even rejected input must not prevent the display and its tasks from being destroyed.
-        runCatching { touches.cancel() }
+        runCatching { touches?.cancel() }
         display?.release()
         display = null
+        touches = null; config = null
         surface?.release(); surface = null
         owner?.let { runCatching { it.unlinkToDeath(death, 0) } }; owner = null
         token = null

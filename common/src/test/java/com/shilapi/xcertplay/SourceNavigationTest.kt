@@ -152,6 +152,44 @@ class SourceNavigationTest {
         } finally { projectionSessions.stop().join(); controller.pause().stop().destroy(); WebSession.stop() }
     }
 
+    @Test fun desktopDisplaySettingsValidateSaveCancelAndRestoreDefaultsWithoutStartingProjection() {
+        val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
+        val activity = controller.get()
+        try {
+            val initial = projectionSessions.snapshot()
+            tabs(activity).selectedItemId = 2
+            cards(activity)[4].performClick()
+            val source = projectionSessions.sources().filterIsInstance<com.shilapi.xcertplay.projection.desktop.AndroidDesktopSource>().single()
+            fun open(): android.app.AlertDialog {
+                buttons(activity).single { it.text.startsWith("画面：") }.performClick()
+                return org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog()
+            }
+            val dialog = open()
+            val fields = views(dialog.window!!.decorView).filterIsInstance<android.widget.EditText>()
+            assertEquals(listOf("1280", "720", "160"), fields.map { it.text.toString() })
+            fields[0].setText("999999999999")
+            dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick()
+            assertTrue(dialog.isShowing)
+            assertEquals(1280, source.displayConfig().width)
+            fields[0].setText("1080"); fields[1].setText("1920"); fields[2].setText("320")
+            dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick()
+            assertFalse(dialog.isShowing)
+            assertEquals(com.shilapi.xcertplay.projection.desktop.DesktopDisplayConfig(1080, 1920, 320), source.displayConfig())
+            assertTrue(buttons(activity).any { it.text == "画面：1080 × 1920 · 320 DPI" })
+            val canceled = open()
+            canceled.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).performClick()
+            canceled.getButton(android.app.AlertDialog.BUTTON_NEGATIVE).performClick()
+            assertEquals(320, source.displayConfig().dpi)
+            val reset = open()
+            reset.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).performClick()
+            assertTrue(reset.isShowing)
+            reset.getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick()
+            assertEquals(com.shilapi.xcertplay.projection.desktop.DesktopDisplayConfig(), source.displayConfig())
+            assertSame(initial, projectionSessions.snapshot())
+            assertTrue(shadowOf(RuntimeEnvironment.getApplication()).boundServiceConnections.isEmpty())
+        } finally { controller.pause().stop().destroy(); WebSession.stop() }
+    }
+
     private fun installPlugin(pkg: String, sourceId: String?, api: Int = ProjectionPlugin.API_VERSION) {
         val context = RuntimeEnvironment.getApplication()
         val pm = shadowOf(context.packageManager)

@@ -96,10 +96,11 @@ internal class ShizukuDesktopBackend(private val context: Context) : DesktopBack
             uid = service.hello(DesktopProtocol.VERSION)
             check(uid == 2000 || uid == 0) { "Unsupported helper identity" }
         }
-        override fun start(surface: Surface, component: String): Int {
+        override fun start(surface: Surface, component: String, config: DesktopDisplayConfig): Int {
             check(!closed && !started)
             started = true
-            return service.start(token, owner, surface, component).also { check(it > 0) { "Invalid virtual display" } }
+            return service.start(token, owner, surface, component, config.width, config.height, config.dpi)
+                .also { check(it > 0) { "Invalid virtual display" } }
         }
         override fun touch(contacts: List<ProjectionContact>) {
             check(!closed)

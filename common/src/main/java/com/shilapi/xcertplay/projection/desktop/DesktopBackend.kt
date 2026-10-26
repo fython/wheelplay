@@ -14,7 +14,7 @@ internal interface DesktopBackend {
 
 internal interface DesktopConnection : AutoCloseable {
     val uid: Int
-    fun start(surface: Surface, component: String): Int
+    fun start(surface: Surface, component: String, config: DesktopDisplayConfig): Int
     fun touch(contacts: List<ProjectionContact>)
     fun back()
     /** Also renews the helper's watchdog; rejects unexpected rotation/size changes. */
@@ -24,10 +24,7 @@ internal interface DesktopConnection : AutoCloseable {
 }
 
 internal object DesktopProtocol {
-    const val VERSION = 1
-    const val WIDTH = 1280
-    const val HEIGHT = 720
-    const val DPI = 160
+    const val VERSION = 2
     const val LAYOUT = 1
     const val SOURCE_ID = ProjectionSourceIds.ANDROID_DESKTOP
 }

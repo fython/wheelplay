@@ -12,8 +12,20 @@ import org.robolectric.annotation.Config
 class DesktopTouchTest {
     private data class Event(val action: Int, val index: Int, val ids: List<Int>, val x: Float, val y: Float)
     private val events = mutableListOf<Event>()
-    private val touch = DesktopTouch { event ->
+    private val touch = DesktopTouch(DesktopDisplayConfig()) { event ->
         events += Event(event.actionMasked, event.actionIndex, (0 until event.pointerCount).map { event.getPointerId(it) }, event.x, event.y)
+    }
+    @Test fun customLandscapeAndPortraitDisplaysMapNormalizedCoordinatesToTheirOwnBounds() {
+        for (config in listOf(DesktopDisplayConfig(1920, 1080, 240), DesktopDisplayConfig(720, 1280, 320))) {
+            val positions = mutableListOf<Pair<Float, Float>>()
+            val custom = DesktopTouch(config) { positions += it.x to it.y }
+            custom.update(intArrayOf(0), floatArrayOf(0f), floatArrayOf(0f))
+            assertEquals(0f to 0f, positions.first())
+            custom.update(intArrayOf(0), floatArrayOf(.5f), floatArrayOf(.5f))
+            assertEquals((config.width - 1) * .5f to (config.height - 1) * .5f, positions.last())
+            custom.update(intArrayOf(0), floatArrayOf(1f), floatArrayOf(1f), booleanArrayOf(false))
+            assertEquals((config.width - 1).toFloat() to (config.height - 1).toFloat(), positions.last())
+        }
     }
     @Test fun stablePointerIdsSurviveReorderingAndLifts() {
         touch.update(intArrayOf(7), floatArrayOf(1f), floatArrayOf(1f))

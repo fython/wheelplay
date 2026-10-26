@@ -12,8 +12,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 internal class AndroidDesktopSource(
     private val context: Context,
     private val backend: DesktopBackend = ShizukuDesktopBackend(context),
-    private val output: () -> ProjectionVideoOutput = {
-        BrowserProjectionVideo(context, DesktopProtocol.WIDTH, DesktopProtocol.HEIGHT, VideoIngressKind.SURFACE)
+    private val output: (DesktopDisplayConfig) -> ProjectionVideoOutput = { config ->
+        BrowserProjectionVideo(context, config.width, config.height, VideoIngressKind.SURFACE)
     },
     private val targetAvailable: (String) -> Boolean = { component ->
         val target = ComponentName.unflattenFromString(component)
@@ -32,6 +32,15 @@ internal class AndroidDesktopSource(
         private set
     fun selectedApp(): String = preferences.getString("component", "").orEmpty()
     fun selectApp(component: String) { require(targetAvailable(component)); preferences.edit().putString("component", component).apply() }
+    fun displayConfig(): DesktopDisplayConfig = runCatching {
+        val saved = preferences.all
+        val defaults = DesktopDisplayConfig()
+        DesktopDisplayConfig(saved["width"] as? Int ?: defaults.width,
+            saved["height"] as? Int ?: defaults.height, saved["dpi"] as? Int ?: defaults.dpi)
+    }.getOrDefault(DesktopDisplayConfig())
+    fun configureDisplay(config: DesktopDisplayConfig) {
+        preferences.edit().putInt("width", config.width).putInt("height", config.height).putInt("dpi", config.dpi).apply()
+    }
     fun dependencyStatus() = backend.probe()
     override fun probe(): SourceAvailability {
         val dependency = backend.probe()
@@ -45,19 +54,21 @@ internal class AndroidDesktopSource(
             it.completeExceptionally(IllegalStateException(state.reason))
         }
         val target = selectedApp()
+        val config = displayConfig()
         lastFailure = null
         preparing = true
         val pending = try { backend.connect() } catch (error: Throwable) {
             preparing = false; lastFailure = error.message
             return CompletableFuture<ProjectionSession>().also { it.completeExceptionally(error) }
         }
-        return pending.thenApply<ProjectionSession> { Session(it, target) }.whenComplete { _, failure ->
+        return pending.thenApply<ProjectionSession> { Session(it, target, config) }.whenComplete { _, failure ->
             preparing = false
             if (failure != null) lastFailure = failure.cause?.message ?: failure.message
         }
     }
 
-    private inner class Session(private val connection: DesktopConnection, private val target: String) : ProjectionSession {
+    private inner class Session(private val connection: DesktopConnection, private val target: String,
+        private val config: DesktopDisplayConfig) : ProjectionSession {
         override val descriptor = this@AndroidDesktopSource.descriptor
         override val capabilities = ProjectionCapabilities(setOf(VideoIngressKind.SURFACE), maxTouchContacts = 10, backButton = true)
         private val stopped = AtomicBoolean()
@@ -83,8 +94,8 @@ internal class AndroidDesktopSource(
         override fun activate() {
             if (stopped.get() || !activated.compareAndSet(false, true)) return
             enqueue {
-                video = output()
-                connection.start(video!!.surface, target)
+                video = output(config)
+                connection.start(video!!.surface, target, config)
                 startedAt = System.nanoTime()
                 started = true
             }

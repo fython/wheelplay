@@ -80,6 +80,7 @@ class DiPlayActivity : AppCompatActivity() {
     private var webBusy = false
     private var awaitingTeslaVpnConsent = false
     private var vncDialog: android.app.AlertDialog? = null
+    private var desktopDialog: android.app.AlertDialog? = null
     private var localAndroidAutoDialog: android.app.AlertDialog? = null
     private val localAndroidAutoSettings = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (!isFinishing && !isDestroyed) showLocalAndroidAutoSetup()
@@ -328,7 +329,7 @@ class DiPlayActivity : AppCompatActivity() {
         }
     }
     override fun onPause() { WebSession.setPhoneConnectHandler(null); handler.removeCallbacks(tick); super.onPause() }
-    override fun onDestroy() { Shizuku.removeRequestPermissionResultListener(desktopPermissionResult); vncDialog?.dismiss(); localAndroidAutoDialog?.dismiss(); settingsDialogs.cancel(); pendingPemCertificate?.fill(0); pendingPemCertificate = null; super.onDestroy() }
+    override fun onDestroy() { Shizuku.removeRequestPermissionResultListener(desktopPermissionResult); desktopDialog?.dismiss(); vncDialog?.dismiss(); localAndroidAutoDialog?.dismiss(); settingsDialogs.cancel(); pendingPemCertificate?.fill(0); pendingPemCertificate = null; super.onDestroy() }
 
     private fun normalizedPage(value: String) = when (value) {
         "home" -> "phone"
@@ -807,6 +808,10 @@ class DiPlayActivity : AppCompatActivity() {
         sourceSessionControls(content, ProjectionSourceIds.ANDROID_DESKTOP)
         ui.card(content, getString(UiR.string.desktop_title), R.drawable.ic_server_phone) { body ->
             body.addView(label(getString(UiR.string.desktop_hint), 15, MUTED))
+            val config = source.displayConfig()
+            body.addView(button(getString(UiR.string.desktop_display_summary, config.width, config.height, config.dpi), false) {
+                configureDesktopDisplay()
+            }, matchButton(12))
             desktopStatus = label("", 15, MUTED).also { body.addView(it) }
             body.addView(button(getString(UiR.string.desktop_open_shizuku), false) {
                 openSystem(packageManager.getLaunchIntentForPackage(ShizukuDesktopBackend.PACKAGE)
@@ -825,6 +830,45 @@ class DiPlayActivity : AppCompatActivity() {
             }.also { body.addView(it, matchButton(12)) }
         }
     }
+    private fun configureDesktopDisplay() {
+        val source = desktopProvider()
+        val config = source.displayConfig()
+        val fields = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(24), 0, dp(24), 0) }
+        fun field(title: Int, value: Int) = EditText(this).apply {
+            fields.addView(label(getString(title), 14, MUTED))
+            contentDescription = getString(title)
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setSingleLine(true); setText(value.toString()); fields.addView(this)
+        }
+        val width = field(UiR.string.desktop_width, config.width)
+        val height = field(UiR.string.desktop_height, config.height)
+        val dpi = field(UiR.string.desktop_dpi, config.dpi)
+        val error = label(getString(UiR.string.desktop_display_invalid, DesktopDisplayConfig.MIN_SIZE,
+            DesktopDisplayConfig.MAX_SIZE, DesktopDisplayConfig.MAX_PIXELS, DesktopDisplayConfig.MIN_DPI,
+            DesktopDisplayConfig.MAX_DPI), 14, MUTED).apply { visibility = View.GONE; fields.addView(this) }
+        desktopDialog?.dismiss()
+        val dialog = android.app.AlertDialog.Builder(this).setTitle(UiR.string.desktop_display_settings)
+            .setMessage(UiR.string.desktop_display_hint).setView(ScrollView(this).apply { addView(fields) })
+            .setPositiveButton(android.R.string.ok, null).setNegativeButton(android.R.string.cancel, null)
+            .setNeutralButton(UiR.string.desktop_display_reset, null).create()
+        dialog.setOnDismissListener { if (desktopDialog === dialog) desktopDialog = null }
+        desktopDialog = dialog
+        dialog.show()
+        dialog.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+            val defaults = DesktopDisplayConfig()
+            width.setText(defaults.width.toString()); height.setText(defaults.height.toString()); dpi.setText(defaults.dpi.toString())
+            error.visibility = View.GONE
+        }
+        dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val selected = runCatching { DesktopDisplayConfig(width.text.toString().toInt(),
+                height.text.toString().toInt(), dpi.text.toString().toInt()) }.getOrNull()
+            if (selected == null) { error.visibility = View.VISIBLE; return@setOnClickListener }
+            source.configureDisplay(selected)
+            dialog.dismiss()
+            refreshPhone()
+        }
+    }
+
     private fun chooseDesktopApp() {
         val apps = packageManager.queryIntentActivities(AndroidDesktopSource.launcherIntent(), 0)
             .filter { it.activityInfo.let { info -> info.exported && info.enabled && info.applicationInfo.enabled } }
