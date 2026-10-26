@@ -12,7 +12,7 @@ internal val projectionSessions = ProjectionRuntime()
         })
     }
     projectionSessions.register(IccoaSource(app))
-    projectionSessions.register(com.shilapi.xcertplay.projection.desktop.AndroidDesktopSource(app))
+    projectionSessions.register(moe.feng.wheelplay.projection.desktop.AndroidDesktopSource(app))
     projectionSessions.register(com.shilapi.xcertplay.projection.vnc.VncSource(app) { width, height ->
         BrowserProjectionVideo(app, width, height, VideoIngressKind.FRAMEBUFFER)
     })

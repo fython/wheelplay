@@ -11,7 +11,7 @@ import com.shilapi.xcertplay.projection.ProjectionSession
 import moe.feng.wheelplay.plugin.ProjectionPlugin
 import com.shilapi.xcertplay.projection.registerProjectionSources
 import com.shilapi.xcertplay.projection.androidauto.LocalAndroidAuto
-import com.shilapi.xcertplay.projection.desktop.*
+import moe.feng.wheelplay.projection.desktop.*
 import androidx.core.view.isVisible
 import com.shilapi.xcertplay.projection.SourceAvailability
 import rikka.shizuku.Shizuku

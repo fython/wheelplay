@@ -38,6 +38,8 @@
 
 ## Binder 协议
 
+虚拟桌面实现与 AIDL 协议统一位于 `moe.feng.wheelplay.projection.desktop`；同名测试使用相同包层级。Shizuku UserService 通过新包下的 `ShizukuDesktopUserService` 类绑定。
+
 握手请求传协议版本和宿主支持的功能位，响应 `DesktopHandshakeResult` 包含状态与 `DesktopServiceInfo`：助手 UID、协议版本、助手支持位、双方启用位、最大触点数、宽高/DPI/总像素范围。主进程验证返回值后，将协商结果转换为公共 `ProjectionCapabilities`；会话及助手均拒绝未启用的输入操作。功能位使用固定数值，不使用 enum ordinal；未知功能位忽略，缺少必需的 Surface 视频或屏幕配置能力时明确失败。同一 APK 内仍要求协议版本完全匹配；同一版本内通过功能位协商可选能力。
 
 | 功能位 | 语义 |

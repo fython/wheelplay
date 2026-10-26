@@ -159,7 +159,7 @@ class SourceNavigationTest {
             val initial = projectionSessions.snapshot()
             tabs(activity).selectedItemId = 2
             cards(activity)[4].performClick()
-            val source = projectionSessions.sources().filterIsInstance<com.shilapi.xcertplay.projection.desktop.AndroidDesktopSource>().single()
+            val source = projectionSessions.sources().filterIsInstance<moe.feng.wheelplay.projection.desktop.AndroidDesktopSource>().single()
             fun open(): android.app.AlertDialog {
                 buttons(activity).single { it.text.startsWith("画面：") }.performClick()
                 return org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog()
@@ -174,7 +174,7 @@ class SourceNavigationTest {
             fields[0].setText("1080"); fields[1].setText("1920"); fields[2].setText("320")
             dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick()
             assertFalse(dialog.isShowing)
-            assertEquals(com.shilapi.xcertplay.projection.desktop.DesktopDisplayConfig(1080, 1920, 320), source.displayConfig())
+            assertEquals(moe.feng.wheelplay.projection.desktop.DesktopDisplayConfig(1080, 1920, 320), source.displayConfig())
             assertTrue(buttons(activity).any { it.text == "画面：1080 × 1920 · 320 DPI" })
             val canceled = open()
             canceled.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).performClick()
@@ -184,7 +184,7 @@ class SourceNavigationTest {
             reset.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).performClick()
             assertTrue(reset.isShowing)
             reset.getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick()
-            assertEquals(com.shilapi.xcertplay.projection.desktop.DesktopDisplayConfig(), source.displayConfig())
+            assertEquals(moe.feng.wheelplay.projection.desktop.DesktopDisplayConfig(), source.displayConfig())
             assertSame(initial, projectionSessions.snapshot())
             assertTrue(shadowOf(RuntimeEnvironment.getApplication()).boundServiceConnections.isEmpty())
         } finally { controller.pause().stop().destroy(); WebSession.stop() }
