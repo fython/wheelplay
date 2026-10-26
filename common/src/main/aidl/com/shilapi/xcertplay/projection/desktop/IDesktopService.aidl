@@ -6,8 +6,8 @@ import com.shilapi.xcertplay.projection.desktop.DesktopStartResult;
 import com.shilapi.xcertplay.projection.desktop.DesktopStatus;
 import com.shilapi.xcertplay.projection.desktop.DesktopTouchFrame;
 
-/** Version 3. One handshake and one immutable display per helper; session calls require the host UID.
- * Results carry DesktopStatus: zero for success, stable DesktopErrorCode plus diagnostics on failure.
+/** Version 4. One handshake and one immutable display per helper; session calls require the host UID.
+ * Control results carry DesktopStatus: zero for success, stable DesktopErrorCode plus diagnostics on failure.
  * Malformed Parcel data and Binder transport failures use Android's standard exceptions.
  */
 interface IDesktopService {
@@ -15,8 +15,8 @@ interface IDesktopService {
     DesktopHandshakeResult hello(int version, long hostFeatures) = 0;
     // Requires hello. Owner death releases the display and terminates the helper.
     DesktopStartResult start(String token, IBinder owner, in Surface surface, String component, int width, int height, int dpi) = 1;
-    // Synchronous admission preserves input failure reporting; frame coordinates are normalized.
-    DesktopStatus touch(String token, in DesktopTouchFrame frame) = 2;
+    // Best-effort full snapshot, no per-frame reply. Persistent faults are reported by healthy().
+    oneway void touch(String token, in DesktopTouchFrame frame) = 2;
     DesktopStatus back(String token, int layout) = 3;
     // Success confirms the owned layout and renews its watchdog; errors do not renew it.
     DesktopStatus healthy(String token, int layout) = 4;

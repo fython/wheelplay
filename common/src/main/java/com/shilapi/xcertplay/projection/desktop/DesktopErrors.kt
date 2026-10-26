@@ -44,7 +44,7 @@ internal fun desktopFailure(error: Throwable): DesktopException =
     generateSequence(error) { it.cause }.filterIsInstance<DesktopException>().firstOrNull()
         ?: DesktopException(DesktopErrorCode.INTERNAL, error.toString(), error)
 
-/** Only errors carry text; the hot-path success status is a shared singleton. */
+/** Only control-call errors carry text; successful control results share a singleton. */
 internal inline fun desktopServiceStatus(block: () -> Unit): DesktopStatus = try { block(); DesktopStatus.OK }
 catch (error: DesktopException) { DesktopStatus(error.code, error.diagnostic.take(1024)) }
 catch (error: IllegalArgumentException) { DesktopStatus(DesktopErrorCode.INVALID_ARGUMENT.wire, error.toString().take(1024)) }

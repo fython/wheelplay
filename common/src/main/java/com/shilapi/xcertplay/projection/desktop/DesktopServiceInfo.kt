@@ -3,7 +3,7 @@ package com.shilapi.xcertplay.projection.desktop
 import android.os.Parcel
 import android.os.Parcelable
 
-/** Protocol v3 handshake response. Limits describe accepted requests, not device compatibility guarantees. */
+/** Protocol v4 handshake response. Limits describe accepted requests, not device compatibility guarantees. */
 data class DesktopServiceInfo(
     val protocolVersion: Int,
     val uid: Int,

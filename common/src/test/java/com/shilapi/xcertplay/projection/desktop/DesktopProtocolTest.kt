@@ -14,7 +14,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [29])
 class DesktopProtocolTest {
     @Test fun handshakeIntersectsCapabilitiesAndPreservesLimitsAcrossParcel() {
-        val info = DesktopServiceInfo.negotiate(3, DesktopFeatures.HOST_SUPPORTED or DesktopFeatures.KEYBOARD or (1L shl 60), 2000)
+        val info = DesktopServiceInfo.negotiate(4, DesktopFeatures.HOST_SUPPORTED or DesktopFeatures.KEYBOARD or (1L shl 60), 2000)
         assertEquals(DesktopFeatures.HOST_SUPPORTED, info.enabledFeatures)
         DesktopServiceInfo.validate(info)
         assertTrue(info.accepts(DesktopDisplayConfig(1080, 1920, 320)))
@@ -27,7 +27,7 @@ class DesktopProtocolTest {
     }
 
     @Test fun optionalInputCanBeDisabledAndMalformedNegotiationIsRejected() {
-        val info = DesktopServiceInfo.negotiate(3, DesktopFeatures.REQUIRED, 2000)
+        val info = DesktopServiceInfo.negotiate(4, DesktopFeatures.REQUIRED, 2000)
         assertEquals(0, info.maxTouchContacts)
         DesktopServiceInfo.validate(info, DesktopFeatures.REQUIRED)
         val capabilities = DesktopFeatures.projection(info.enabledFeatures, info.maxTouchContacts)
@@ -40,7 +40,7 @@ class DesktopProtocolTest {
             DesktopServiceInfo.negotiate(2, DesktopFeatures.HOST_SUPPORTED, 2000)
         }.category)
         assertEquals(DesktopErrorCode.UNSUPPORTED_CAPABILITY, assertThrows(DesktopException::class.java) {
-            DesktopServiceInfo.negotiate(3, DesktopFeatures.TOUCH, 2000)
+            DesktopServiceInfo.negotiate(4, DesktopFeatures.TOUCH, 2000)
         }.category)
         for (invalid in listOf(info.copy(uid = 12345), info.copy(enabledFeatures = info.enabledFeatures or DesktopFeatures.KEYBOARD),
             info.copy(maxTouchContacts = 10), info.copy(minSize = -1), info.copy(maxPixels = 0))) {
@@ -74,12 +74,7 @@ class DesktopProtocolTest {
                 assertArrayEquals(frame.ids, decoded.ids); assertArrayEquals(frame.xs, decoded.xs, 0f)
                 assertArrayEquals(frame.ys, decoded.ys, 0f); assertArrayEquals(frame.down, decoded.down)
                 assertEquals(0, packed.dataAvail())
-                val requestSavings = old.dataSize() - packed.dataSize()
-                old.setDataSize(0); old.setDataPosition(0); old.writeNoException()
-                packed.setDataSize(0); packed.setDataPosition(0); packed.writeNoException(); packed.writeTypedObject(DesktopStatus.OK, 0)
-                assertEquals(requestSavings, packed.dataSize() - old.dataSize())
-                packed.setDataPosition(0); packed.readException()
-                assertSame(DesktopStatus.OK, packed.readTypedObject(DesktopStatus.CREATOR))
+                // A oneway touch has no reply Parcel at all; only the compact request is sent.
             } finally { old.recycle(); packed.recycle() }
         }
     }

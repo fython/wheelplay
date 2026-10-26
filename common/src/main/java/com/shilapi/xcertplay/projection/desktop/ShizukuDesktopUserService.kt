@@ -16,6 +16,7 @@ import android.os.Looper
 import android.os.Process
 import android.os.SystemClock
 import android.util.DisplayMetrics
+import android.util.Log
 import android.view.InputDevice
 import android.view.InputEvent
 import android.view.KeyEvent
@@ -35,7 +36,7 @@ class ShizukuDesktopUserService(context: Context) : IDesktopService.Stub() {
         isAccessible = true
     }.newInstance(shellContext)
     private val lock = Any()
-    private var token: String? = null
+    @Volatile private var token: String? = null
     private var owner: IBinder? = null
     private var display: VirtualDisplay? = null
     private var surface: Surface? = null
@@ -49,6 +50,7 @@ class ShizukuDesktopUserService(context: Context) : IDesktopService.Stub() {
     private var negotiated: DesktopServiceInfo? = null
     private var config: DesktopDisplayConfig? = null
     private var touches: DesktopTouch? = null
+    @Volatile private var touchQueue: DesktopTouchQueue? = null
     private val death = IBinder.DeathRecipient { terminate() }
     private val watchdog = Executors.newSingleThreadScheduledExecutor()
 
@@ -130,6 +132,22 @@ class ShizukuDesktopUserService(context: Context) : IDesktopService.Stub() {
                 Thread.sleep(50)
             }
             lastHeartbeat = SystemClock.elapsedRealtime()
+            if (negotiated!!.enabledFeatures and DesktopFeatures.TOUCH != 0L) {
+                touchQueue = DesktopTouchQueue(
+                    process = { frame -> synchronized(lock) {
+                        // A synchronous stop can overtake pending oneway calls. Never inject after release.
+                        if (token == session && display != null) {
+                            owned(session, frame.layout)
+                            requireFeature(DesktopFeatures.TOUCH)
+                            require(frame.ids.size <= negotiated!!.maxTouchContacts)
+                            touches!!.update(frame.ids, frame.xs, frame.ys, frame.down)
+                        }
+                    } },
+                    cancel = { synchronized(lock) { if (token == session && display != null) touches?.cancel(); Unit } },
+                    diagnose = { Log.w("ShizukuDesktop", "Touch error ${it.code}: ${it.diagnostic}", it) },
+                    operationLock = lock,
+                )
+            }
             display!!.display.displayId
         } catch (failure: Throwable) {
             try { release() } catch (cleanup: Throwable) { cleanup.addSuppressed(failure); throw cleanup }
@@ -167,12 +185,10 @@ class ShizukuDesktopUserService(context: Context) : IDesktopService.Stub() {
             metrics.densityDpi == expected.dpi
     }
 
-    override fun touch(session: String, frame: DesktopTouchFrame) = statusCall {
-        owned(session, frame.layout)
-        requireFeature(DesktopFeatures.TOUCH)
-        require(frame.ids.size <= checkNotNull(negotiated).maxTouchContacts)
-        try { checkNotNull(touches).update(frame.ids, frame.xs, frame.ys, frame.down) }
-        catch (failure: Throwable) { runCatching { touches?.cancel() }; throw failure }
+    override fun touch(session: String, frame: DesktopTouchFrame) {
+        // Only enqueue here: no privileged operation, display lock or synchronous reply on the Binder thread.
+        if (Binder.getCallingUid() != hostUid || token != session || frame.layout != DesktopProtocol.LAYOUT) return
+        touchQueue?.offer(frame)
     }
 
     override fun back(session: String, layout: Int) = statusCall {
@@ -192,6 +208,7 @@ class ShizukuDesktopUserService(context: Context) : IDesktopService.Stub() {
 
     override fun healthy(session: String, layout: Int) = statusCall {
         owned(session, layout)
+        touchQueue?.fault?.let { throw it }
         lastHeartbeat = SystemClock.elapsedRealtime()
     }
 
@@ -202,6 +219,7 @@ class ShizukuDesktopUserService(context: Context) : IDesktopService.Stub() {
 
     private fun release() = desktopOperation(DesktopErrorCode.CLEANUP_FAILED) {
         // Even rejected input must not prevent the display and its tasks from being destroyed.
+        touchQueue?.close(); touchQueue = null
         runCatching { touches?.cancel() }
         display?.release()
         display = null

@@ -22,6 +22,8 @@ class DesktopBinderProtocolTest {
         var config: DesktopDisplayConfig? = null
         var frame: DesktopTouchFrame? = null
         var backCalls = 0
+        var touchFlags = 0
+        var touchReplyWasNull = false
         override fun hello(version: Int, hostFeatures: Long): DesktopHandshakeResult {
             val enabled = offered and hostFeatures
             val info = DesktopServiceInfo.negotiate(version, enabled, 2000).copy(supportedFeatures = offered)
@@ -31,7 +33,7 @@ class DesktopBinderProtocolTest {
             config = DesktopDisplayConfig(width, height, dpi)
             return DesktopStartResult(status, if (status.code == 0) 42 else 0)
         }
-        override fun touch(token: String, frame: DesktopTouchFrame): DesktopStatus { this.frame = frame; return status }
+        override fun touch(token: String, frame: DesktopTouchFrame) { this.frame = frame }
         override fun back(token: String, layout: Int): DesktopStatus { backCalls++; return status }
         override fun healthy(token: String, layout: Int) = status
         override fun stop(token: String) = status
@@ -40,7 +42,13 @@ class DesktopBinderProtocolTest {
 
     private fun connect(helper: Helper): ShizukuDesktopBackend.Connection {
         val remote = object : Binder() {
-            override fun onTransact(code: Int, data: Parcel, reply: Parcel?, flags: Int) = helper.asBinder().transact(code, data, reply, flags)
+            override fun onTransact(code: Int, data: Parcel, reply: Parcel?, flags: Int): Boolean {
+                if (code == IBinder.FIRST_CALL_TRANSACTION + 2) {
+                    helper.touchFlags = flags
+                    helper.touchReplyWasNull = reply == null
+                }
+                return helper.asBinder().transact(code, data, reply, flags)
+            }
         }
         val proxy = IDesktopService.Stub.asInterface(remote)
         assertNotSame(helper, proxy)
@@ -59,6 +67,8 @@ class DesktopBinderProtocolTest {
             assertEquals(42, connection.start(surface, "test.app/.Main", config))
             assertEquals(config, helper.config)
             connection.touch(listOf(ProjectionContact(7, .25, .75, false)))
+            assertEquals(IBinder.FLAG_ONEWAY, helper.touchFlags and IBinder.FLAG_ONEWAY)
+            assertTrue(helper.touchReplyWasNull)
             assertArrayEquals(intArrayOf(7), helper.frame!!.ids)
             assertArrayEquals(floatArrayOf(.25f), helper.frame!!.xs, 0f)
             assertArrayEquals(booleanArrayOf(false), helper.frame!!.down)
@@ -69,7 +79,8 @@ class DesktopBinderProtocolTest {
             assertEquals(DesktopErrorCode.LAYOUT_CHANGED, error.category)
             assertEquals(helper.status.diagnostic, error.diagnostic)
             helper.status = DesktopStatus(9001, "future helper failure")
-            assertEquals(9001, assertThrows(DesktopException::class.java) { connection.touch(emptyList()) }.code)
+            connection.touch(emptyList()) // No per-frame business failure is returned.
+            assertEquals(9001, assertThrows(DesktopException::class.java) { connection.healthy() }.code)
         } finally { surface.release() }
     }
 

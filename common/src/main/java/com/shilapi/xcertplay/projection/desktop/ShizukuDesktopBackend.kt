@@ -117,7 +117,7 @@ internal class ShizukuDesktopBackend(private val context: Context) : DesktopBack
             check(!closed)
             desktopCheck(capabilities.maxTouchContacts > 0, DesktopErrorCode.UNSUPPORTED_CAPABILITY) { "Touch was not negotiated" }
             desktopCheck(contacts.size <= capabilities.maxTouchContacts, DesktopErrorCode.INVALID_ARGUMENT) { "Too many contacts" }
-            desktopRemoteCall { service.touch(token, DesktopTouchFrame.from(contacts)).throwIfError() }
+            desktopRemoteCall { service.touch(token, DesktopTouchFrame.from(contacts)) }
         }
         override fun back() {
             check(!closed)
