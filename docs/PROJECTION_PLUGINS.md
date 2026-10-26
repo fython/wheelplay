@@ -69,6 +69,10 @@ adb install -r projection-plugin-sample/build/outputs/apk/debug/projection-plugi
 - `onNightMode(night)`：可选。
 - `onStopProjection()`：立即封闭输入，停止传输、音视频生产者及所有 SDK 子服务，返回完成于真正释放之后的 `CompletableFuture<Unit>`。清理不确定必须异常完成，不能只调用 SDK.stop 就立即完成。
 
+插件主动断开、上报 `ERROR` 或启动钩子抛出异常时，基类先通过 `onState(ERROR, reason)` 通知宿主，再调用清理钩子。宿主立即撤销输入并启动 15 秒清理截止时间；`onStopped(clean=true)` 仍只表示资源清理完成，不代表启动成功。手动停止不会制造错误通知。已有插件需使用更新后的基类重新构建，AIDL 与 API v2 版本号不变。
+
+启动或运行失败的原因保留在当前宿主进程内，显示在对应插件卡片和首页所选输入源中；页面刷新和 Activity 重建不会丢失。显式重试会清除旧错误，APK 更新或卸载也会清除，旧 APK 的迟到回调不能覆盖新记录。清理成功后仍释放占用，不会把可重试的启动失败当成资源释放失败。
+
 这些钩子在 SDK 基类的串行工作线程调用。较长操作必须使用自有工作线程，并在停止 future 中等待退出。普通模式的 Surface 在停止成功后由基类释放；专用进程模式由进程退出回收，宿主在观察到退出前保留消费者。生产者不得继续写入已释放的 Surface。基类监听宿主 Binder 死亡和解绑以请求清理，清理失败后不再接纳新会话。
 
 对于保存进程单例、线程或 native 状态的 SDK，可覆盖 `terminateProcessAfterStop = true`，并将投影 Service 和该 SDK 的全部子服务配置到同一个专用 `android:process=":projection"`。设置 Activity 留在应用主进程，其他源不要共享该专用进程。基类拒绝在应用主进程启用此模式。

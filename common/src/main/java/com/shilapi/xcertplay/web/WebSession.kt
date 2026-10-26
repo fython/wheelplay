@@ -518,7 +518,9 @@ internal object WebSession {
     fun setMdnsHostname(context: Context, hostname: String): String? =
         runCatching {
                 WebListenSettings.saveMdnsHostname(context, hostname)
-                mdns?.close()
+                val previous = mdns
+                mdns = null
+                previous?.close() // Signals retirement; network cleanup stays on its own worker.
                 mdns = if (server != null) WebMdns(context.applicationContext) else null
                 null
             }
@@ -779,8 +781,9 @@ internal object WebSession {
     @Synchronized
     fun stop() {
         mediaEnded = true
-        mdns?.close()
+        val previousMdns = mdns
         mdns = null
+        previousMdns?.close() // Never wait for JmDNS while holding the WebSession monitor.
         experienceContext = null
         offlineSubscription?.close()
         offlineSubscription = null

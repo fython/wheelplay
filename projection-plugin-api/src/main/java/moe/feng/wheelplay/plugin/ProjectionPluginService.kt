@@ -71,7 +71,7 @@ abstract class ProjectionPluginService : Service() {
         var stopping = false
         var ready = false
         var cleanupComplete = false
-        val death = IBinder.DeathRecipient { handler.post { finish(this, "Host disconnected") } }
+        val death = IBinder.DeathRecipient { handler.post { finish(this, "Host disconnected", notifyHost = false) } }
     }
 
     override fun onCreate() {
@@ -167,15 +167,20 @@ abstract class ProjectionPluginService : Service() {
             val uid = Binder.getCallingUid()
             // Do not drop stop when the input queue is full; preserve connect/start ordering.
             handler.post {
-                client?.takeIf { it.uid == uid && it.token == token }?.let { finish(it, "") }
+                client?.takeIf { it.uid == uid && it.token == token }?.let { finish(it, "", notifyHost = false) }
             }
         }
     }
 
-    private fun finish(current: Client, message: String) {
+    private fun finish(current: Client, message: String, notifyHost: Boolean = true) {
         if (client !== current || current.stopping) return
         current.stopping = true
         current.ready = false
+        // Inform the host before invoking SDK cleanup, which may block or never complete.
+        // ERROR already means "stop this session" in API v2; onStopped remains the cleanup barrier.
+        if (notifyHost) runCatching {
+            current.host.onState(current.token, ProjectionPlugin.ERROR, message.take(512))
+        }
         val stopped = try {
             if (current.started) onStopProjection() else CompletableFuture.completedFuture(Unit)
         } catch (failure: Throwable) { CompletableFuture<Unit>().also { it.completeExceptionally(failure) } }
@@ -212,7 +217,7 @@ abstract class ProjectionPluginService : Service() {
         lifecycleHandler.removeCallbacks(abandonedProcess)
         if (terminateProcessAfterStop) lifecycleHandler.postDelayed(abandonedProcess, 8_000)
         handler.post {
-            client?.takeIf { it.generation <= generation }?.let { finish(it, "Host unbound") }
+            client?.takeIf { it.generation <= generation }?.let { finish(it, "Host unbound", notifyHost = false) }
             exitIfArmed()
         }
         return false
@@ -222,7 +227,7 @@ abstract class ProjectionPluginService : Service() {
             destroyed = true
             val current = client
             if (exitArmed) exitIfArmed()
-            if (current == null || current.cleanupComplete) thread.quitSafely() else finish(current, "Plugin service destroyed")
+            if (current == null || current.cleanupComplete) thread.quitSafely() else finish(current, "Plugin service destroyed", notifyHost = false)
         }
         super.onDestroy()
     }

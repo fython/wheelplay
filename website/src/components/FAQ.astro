@@ -16,6 +16,10 @@ const { t, local } = useTranslations(Astro.url.pathname);
     >
   </div>
   <div class="faq-list">
+    <details>
+      <summary>{t("只有 iPhone 可以使用吗？")}<span aria-hidden="true">+</span></summary>
+      <p>{t("不是。除 CarPlay 外，也可尝试 Android Auto 或连接已有的 VNC 服务端；两者仍属实验功能。诊断源可在没有手机连接时测试画面，ICCOA 当前不可用。")} <a href={local("/docs/sources/")}>{t("输入源与兼容性")} →</a></p>
+    </details>
     <details open>
       <summary>{t("我的车机可以使用吗？")}<span aria-hidden="true">+</span>
       </summary>
@@ -25,15 +29,15 @@ const { t, local } = useTranslations(Astro.url.pathname);
       <summary>{t("使用 WheelPlay 需要 Root 吗？")}<span aria-hidden="true">+</span>
       </summary>
       <p>{t("普通局域网连接和 Web 服务无需 Root。针对限制私有网段访问的浏览器，项目提供实验性的 Tesla 兼容模式，包括免 Root VPN 与 Root 热点路由两种方案，均需按设备实测。")}<a
-          href="https://github.com/fython/wheelplay/blob/main/docs/TESLA_HTTP.md"
-          >{t("查看兼容模式说明 ↗")}</a
+          href={local("/docs/tesla/")}
+          >{t("查看兼容模式说明 →")}</a
         >
       </p>
     </details>
     <details>
       <summary>{t("声音和麦克风从哪里走？")}<span aria-hidden="true">+</span>
       </summary>
-      <p>{t("默认由 Android 处理音频和麦克风，可在设置中启用浏览器路由。浏览器麦克风需要可信的本地 HTTPS 证书及相应浏览器能力；不支持时可继续使用 Android 麦克风。")}<a
+      <p>{t("CarPlay 默认使用 Android 音频与麦克风，可选浏览器路由；浏览器麦克风需要受信任的 HTTPS 和权限。Android Auto 仅支持宿主音频与麦克风；VNC 不支持音频。")}<a
           href="https://github.com/fython/wheelplay/blob/main/docs/BROWSER_AUDIO.md"
           >{t("查看音频配置说明 ↗")}</a
         >
@@ -42,12 +46,12 @@ const { t, local } = useTranslations(Astro.url.pathname);
     <details>
       <summary>{t("需要服务器或公网连接吗？")}<span aria-hidden="true">+</span>
       </summary>
-      <p>{t("CarPlay 串流由 Android 在局域网内提供，无需额外云端服务器；导航、音乐等 App 的在线内容仍可能需要互联网。服务仅用于可信局域网，请勿暴露到公网。本官网只提供介绍与使用指引，不承载设备连接。")}</p>
+      <p>{t("浏览器显示由 Android 在局域网内提供，无需云端中转。VNC 需要远端设备已有 VNC 服务端；导航、音乐等在线内容仍可能需要互联网。请使用 App 内的地址连接，并仅在可信网络中使用。")}</p>
     </details>
     <details>
       <summary>{t("为什么安装后需要导入认证资源？")}<span aria-hidden="true">+</span>
       </summary>
-      <p>{t("公开分发的开源构建默认不包含 CarPlay 认证资源。需要在「设置 → CarPlay 认证资源」导入有效资源，通过校验后才能启动服务。导入在 Android 本机完成。")}<a
+      <p>{t("认证资源仅用于 CarPlay 连接，公开构建默认不包含。请在「设置 → CarPlay 认证资源」导入有效资源；导入在本机完成。不导入也可使用 Web 服务、浏览器配对及其他输入源。")}<a
           href="https://github.com/fython/wheelplay/blob/main/docs/AUTHENTICATION_IMPORT.md"
           >{t("查看支持的导入方式 ↗")}</a
         >

@@ -270,6 +270,56 @@ class SourceNavigationTest {
         }
     }
 
+    @Test fun pluginFailureRemainsVisibleOnHomeAndIccoaPageUntilRetry() {
+        val context = RuntimeEnvironment.getApplication()
+        installPlugin("test.carlink", ProjectionPlugin.SOURCE_ICCOA_CARLINK)
+        discoverPlugins("test.carlink")
+        val registry = projectionPlugins(context); registry.refresh()
+        val plugin = registry.entries().single(); registry.setEnabled(plugin, true)
+        val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
+        var activity = controller.get()
+        try {
+            selectHomeSource(activity, "ICCOA CarLink test.carlink")
+            registry.recordFailure(plugin, "Nearby devices permission missing")
+            controller.recreate(); activity = controller.get()
+            fun hasFailure() = views(page(activity)).filterIsInstance<TextView>().any {
+                it.visibility == View.VISIBLE && it.text.toString().contains("Nearby devices permission missing")
+            }
+            assertTrue(hasFailure())
+            buttons(activity).single { it.text == "输入源设置" }.performClick()
+            assertTrue(hasFailure())
+            assertTrue(buttons(activity).single { it.text == "连接插件" }.isEnabled)
+            registry.beginAttempt(plugin)
+            shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(1))
+            assertFalse(hasFailure())
+        } finally {
+            discoverPlugins(); registry.refresh()
+            controller.pause().stop().destroy(); WebSession.stop()
+        }
+    }
+
+    @Test fun androidAutoPermissionDenialPreservesHomeSelectionAndContinuesWithoutMicrophone() {
+        val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
+        val activity = controller.get()
+        try {
+            AirPlayPersistence.saveMicrophoneSource(activity, CarPlayMicrophoneSource.ANDROID)
+            shadowOf(activity.application).denyPermissions(android.Manifest.permission.RECORD_AUDIO)
+            tabs(activity).selectedItemId = 2
+            cards(activity)[1].performClick()
+            buttons(activity).single { it.text == "通过 USB 连接 Android Auto" }.performClick()
+            val request = shadowOf(activity).lastRequestedPermission
+            assertArrayEquals(arrayOf(android.Manifest.permission.RECORD_AUDIO), request.requestedPermissions)
+            assertEquals("android-auto", DiPlayPreferences.homeSource(activity))
+            while (shadowOf(activity).nextStartedService != null) { /* Drain initial service startup. */ }
+            activity.onRequestPermissionsResult(request.requestCode, request.requestedPermissions,
+                intArrayOf(android.content.pm.PackageManager.PERMISSION_DENIED))
+            shadowOf(android.os.Looper.getMainLooper()).idle()
+            assertEquals(DiPlaySessionService::class.java.name,
+                shadowOf(activity).nextStartedService.component!!.className)
+            assertEquals("android-auto", DiPlayPreferences.homeSource(activity))
+        } finally { controller.pause().stop().destroy(); WebSession.stop() }
+    }
+
     @Test fun selectingAnotherSourceKeepsActiveProjectionVisibleUntilExplicitStop() {
         var stops = 0
         val active = object : ProjectionSession {

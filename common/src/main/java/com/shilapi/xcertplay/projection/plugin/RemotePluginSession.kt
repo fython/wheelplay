@@ -20,6 +20,7 @@ internal class RemotePluginSession(
     private val connectTimeoutMs: Long = 15_000,
     private val stopTimeoutMs: Long = 15_000,
     private val startupTimeoutMs: Long = 60_000,
+    private val onFailure: (String) -> Unit = {},
 ) : ProjectionSession {
     override val descriptor = SourceDescriptor(plugin.id, plugin.name)
     @Volatile override var capabilities = ProjectionCapabilities(setOf(VideoIngressKind.SURFACE))
@@ -36,6 +37,7 @@ internal class RemotePluginSession(
     private val io = ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, ArrayBlockingQueue(32),
         { task -> Thread(task, "projection-plugin-ipc").apply { isDaemon = true } })
     private val mediaWorker = Executors.newSingleThreadExecutor { task -> Thread(task, "projection-plugin-surface").apply { isDaemon = true } }
+    private var failureReason: String? = null
     private var activated = false
     private var bound = false
     @Volatile private var remote: IProjectionPlugin? = null
@@ -53,6 +55,11 @@ internal class RemotePluginSession(
         if (awaitingProcessExit) finish(true, statusText.orEmpty()) else lostConnection()
     } }
 
+    private fun rememberFailure(message: String) {
+        if (failureReason != null) return
+        failureReason = message.take(512)
+        runCatching { onFailure(failureReason!!) }
+    }
     private fun notifyStatus(message: String) {
         statusText = message.take(512)
         runtime.changed(this)
@@ -86,7 +93,13 @@ internal class RemotePluginSession(
             } catch (failure: Exception) { fail(failure.message ?: "Invalid plugin information") }
         }
         override fun onState(token: String, state: Int, message: String) = callback(token) {
-            if (stopping || !startSent) return@callback
+            if (stopping) return@callback
+            // A handshake failure may arrive before start/Surface allocation.
+            if (state == ProjectionPlugin.ERROR) {
+                fail(message.ifBlank { context.getString(UiR.string.plugin_disconnected) })
+                return@callback
+            }
+            if (!startSent) return@callback
             when (state) {
                 ProjectionPlugin.CONNECTING -> { ready = false; notifyStatus(message) }
                 ProjectionPlugin.READY -> {
@@ -97,12 +110,13 @@ internal class RemotePluginSession(
                     if (capabilities.nightMode) setNightMode(AirPlayPersistence.loadAppearance(context).night(
                         context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES))
                 }
-                ProjectionPlugin.ERROR -> fail(message.ifBlank { context.getString(UiR.string.plugin_unavailable) })
                 else -> fail("Invalid plugin state")
             }
         }
         override fun onStopped(token: String, clean: Boolean, message: String) = callback(token) {
             if (awaitingProcessExit) return@callback
+            // Older v2 plugins can reject connect or end a session using onStopped alone.
+            if (!stopping) rememberFailure(message.ifBlank { context.getString(UiR.string.plugin_disconnected) })
             if (!clean || !processExitRequired) { finish(clean, message); return@callback }
             awaitingProcessExit = true
             synchronized(admission) { stopping = true; ready = false }
@@ -144,12 +158,12 @@ internal class RemotePluginSession(
             if (activated || closing) return@post
             activated = true
             if (stopping) { beginStop(); return@post }
-            if (!stillAllowed()) { finish(true, context.getString(UiR.string.plugin_disabled)); return@post }
+            if (!stillAllowed()) { fail(context.getString(UiR.string.plugin_disabled)); return@post }
             main.postDelayed(deadline, connectTimeoutMs)
             try {
                 bound = context.bindService(Intent(ProjectionPlugin.ACTION).setComponent(plugin.component), connection, Context.BIND_AUTO_CREATE)
-                if (!bound) finish(true, context.getString(UiR.string.plugin_unavailable))
-            } catch (failure: Exception) { finish(true, failure.message ?: "Cannot bind plugin") }
+                if (!bound) fail(context.getString(UiR.string.plugin_unavailable))
+            } catch (failure: Exception) { fail(failure.message ?: "Cannot bind plugin") }
         }
     }
 
@@ -184,8 +198,9 @@ internal class RemotePluginSession(
     }
     private fun fail(reason: String) {
         if (closing || stopping) return
-        notifyStatus(reason)
+        rememberFailure(reason)
         stop()
+        notifyStatus(reason)
     }
     private fun beginStop() {
         if (closing || completion.isDone || stopSent) return
@@ -201,7 +216,10 @@ internal class RemotePluginSession(
         main.postDelayed(stopDeadline, stopTimeoutMs)
     }
     private fun lostConnection() {
-        if (!closing && !awaitingProcessExit) finish(!startSent, context.getString(UiR.string.plugin_disconnected))
+        if (!closing && !awaitingProcessExit) {
+            rememberFailure(context.getString(UiR.string.plugin_disconnected))
+            finish(!startSent, context.getString(UiR.string.plugin_disconnected))
+        }
     }
     private fun finish(clean: Boolean, message: String) {
         if (closing) return
@@ -224,11 +242,15 @@ internal class RemotePluginSession(
             mediaWorker.shutdown()
             val failure = cleanupFailure ?: unexpected
             if (failure == null) {
-                notifyStatus(message)
+                notifyStatus(failureReason ?: message)
                 completion.complete(Unit)
                 runtime.ended(this)
             } else {
-                notifyStatus(context.getString(UiR.string.plugin_cleanup_failed))
+                val cleanupMessage = context.getString(UiR.string.plugin_cleanup_failed)
+                // Preserve the original failure too, but make the unsafe cleanup actionable.
+                val report = failureReason?.let { "$it\n$cleanupMessage" } ?: cleanupMessage
+                runCatching { onFailure(report) }
+                notifyStatus(report)
                 completion.completeExceptionally(failure)
             }
         } }

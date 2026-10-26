@@ -64,6 +64,7 @@ class DiPlayActivity : AppCompatActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private var page = "service"
     private val sourceDetailPages = setOf("source-carplay", "source-android-auto", "source-iccoa", "source-vnc", "source-diagnostics", "source-plugins")
+    private val pluginFailureLabels = mutableMapOf<String, MutableList<TextView>>()
     private val sourceStatuses = mutableMapOf<String, TextView>()
     private val sourceStopButtons = mutableMapOf<String, Button>()
     private val settingsModel by lazy { ViewModelProvider(this)[SettingsViewModel::class.java] }
@@ -145,6 +146,14 @@ class DiPlayActivity : AppCompatActivity() {
     private var initialLaunch = true
     private var notificationTransport = true
     private var exportInProgress = false
+    private var pendingAndroidAutoSourceId: String? = null
+    private val androidAutoMicrophonePermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            val sourceId = pendingAndroidAutoSourceId ?: return@registerForActivityResult
+            pendingAndroidAutoSourceId = null
+            if (!granted) toast(getString(R.string.aa_microphone_permission_denied))
+            startProjectionSourceNow(sourceId)
+        }
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
         connect(notificationTransport)
     }
@@ -236,6 +245,7 @@ class DiPlayActivity : AppCompatActivity() {
         ServerWindow.showSystemBars(window)
         refreshAuthentication()
         selectedPrivateKey = savedInstanceState?.getString("selectedPrivateKey")?.let(Uri::parse)
+        pendingAndroidAutoSourceId = savedInstanceState?.getString("pendingAndroidAutoSourceId")
         awaitingTeslaVpnConsent = savedInstanceState?.getBoolean("awaitingTeslaVpnConsent") ?: false
         page = savedInstanceState?.getString("page") ?: intent.getStringExtra("page")
             ?: if (setupError == null) "service" else "settings"
@@ -273,6 +283,7 @@ class DiPlayActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString("page", page)
         outState.putString("selectedPrivateKey", selectedPrivateKey?.toString())
+        outState.putString("pendingAndroidAutoSourceId", pendingAndroidAutoSourceId)
         outState.putBoolean("awaitingTeslaVpnConsent", awaitingTeslaVpnConsent)
         super.onSaveInstanceState(outState)
     }
@@ -341,7 +352,7 @@ class DiPlayActivity : AppCompatActivity() {
 
     private fun refreshPhone() {
         status = null; connectButton = null; disconnectButton = null; lastRunning = null
-        sourceStatuses.clear(); sourceStopButtons.clear()
+        sourceStatuses.clear(); sourceStopButtons.clear(); pluginFailureLabels.clear()
         shell.put("phone", ui.content(::sourceIndex))
         shell.put("source-carplay", ui.content(::carPlaySource))
         shell.put("source-android-auto", ui.content(::androidAutoSource))
@@ -575,6 +586,8 @@ class DiPlayActivity : AppCompatActivity() {
                 DiPlayPreferences.phoneAddress(this) != null -> getString(UiR.string.status_selected_phone, DiPlayPreferences.phoneName(this))
                 else -> getString(UiR.string.ui_waiting_to_connect_to_iphone)
             }
+            projectionPlugins(this).lastFailure(source.id) != null ->
+                getString(UiR.string.projection_failed, projectionPlugins(this).lastFailure(source.id))
             else -> getString(UiR.string.projection_waiting)
         }
         sessionConnectButton?.apply {
@@ -663,6 +676,9 @@ class DiPlayActivity : AppCompatActivity() {
         val plugins = projectionPlugins(this)
         ui.card(content, plugin.name, R.drawable.ic_server_launch) { body ->
             body.addView(label(plugin.component.packageName, 13, MUTED))
+            val failureLabel = label("", 15, WARNING).apply { visibility = View.GONE }
+            pluginFailureLabels.getOrPut(plugin.id) { mutableListOf() }.add(failureLabel)
+            body.addView(failureLabel)
             val enabled = plugins.enabled(plugin)
             body.addView(label(plugin.problem ?: getString(if (enabled) UiR.string.plugin_enabled else UiR.string.plugin_disabled), 15, MUTED))
             if (plugin.problem == null || enabled) body.addView(button(getString(if (enabled) UiR.string.plugin_disable else UiR.string.plugin_enable), false) {
@@ -911,6 +927,19 @@ class DiPlayActivity : AppCompatActivity() {
             else -> id
         }
         if (homeSources().any { it.id == homeId }) DiPlayPreferences.saveHomeSource(this, homeId)
+        if (isAndroidAutoSource(id) &&
+            AirPlayPersistence.loadMicrophoneSource(this) == CarPlayMicrophoneSource.ANDROID &&
+            checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            pendingAndroidAutoSourceId = id
+            androidAutoMicrophonePermission.launch(Manifest.permission.RECORD_AUDIO)
+            return
+        }
+        startProjectionSourceNow(id)
+    }
+
+    private fun isAndroidAutoSource(id: String) = id == LocalAndroidAuto.SOURCE_ID || id.startsWith("android-auto-")
+
+    private fun startProjectionSourceNow(id: String) {
         registerProjectionSources(this)
         startWebServiceIfReady()
         projectionSessions.switchTo(id).whenComplete { _, failure -> runOnUiThread {
@@ -1186,6 +1215,13 @@ class DiPlayActivity : AppCompatActivity() {
     }
 
     private fun refreshStatus() {
+        pluginFailureLabels.forEach { (id, labels) ->
+            val failure = projectionPlugins(this).lastFailure(id)
+            labels.forEach { label ->
+                label.text = failure?.let { getString(UiR.string.projection_failed, it) }.orEmpty()
+                label.visibility = if (failure == null) View.GONE else View.VISIBLE
+            }
+        }
         val projection = projectionSessions.snapshot()
         sourceStatuses.forEach { (group, label) ->
             val session = projection?.takeIf { sessionBelongsToSource(it, group) }

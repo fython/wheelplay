@@ -34,7 +34,7 @@ const { t } = useTranslations(Astro.url.pathname);
         <path d="m18 3-12 16h9l-1 10 12-16h-9l1-10Z" />
       </svg>
       <h3>{t("为不同的屏幕，留一条路。")}</h3>
-      <p>{t("支持 WebRTC 视频直通，也提供图片兼容模式。按你的设备和网络，选择合适的串流方式。")}</p>
+      <p>{t("CarPlay 支持 H.264／兼容的 HEVC 直通，Android Auto 使用 H.264；VNC 通过 JPEG／WebP 显示桌面。")}</p>
       <div class="feature-tags">
         <span>H.264 / HEVC</span><span>JPEG / WebP</span>
       </div>
@@ -48,9 +48,9 @@ const { t } = useTranslations(Astro.url.pathname);
         <circle cx="25" cy="9" r="3" />
       </svg>
       <h3>{t("合不合适，由你来调。")}</h3>
-      <p>{t("调整分辨率、帧率与安全区域，选择音频输出和定位来源，让设置适应你的使用习惯。")}</p>
+      <p>{t("CarPlay 可调画面、安全区域、音频与定位；VNC 提供鼠标、实体键盘和仅查看模式。可用设置随输入源而异。")}</p>
       <div class="feature-tags">
-        <span>{t("显示偏好")}</span><span>{t("音频路由")}</span>
+        <span>{t("显示偏好")}</span><span>{t("按源选择")}</span>
       </div>
     </article>
   </div>

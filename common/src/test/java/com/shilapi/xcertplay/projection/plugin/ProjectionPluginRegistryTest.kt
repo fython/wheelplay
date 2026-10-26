@@ -65,6 +65,22 @@ class ProjectionPluginRegistryTest {
         assertFalse(registry.enabled(entry)); assertFalse(registry.available(entry))
     }
 
+    @Test fun failureSurvivesRefreshAndClearsOnRetryOrPackageChange() {
+        install(); val runtime = ProjectionRuntime(); val registry = ProjectionPluginRegistry(context, runtime)
+        registry.refresh(); val original = registry.entries().single()
+        registry.setEnabled(original, true)
+        registry.recordFailure(original, "Permission missing")
+        registry.refresh()
+        assertEquals("Permission missing", registry.lastFailure(original.id))
+        runtime.sources().single().open() // An explicit retry clears the previous failure.
+        assertNull(registry.lastFailure(original.id))
+        registry.recordFailure(original, "Failed again")
+        install(version = 2); registry.refresh()
+        assertNull(registry.lastFailure(original.id))
+        registry.recordFailure(original, "Late callback from old APK")
+        assertNull(registry.lastFailure(original.id))
+    }
+
     @Test fun uninstalledSourceIsRemovedAndReinstallRequiresEnableAgain() {
         install(); val runtime = ProjectionRuntime(); val registry = ProjectionPluginRegistry(context, runtime)
         registry.refresh(); registry.setEnabled(registry.entries().single(), true)

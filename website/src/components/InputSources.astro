@@ -1,0 +1,71 @@
+---
+import { useTranslations } from "../i18n";
+const { t, local } = useTranslations(Astro.url.pathname);
+const sources = [
+  {
+    name: "CarPlay", anchor: "carplay", status: "已支持",
+    description: "通过 USB 或无线连接 iPhone，在浏览器中显示和触控 CarPlay。",
+    note: "需要有效的 CarPlay 认证资源。",
+  },
+  {
+    name: "Android Auto", anchor: "android-auto", status: "实验性",
+    description: "支持 USB、本机与 Head Unit Server TCP 连接。画面和触控进入同一个浏览器入口。",
+    note: "音频与麦克风仅使用 Android 宿主；兼容性仍需真机验证。",
+  },
+  {
+    name: "VNC", anchor: "vnc", status: "实验性",
+    description: "连接已有的 VNC 远程桌面，支持触控、鼠标、实体键盘与仅查看模式。",
+    note: "使用 JPEG／WebP 图像串流，无音频；不创建本机虚拟桌面。",
+  },
+] as const;
+---
+
+<section class="input-sources container" id="sources" aria-labelledby="sources-title">
+  <div class="section-intro">
+    <div>
+      <p class="eyebrow">CHOOSE YOUR CONNECTION.</p>
+      <h2 id="sources-title">{t("选择你的输入源。")}</h2>
+    </div>
+    <p>{t("一个浏览器入口，连接不同设备。")} {" "}<br />{t("按设备选择连接方式，先了解各输入源的支持范围。")}</p>
+  </div>
+  <div class="input-source-grid">
+    {sources.map((source) => (
+      <article class="input-source-card">
+        <span class:list={["source-status", { "source-status-supported": source.status === "已支持" }]}>{t(source.status)}</span>
+        <h3>{source.name}</h3>
+        <p>{t(source.description)}</p>
+        <p class="source-limit">{t(source.note)}</p>
+        <a class="text-link" href={local(`/docs/sources/#${source.anchor}`)}>{t("查看连接方式")}<span aria-hidden="true"> →</span></a>
+      </article>
+    ))}
+  </div>
+  <div class="source-other">
+    <p><strong>{t("诊断输入源")}</strong>{t("H.264、Surface 与帧缓冲测试画面，无需连接手机，用于检查显示链路。")}</p>
+    <p><strong>{t("ICCOA CarLink · 暂不可用")}</strong>{t("缺少专有 SDK，当前未实现协议接入。")}</p>
+  </div>
+  <p class="source-session-note">{t("同一时间只运行一个输入源，并允许一个浏览器控制会话。")}</p>
+</section>
+
+<style>
+  .input-sources { padding-block: 16px 64px; }
+  .section-intro { gap: 24px; }
+  .section-intro > p { max-width: 440px; }
+  .input-source-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .input-source-card { display: flex; flex-direction: column; align-items: flex-start; padding: 28px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+  .source-status { font-size: 11px; font-weight: 600; padding: 4px 9px; border-radius: 6px; background: var(--soft); color: var(--muted); }
+  .source-status-supported { color: var(--blue); background: var(--blue-soft); }
+  h3 { font-size: 24px; margin-block: 20px 12px; letter-spacing: -0.5px; }
+  .input-source-card p { font-size: 14px; line-height: 1.8; color: var(--muted); }
+  .input-source-card .source-limit { margin-block: 16px 24px; padding-top: 16px; align-self: stretch; border-top: 1px solid var(--line); }
+  .text-link { margin-top: auto; min-height: 44px; display: inline-flex; align-items: center; gap: 6px; }
+  .source-other { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; padding-block: 24px; border-bottom: 1px solid var(--line); }
+  .source-other p, .source-session-note { font-size: 13px; line-height: 1.9; color: var(--muted); }
+  .source-other strong { display: block; color: var(--text); margin-bottom: 4px; }
+  .source-session-note { margin-top: 16px; }
+  @media (max-width: 760px) {
+    .input-sources { padding-bottom: 40px; }
+    .input-source-grid, .source-other { grid-template-columns: 1fr; }
+    .section-intro { align-items: flex-start; flex-direction: column; }
+    .input-source-card { padding: 24px; }
+  }
+</style>

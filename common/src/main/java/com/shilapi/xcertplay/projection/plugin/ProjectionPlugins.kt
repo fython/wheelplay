@@ -32,6 +32,13 @@ internal data class InstalledProjectionPlugin(
 internal class ProjectionPluginRegistry(private val context: Context, private val runtime: ProjectionRuntime) {
     private val preferences = context.getSharedPreferences("projection_plugins", Context.MODE_PRIVATE)
     @Volatile private var installed = emptyList<InstalledProjectionPlugin>()
+    private data class Failure(val plugin: InstalledProjectionPlugin, val message: String)
+    private val failures = java.util.concurrent.ConcurrentHashMap<String, Failure>()
+    fun lastFailure(id: String): String? = failures[id]?.message
+    @Synchronized fun recordFailure(plugin: InstalledProjectionPlugin, message: String) {
+        if (plugin in installed) failures[plugin.id] = Failure(plugin, message.take(1200))
+    }
+    fun beginAttempt(plugin: InstalledProjectionPlugin) { failures.remove(plugin.id) }
     private val main = Handler(Looper.getMainLooper())
     private var watching = false
     fun entries() = installed
@@ -115,6 +122,7 @@ internal class ProjectionPluginRegistry(private val context: Context, private va
                     service.metaData?.getString(ProjectionPlugin.META_SOURCE_ID))
             }.getOrNull()
         }.distinctBy { it.id }.sortedBy { it.name }
+        failures.entries.removeAll { it.value.plugin !in installed }
         // An uninstall observed while WheelPlay was stopped must revoke remembered consent too.
         val ids = installed.map { it.id }.toSet()
         preferences.edit().also { edit -> preferences.all.keys.filter { it !in ids }.forEach(edit::remove) }.apply()
@@ -138,10 +146,12 @@ internal class RemotePluginProvider(
         !registry.available(plugin) -> SourceAvailability.Unavailable(context.getString(UiR.string.plugin_disabled))
         else -> SourceAvailability.Ready
     }
-    override fun open(): CompletableFuture<ProjectionSession> = CompletableFuture.completedFuture(
-        RemotePluginSession(context, plugin, runtime, { registry.available(plugin) }, { width, height ->
+    override fun open(): CompletableFuture<ProjectionSession> {
+        registry.beginAttempt(plugin)
+        return CompletableFuture.completedFuture(RemotePluginSession(context, plugin, runtime, { registry.available(plugin) }, { width, height ->
             BrowserProjectionVideo(context, width, height, VideoIngressKind.SURFACE)
-        }))
+        }, onFailure = { registry.recordFailure(plugin, it) }))
+    }
 }
 
 private var registry: ProjectionPluginRegistry? = null
