@@ -31,6 +31,33 @@ class ServerCardStateTest : ComposeSettingsTest() {
         while (!predicate() && System.nanoTime() < deadline) Thread.sleep(10)
         assertTrue(predicate())
     }
+    @Test fun connectionDialogLaunchKeepsTheCurrentSourcePage() {
+        val controller = Robolectric.buildActivity(WheelPlayActivity::class.java).setup()
+        try {
+            val activity = controller.get()
+            compose.onNodeWithTag("nav:phone").performClick()
+            compose.onNodeWithTag("source-carplay").performScrollTo().performClick()
+            ReflectionHelpers.callInstanceMethod<Unit>(activity, "openProjection")
+            val launch = shadowOf(activity).nextStartedActivity
+            assertEquals("source-carplay", launch.getStringExtra("return_page"))
+            compose.onNodeWithTag("action:CARPLAY_CONNECT").assertExists()
+            assertEquals(android.content.pm.ActivityInfo.LAUNCH_SINGLE_TOP,
+                activity.packageManager.getActivityInfo(launch.component!!, 0).launchMode)
+        } finally { controller.pause().stop().destroy() }
+    }
+
+    @Test fun usbAttachRoutesThroughConsoleAndRequestsWiredConnectionOnlyOnce() {
+        val controller = Robolectric.buildActivity(WheelPlayActivity::class.java,
+            android.content.Intent("android.hardware.usb.action.USB_DEVICE_ATTACHED")).setup()
+        try {
+            val activity = controller.get()
+            val launch = shadowOf(activity).nextStartedActivity
+            assertEquals(CarPlayHostActivity::class.java.name, launch.component!!.className)
+            assertFalse(AirPlayPersistence.loadWirelessEnabled(activity))
+            assertNull(activity.intent.action)
+            assertNull(shadowOf(activity).nextStartedActivity)
+        } finally { controller.pause().stop().destroy() }
+    }
     @Test fun pairingControlsDisappearForAuthenticatedViewerAndReturnAfterDisconnect() {
         val controller = Robolectric.buildActivity(WheelPlayActivity::class.java).setup()
         try {

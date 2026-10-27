@@ -22,4 +22,13 @@
         <item name="android:windowBackground">#11161A</item>
         <item name="android:windowActionModeOverlay">true</item>
     </style>
+    <!-- The protocol host owns permissions, while the console remains visible behind its dialog. -->
+    <style name="Theme.WheelPlay.ConnectionDialog" parent="Theme.Xcertplay">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:colorBackground">@android:color/transparent</item>
+        <item name="android:windowDisablePreview">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
 </resources>

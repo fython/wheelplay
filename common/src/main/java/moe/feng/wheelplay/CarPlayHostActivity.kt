@@ -53,7 +53,14 @@ import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import androidx.activity.compose.setContent
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import moe.feng.wheelplay.ui.CarPlayConnectionDialog
+import moe.feng.wheelplay.ui.CarPlayConnectionUiState
+import moe.feng.wheelplay.ui.theme.WheelPlayTheme
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -98,9 +105,8 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Full-screen CarPlay host. It renders decoded video through a [TextureView], forwards touch to
- * the active AirPlay session, and drives the complete wired or wireless bring-up through
- * [CarPlayController].
+ * CarPlay protocol and permission host. A transparent window presents Compose connection dialogs
+ * over the console; video stays in the offscreen server output. The controller outlives the dialog.
  *
  * Apple devices are discovered by vendor ID; CH341 uses the configured VID/PID below.
  */
@@ -111,8 +117,8 @@ class CarPlayHostActivity : ComponentActivity() {
         val customIconBytes: ByteArray?,
     )
 
-    private var connectionPanel: View? = null
-    private var wifiRecoveryButton: View? = null
+    private var connectionUi by mutableStateOf(CarPlayConnectionUiState())
+    private var connectionDialogVisible by mutableStateOf(true)
     private var reconnectAttempts = 0
     private lateinit var airPlayIdentity: AirPlayIdentity
 
@@ -167,6 +173,7 @@ class CarPlayHostActivity : ComponentActivity() {
                 maybeStartCarPlay()
             } else {
                 setLocalizedConnectionStage(UiText(UiR.string.host_vpn_consent_was_denied))
+                connectionUi = connectionUi.copy(failed = true)
             }
         }
     private val wirelessPermissions =
@@ -181,6 +188,10 @@ class CarPlayHostActivity : ComponentActivity() {
                 },
             )
             updateHotspotStatusBlock()
+            if (!wirelessPermissionsReady) {
+                setLocalizedConnectionStage(UiText(UiR.string.host_allow_the_connection_permissions_to_continue))
+                connectionUi = connectionUi.copy(failed = true)
+            }
             maybeStartCarPlay()
         }
     private val manualHotspotChannelPermission =
@@ -287,7 +298,6 @@ class CarPlayHostActivity : ComponentActivity() {
     private var locationReportingSwitch: Switch? = null
     private var statusView: TextView? = null
     private var statusScrollView: ScrollView? = null
-    private var stageStatusView: TextView? = null
     private var resolutionValueView: TextView? = null
     private var resolutionPreviewView: TextView? = null
     private var hotspotStatusView: TextView? = null
@@ -366,6 +376,8 @@ class CarPlayHostActivity : ComponentActivity() {
     private var gestureStartX = 0f
     private var gestureStartY = 0f
     private val shuttingDown = AtomicBoolean(false)
+    private var shutdownComplete = false
+    private val shutdownCompletions = mutableListOf<() -> Unit>()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val teardownExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val logLines = ArrayDeque<LogEntry>()
@@ -443,7 +455,20 @@ class CarPlayHostActivity : ComponentActivity() {
         airPlayIdentity = AirPlayPersistence.loadIdentity(this)
         loadPersistedSettings()
         locationPermissionAvailable = hasFineLocationPermission()
-        setContentView(buildContentView().also(ServerWindow::fitContent))
+        setContent {
+            WheelPlayTheme {
+                if (connectionDialogVisible) {
+                    CarPlayConnectionDialog(
+                        state = connectionUi,
+                        onCancel = ::cancelConnection,
+                        onBackground = ::returnToDashboard,
+                        onSettings = { showWheelPlayHome("settings") },
+                        onResetWifi = { showWheelPlayHome("wireless-recovery") },
+                        onChannelPermission = ::resolveChannelPermissionPrompt,
+                    )
+                }
+            }
+        }
         activeDisplaySize = DisplaySize(1280, 720)
         WebSession.setBrowserViewportListener { width, height ->
             mainHandler.post { scheduleBrowserDisplaySize(width, height) }
@@ -456,7 +481,7 @@ class CarPlayHostActivity : ComponentActivity() {
                     if (menuOpen) {
                         if (safeAreaEditorActive) closeSafeAreaEditor() else cancelSettingsEdits()
                     } else {
-                        showWheelPlayHome("service")
+                        cancelConnection()
                     }
                 }
             },
@@ -532,6 +557,7 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun requestStartupPrerequisites() {
+        if (isFinishing || shuttingDown.get()) return
         if (locationReportingEnabled && !locationPermissionAvailable) {
             requestLocationPermission()
             return
@@ -566,35 +592,25 @@ class CarPlayHostActivity : ComponentActivity() {
         ) return false
 
         manualHotspotChannelPermissionAsked = true
-        MaterialAlertDialogBuilder(this)
-            .setTitle(getString(UiR.string.host_improve_hotspot_channel_detection))
-            .setMessage(
-                getString(UiR.string.ui_android_requires_precise_location_permission_to_read_wi_fi),
-            )
-            .setNegativeButton(getString(UiR.string.host_continue_with_auto)) { _, _ ->
-                manualHotspotChannelPermissionNote = getString(UiR.string.host_hotspot_channel_scan_skipped_using_auto)
-                AirPlayPersistence.saveManualHotspotChannelPermissionPromptDismissed(this, true)
-                appendLog("Hotspot channel scan skipped; continuing with Auto")
-                updateHotspotStatusBlock()
-                maybeStartCarPlay()
-            }
-            .setPositiveButton(getString(UiR.string.host_allow)) { _, _ ->
-                manualHotspotChannelPermission.launch(
-                    arrayOf(
-                        Manifest.permission.ACCESS_FINE_LOCATION,
-                        Manifest.permission.ACCESS_COARSE_LOCATION,
-                    ),
-                )
-            }
-            .setOnCancelListener {
-                manualHotspotChannelPermissionNote = getString(UiR.string.host_hotspot_channel_scan_skipped_using_auto)
-                AirPlayPersistence.saveManualHotspotChannelPermissionPromptDismissed(this, true)
-                appendLog("Hotspot channel scan skipped; continuing with Auto")
-                updateHotspotStatusBlock()
-                maybeStartCarPlay()
-            }
-            .show()
+        connectionUi = connectionUi.copy(requestChannelPermission = true)
         return true
+    }
+
+    private fun resolveChannelPermissionPrompt(allow: Boolean) {
+        if (!connectionUi.requestChannelPermission || shuttingDown.get()) return
+        connectionUi = connectionUi.copy(requestChannelPermission = false)
+        if (allow) {
+            manualHotspotChannelPermission.launch(arrayOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+            ))
+        } else {
+            manualHotspotChannelPermissionNote = getString(UiR.string.host_hotspot_channel_scan_skipped_using_auto)
+            AirPlayPersistence.saveManualHotspotChannelPermissionPromptDismissed(this, true)
+            appendLog("Hotspot channel scan skipped; continuing with Auto")
+            updateHotspotStatusBlock()
+            maybeStartCarPlay()
+        }
     }
 
     private fun requestVpnConsent() {
@@ -645,7 +661,17 @@ class CarPlayHostActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        if (shuttingDown.get()) {
+            // A failed startup may leave its error dialog in the history after cleanup. Its
+            // executor and generation are closed; a new connection needs a fresh host.
+            finish()
+            shutdown(false, "Replacing stopped connection host") {
+                startActivity(Intent(intent).setClass(this, CarPlayHostActivity::class.java))
+            }
+            return
+        }
         setIntent(intent)
+        connectionDialogVisible = true
         if (intent.action == "android.hardware.usb.action.USB_DEVICE_ATTACHED" && wirelessEnabled) {
             shutdown(false, "switching to USB") {
                 AirPlayPersistence.saveWirelessEnabled(this, false)
@@ -657,11 +683,12 @@ class CarPlayHostActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (isFinishing || shuttingDown.get()) return
         var transportChanged = false
         if (!isFinishing && !shuttingDown.get() && controller == null &&
             !menuOpen && !handshakeResetInProgress
         ) {
-            // The singleTask host can return from settings before a controller exists.
+            // The retained connection host can return from settings before a controller exists.
             // Refresh the backend and its credentials before any startup/permission checks.
             val previousWireless = wirelessEnabled
             loadPersistedWirelessSettings()
@@ -717,7 +744,6 @@ class CarPlayHostActivity : ComponentActivity() {
             syncAirPlayDarkMode()
         }
         showSystemBars()
-        setContentView(buildContentView().also(ServerWindow::fitContent))
         scrollLogsToBottom()
         videoView?.post {
             val view = videoView ?: return@post
@@ -742,17 +768,37 @@ class CarPlayHostActivity : ComponentActivity() {
         super.onDestroy()
     }
 
-    private fun buildContentView(): View {
-        val ui = ServerUi(this)
-        return ui.content { body ->
-            body.addView(ui.text(getString(UiR.string.host_connecting_to_iphone), 28, ServerUi.TEXT, true))
-            body.addView(ui.gap(24))
-            stageStatusView = ui.text(WebSession.stage(this), 16, ServerUi.TEXT)
-            body.addView(stageStatusView)
-            body.addView(ui.gap(24))
-            body.addView(com.google.android.material.progressindicator.LinearProgressIndicator(this).apply { isIndeterminate = true })
-            body.addView(ui.gap(24))
-            body.addView(ui.button(getString(UiR.string.host_back_to_service_dashboard)) { showWheelPlayHome("service") }, ui.secondaryButtonLayout())
+    override fun onPostResume() {
+        super.onPostResume()
+        dismissConnectedDialog()
+    }
+
+    private fun dismissConnectedDialog() {
+        if (connectionDialogVisible && !connectionUi.stopping && CarPlayBackgroundSession.active &&
+            lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            returnToDashboard()
+        }
+    }
+
+    private fun returnToDashboard() = showWheelPlayHome(intent.getStringExtra("return_page") ?: "service")
+
+    private fun cancelConnection() {
+        if (connectionUi.stopping || isFinishing) return
+        connectionUi = connectionUi.copy(stopping = true, requestChannelPermission = false)
+        automaticReconnectAllowed = false
+        val done = {
+            returnToDashboard()
+            finish()
+        }
+        if (!shuttingDown.get() && controller == null && !CarPlayBackgroundSession.isOwner(this)) {
+            // Permission/setup cancellation must not clear another input source's reservation.
+            shuttingDown.set(true)
+            restartGeneration += 1
+            teardownExecutor.shutdown()
+            shutdownComplete = true
+            done()
+        } else {
+            shutdown(false, "Connection cancelled", done)
         }
     }
 
@@ -2847,6 +2893,7 @@ class CarPlayHostActivity : ComponentActivity() {
                     syncAirPlayDarkMode()
                     if (menuOpen) return@runOnUiThread
                     appendLog("AirPlay session active")
+                    dismissConnectedDialog()
                 }
             }
 
@@ -2900,19 +2947,23 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun createStatusReporter(
         controllerGeneration: Int,
     ): (CarPlayStatus) -> Unit = { status ->
-        if (!menuOpen && controllerGeneration == restartGeneration) {
-            if (status is CarPlayStatus.Failed && !status.automaticRetry) automaticReconnectAllowed = false
-            updateHotspotStatus(status)
-            val description = status.describe()
-            setConnectionStage(description)
-            when (status) {
-                is CarPlayStatus.Failed -> if (status.wifiResetRequired) {
-                    wifiRecoveryButton?.visibility = View.VISIBLE
-                } else {
-                    wifiRecoveryButton?.visibility = View.GONE
-                    if (status.automaticRetry) reconnectAfterLoss(description)
+        runOnUiThread {
+            if (!menuOpen && !shuttingDown.get() && controllerGeneration == restartGeneration) {
+                val failed = status is CarPlayStatus.Failed && (!status.automaticRetry || status.wifiResetRequired)
+                if (failed) automaticReconnectAllowed = false
+                updateHotspotStatus(status)
+                val description = status.describe()
+                setConnectionStage(description)
+                connectionUi = connectionUi.copy(
+                    failed = failed,
+                    wifiResetRequired = status is CarPlayStatus.Failed && status.wifiResetRequired,
+                )
+                if (failed && connectionUi.stage == UiText(UiR.string.host_connection_interrupted_retrying)) {
+                    setLocalizedConnectionStage(UiText(UiR.string.carplay_connection_failed_hint))
                 }
-                else -> Unit
+                if (status is CarPlayStatus.Failed && status.automaticRetry && !status.wifiResetRequired) {
+                    reconnectAfterLoss(description)
+                }
             }
         }
     }
@@ -2960,7 +3011,7 @@ class CarPlayHostActivity : ComponentActivity() {
             },
         )
         updateDebugOverlays()
-        showWheelPlayHome("service")
+        dismissConnectedDialog()
         return true
     }
 
@@ -2970,10 +3021,12 @@ class CarPlayHostActivity : ComponentActivity() {
         automaticReconnectAllowed = true
         if (WheelPlayBootstrap.importing) {
             setLocalizedConnectionStage(UiText(UiR.string.ui_authentication_resources_are_being_imported_reconnect_when_finished))
+            connectionUi = connectionUi.copy(failed = true)
             return
         }
         if (runCatching { WheelPlayBootstrap.ensure(this) }.isFailure) {
             setLocalizedConnectionStage(UiText(UiR.string.ui_authentication_resources_are_not_ready_import_files_or_a))
+            connectionUi = connectionUi.copy(failed = true)
             return
         }
         if (!CarPlayBackgroundSession.reserve(this, { WebSession.stageDetail(this) }) { completion ->
@@ -3019,6 +3072,7 @@ class CarPlayHostActivity : ComponentActivity() {
             if (error is com.shilapi.xcertplay.projection.ProjectionCleanupException)
                 CarPlayBackgroundSession.teardownFinished(false)
             setLocalizedConnectionStage(UiText(UiR.string.host_this_device_cannot_create_an_offscreen_decoder_surface_check))
+            connectionUi = connectionUi.copy(failed = true)
             return
         }
         sink = renderer
@@ -3051,11 +3105,11 @@ class CarPlayHostActivity : ComponentActivity() {
         try {
             startForegroundService(Intent(this, WheelPlaySessionService::class.java))
             next.start()
-            showWheelPlayHome("service")
         } catch (error: RuntimeException) {
             appendLog("Connection could not start: ${error.javaClass.simpleName}")
             shutdown(false, "foreground service could not start")
             setLocalizedConnectionStage(UiText(UiR.string.host_could_not_start_carplay_return_to_wheelplay_and_check))
+            connectionUi = connectionUi.copy(failed = true)
         }
     }
 
@@ -3148,7 +3202,8 @@ class CarPlayHostActivity : ComponentActivity() {
             shuttingDown.get() ||
             menuOpen ||
             handshakeResetInProgress ||
-            controller != null
+            controller != null ||
+            connectionUi.requestChannelPermission
         ) {
             return
         }
@@ -3224,6 +3279,7 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun showWheelPlayHome(page: String = "home") {
+        connectionDialogVisible = false
         controller?.sendTouch(emptyList())
         startActivity(Intent(this, WheelPlayActivity::class.java)
             .putExtra("page", page).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_NO_ANIMATION))
@@ -3274,7 +3330,9 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun shutdown(terminateProcess: Boolean, reason: String, completion: () -> Unit = {}) {
-        if (!shuttingDown.compareAndSet(false, true)) { completion(); return }
+        if (shutdownComplete) { completion(); return }
+        shutdownCompletions.add(completion)
+        if (!shuttingDown.compareAndSet(false, true)) return
         restartGeneration += 1
         mainHandler.removeCallbacks(applyDisplaySize)
         val oldController = controller
@@ -3297,8 +3355,11 @@ class CarPlayHostActivity : ComponentActivity() {
             if (terminateProcess) applicationContext.stopService(Intent(applicationContext, WheelPlaySessionService::class.java))
             teardownExecutor.shutdown()
             mainHandler.post {
-                completion()
                 CarPlayBackgroundSession.teardownFinished(clean)
+                shutdownComplete = true
+                val callbacks = shutdownCompletions.toList()
+                shutdownCompletions.clear()
+                callbacks.forEach { it() }
             }
             if (terminateProcess) Process.killProcess(Process.myPid())
         }
@@ -3403,20 +3464,20 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun setConnectionStage(message: String) {
         latestStage = message
         WebSession.setStage(friendlyStage(message))
-        stageStatusView?.text = WebSession.stage(this)
+        connectionUi = connectionUi.copy(stage = friendlyStage(message), failed = false, wifiResetRequired = false)
         updateDebugOverlays()
     }
 
     private fun setLocalizedConnectionStage(message: UiText) {
         latestStage = message.resolve(this)
         WebSession.setStage(message)
-        stageStatusView?.text = message.resolve(this)
+        connectionUi = connectionUi.copy(stage = message)
         updateDebugOverlays()
     }
 
     private fun updateDebugOverlays() {
         statusScrollView?.visibility = View.GONE
-        connectionPanel?.visibility = if (activeScreenStreamTypes.isEmpty()) View.VISIBLE else View.GONE
+        dismissConnectedDialog()
     }
 
     private fun friendlyStage(message: String): UiText = when {

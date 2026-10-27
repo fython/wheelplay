@@ -22,7 +22,7 @@ import org.robolectric.util.ReflectionHelpers
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29])
-class HostWirelessSettingsTest {
+class HostWirelessSettingsTest : ComposeSettingsTest() {
     private val context get() = RuntimeEnvironment.getApplication()
 
     @Before fun setup() {

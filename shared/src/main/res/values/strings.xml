@@ -714,4 +714,11 @@
     <string name="ui_crop_move_right">Move image right</string>
     <string name="ui_crop_move_up">Move image up</string>
     <string name="ui_crop_move_down">Move image down</string>
+    <string name="carplay_connection_background">Continue in background</string>
+    <string name="carplay_connection_cancel">Cancel connection</string>
+    <string name="carplay_connection_failed">Connection failed</string>
+    <string name="carplay_connection_failed_hint">Check connection settings and permissions, then try again.</string>
+    <string name="carplay_connection_settings">Connection settings</string>
+    <string name="carplay_connection_stopping">Cancelling connection</string>
+    <string name="carplay_connection_stopping_hint">Releasing the connection. Please wait.</string>
 </resources>

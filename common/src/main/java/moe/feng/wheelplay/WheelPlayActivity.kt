@@ -243,7 +243,7 @@ class WheelPlayActivity : AppCompatActivity() {
                 toast(it); authenticationImport.consumeResult()
             }
         }
-        if (savedInstanceState == null) handleAuthenticationIntent(intent)
+        if (savedInstanceState == null && !handleUsbConnectionIntent(intent)) handleAuthenticationIntent(intent)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 when {
@@ -258,7 +258,7 @@ class WheelPlayActivity : AppCompatActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent); setIntent(intent)
-        if (!handleAuthenticationIntent(intent)) navigate(intent.getStringExtra("page") ?: "service")
+        if (!handleUsbConnectionIntent(intent) && !handleAuthenticationIntent(intent)) navigate(intent.getStringExtra("page") ?: "service")
     }
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString("page", page)
@@ -992,9 +992,27 @@ class WheelPlayActivity : AppCompatActivity() {
             else toast(getString(UiR.string.projection_failed, projectionFailure(failure).message(this@WheelPlayActivity)))
         } } else open()
     }
+    private fun handleUsbConnectionIntent(launch: Intent): Boolean {
+        if (launch.action != "android.hardware.usb.action.USB_DEVICE_ATTACHED") return false
+        // Route USB attachment through the console so the dialog always has a real backdrop.
+        // Consume it before onResume's optional auto-connect and before Activity recreation.
+        launch.action = null
+        launch.putExtra("page", page)
+        if (projectionSessions.hasSession() &&
+            projectionSessions.snapshot()?.descriptor?.id != ProjectionSourceIds.CARPLAY) return true
+        refreshAuthentication()
+        if (setupError != null) {
+            navigate("settings")
+            settingsModel.open(SettingsCategory.AUTHENTICATION)
+        } else if (!CarPlayBackgroundSession.hasSession() || AirPlayPersistence.loadWirelessEnabled(this)) {
+            connect(false)
+        }
+        return true
+    }
+
     private fun openProjection() {
-        navigate("service")
         startActivity(Intent(this, CarPlayHostActivity::class.java)
+            .putExtra("return_page", page)
             .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_NO_ANIMATION))
         overridePendingTransition(0, 0)
     }

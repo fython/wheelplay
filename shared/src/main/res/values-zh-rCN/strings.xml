@@ -714,4 +714,11 @@
     <string name="ui_crop_move_right">向右移动图片</string>
     <string name="ui_crop_move_up">向上移动图片</string>
     <string name="ui_crop_move_down">向下移动图片</string>
+    <string name="carplay_connection_background">后台连接</string>
+    <string name="carplay_connection_cancel">取消连接</string>
+    <string name="carplay_connection_failed">连接失败</string>
+    <string name="carplay_connection_failed_hint">请检查连接设置和权限后重试。</string>
+    <string name="carplay_connection_settings">连接设置</string>
+    <string name="carplay_connection_stopping">正在取消连接</string>
+    <string name="carplay_connection_stopping_hint">正在释放连接资源，请稍候。</string>
 </resources>

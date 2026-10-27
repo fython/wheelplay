@@ -47,6 +47,12 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:scheme="content" android:mimeType="application/vnd.android.package-archive" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/usb_device_filter" />
         </activity>
         <service android:name="moe.feng.wheelplay.WheelPlaySessionService"
             android:exported="false" android:foregroundServiceType="connectedDevice|microphone|mediaPlayback" />
@@ -55,19 +61,11 @@
             android:name="moe.feng.wheelplay.CarPlayHostActivity"
             android:configChanges="density|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:exported="true"
-            android:launchMode="singleTask"
+            android:launchMode="singleTop"
             android:resizeableActivity="true"
             android:screenOrientation="fullSensor"
-            android:theme="@style/Theme.Xcertplay"
-            android:windowSoftInputMode="adjustResize">
-
-            <intent-filter>
-                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
-            </intent-filter>
-            <meta-data
-                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
-                android:resource="@xml/usb_device_filter" />
-        </activity>
+            android:theme="@style/Theme.WheelPlay.ConnectionDialog"
+            android:windowSoftInputMode="adjustResize" />
 
         <activity
             android:name="moe.feng.wheelplay.MainActivity"
