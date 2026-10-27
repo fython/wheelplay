@@ -25,8 +25,8 @@
     <string name="settings_display_effect">Day/night mode and image format/quality apply immediately. Other display and streaming changes reconnect the iPhone.</string>
     <string name="settings_audio_effect">Audio output changes apply immediately. Changing the microphone source reconnects the iPhone.</string>
     <string name="settings_next_connection">Changes apply the next time the iPhone connects.</string>
-    <string name="settings_diplay_title">Based on DiPlay</string>
-    <string name="settings_diplay_description">If your head unit can install Android apps, try DiPlay for a better experience. WheelPlay provides CarPlay through a browser without modifying the head unit.</string>
+    <string name="settings_upstream_title">Based on DiPlay</string>
+    <string name="settings_upstream_description">If your head unit can install Android apps, try DiPlay for a better experience. WheelPlay provides CarPlay through a browser without modifying the head unit.</string>
     <string name="settings_auth_missing_summary">No valid resources configured · Import to enable CarPlay</string>
     <string name="settings_save">Save</string>
     <string name="settings_cancel">Cancel</string>
@@ -152,8 +152,8 @@
     <string name="settings_auth_description">The open-source APK does not include authentication resources. Select your two existing files, or download and import the official DiPlay APK. Installing DiPlay is not required.</string>
     <string name="settings_import_apk">Import from DiPlay APK</string>
     <string name="settings_import_files">Choose authentication files</string>
-    <string name="settings_diplay_download">DiPlay official download</string>
-    <string name="settings_diplay_download_description">Download the APK, then return to import it or share it with WheelPlay</string>
+    <string name="settings_upstream_download">DiPlay official download</string>
+    <string name="settings_upstream_download_description">Download the APK, then return to import it or share it with WheelPlay</string>
     <string name="settings_auth_storage">Only authentication resources are extracted and stored privately on this device; nothing is uploaded. The temporary APK is deleted after import. Uninstalling WheelPlay deletes imported resources.</string>
     <string name="settings_import_files_title">Choose two matching files</string>
     <string name="settings_import_files_message">First select identity.pk8 (PKCS#8 private key), then certificate.p7b (P-256 certificate). Both must belong to the same identity. Canceling or failed validation preserves existing resources.</string>

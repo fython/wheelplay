@@ -21,7 +21,7 @@ iPhone 音频 → AndroidMediaSink 解码 PCM → BrowserAudioBridge → 浏览�
 浏览器麦克风 → AudioWorklet PCM → BrowserAudioBridge → MicrophoneUplink → iPhone
 ```
 
-Web 服务由 DiPlaySessionService 创建/销毁；离屏 Surface 生命周期属于媒体 sink，而不是 Activity 的 TextureView。返回首页或切换应用不会解绑离屏 Surface。原版 CarPlay 控制器仍由后台会话快照持有；原版 Activity 负责权限、配对和重连配置。服务使用非粘性前台生命周期，不宣称能在系统强杀后恢复。显示基准固定为 1280×720，避免服务端屏幕旋转触发 CarPlay 重协商；原版显示缩放设置仍可能改变实际协商分辨率，网页使用收到的图像尺寸映射触摸坐标。
+Web 服务由 WheelPlaySessionService 创建/销毁；离屏 Surface 生命周期属于媒体 sink，而不是 Activity 的 TextureView。返回首页或切换应用不会解绑离屏 Surface。原版 CarPlay 控制器仍由后台会话快照持有；原版 Activity 负责权限、配对和重连配置。服务使用非粘性前台生命周期，不宣称能在系统强杀后恢复。显示基准固定为 1280×720，避免服务端屏幕旋转触发 CarPlay 重协商；原版显示缩放设置仍可能改变实际协商分辨率，网页使用收到的图像尺寸映射触摸坐标。
 
 ## 协议 v1
 
@@ -68,7 +68,9 @@ v3 可使用 WebP，最多两帧在途，并以媒体版本和帧序号精确 AC
 
 ## APK 界面层
 
-`DiPlayActivity` 是唯一的主界面与启动入口，承载启动（Launch）、iPhone、设置三个同级页面。`ServerUi.Shell` 持有三页内容、底部标准 BottomNavigationView 和状态栏遮罩，切换仅改变页面可见性，保留页面控件及滚动位置；重复点击当前 Tab 不重建视图，不启动 Activity，不重置滚动。
+主要 Activity、`ServerUi`、`ServerWindow` 和宿主配套代码位于 `moe.feng.wheelplay`，设置页面位于 `moe.feng.wheelplay.settings`，Compose 主题位于 `moe.feng.wheelplay.ui.theme`。原 `DiPlay` 前缀的类和方法统一使用 `WheelPlay`。旧主界面和 CarPlay 宿主的组件名称保留为 Activity 别名，兼容已有快捷方式；偏好文件名、配对标识及通知频道等持久标识保持兼容。
+
+`WheelPlayActivity` 是唯一的主界面与启动入口，承载启动（Launch）、输入源、设置三个同级页面。`ServerUi.Shell` 持有三页内容、底部标准 BottomNavigationView 和状态栏遮罩，切换仅改变页面可见性，保留页面控件及滚动位置；重复点击当前 Tab 不重建视图，不启动 Activity，不重置滚动。
 
 使用 Material Components 1.13.0 与 `Theme.Material3.Dark.NoActionBar`。按钮、开关、文本、分隔线、输入框、弹窗与连接进度指示器分别使用对应的 Material 组件；Tab 指示器采用组件默认动效，页面本身没有整屏平移。主题集中在 `themes.xml`。
 

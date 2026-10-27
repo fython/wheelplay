@@ -27,10 +27,10 @@
 | `shared/.../media/AndroidMediaSink.kt` | WebRTC 已显示后可关闭本地解码；回退等待随机访问帧 | 保留该优化与恢复语义，不统一强制解码再编码 |
 | `shared/.../web/OffscreenVideoOutput.kt` | Activity 无关的 SurfaceTexture/EGL/JPEG 输出 | 可演进为共享离屏画面入口；当前没有通用 Surface→WebRTC 编码链 |
 | `common/.../CarPlayHostActivity.kt` 中 `CarPlayBackgroundSession` | 快照暴露 controller、sink、尺寸；已有所有者与停止完成回调 | 先用兼容适配器包装，逐步迁到通用运行时 |
-| `common/.../DiPlaySessionService.kt` | `DiPlayBootstrap.ensure` 失败会停止 Web 服务和 CarPlay 会话 | 将 CarPlay 认证就绪检查下沉到 CarPlay provider；宿主/Web 自身检查独立保留 |
+| `common/.../WheelPlaySessionService.kt` | `WheelPlayBootstrap.ensure` 失败会停止 Web 服务和 CarPlay 会话 | 将 CarPlay 认证就绪检查下沉到 CarPlay provider；宿主/Web 自身检查独立保留 |
 | `shared/.../media/CarPlayMediaSource.kt` | 实际是 Now Playing 和媒体命令接口，并非视频源 | 可演进成可选 `MediaControlPort`，不要把它当整个投影抽象 |
 
-上述相对路径中的 `...` 均为 `src/main/java/com/shilapi/xcertplay`。
+上述路径中，`CarPlayHostActivity.kt` 和 `WheelPlaySessionService.kt` 位于 `src/main/java/moe/feng/wheelplay`；其余 `...` 为 `src/main/java/com/shilapi/xcertplay`。
 
 ### DiAuto：适合提取协议栈，不适合整个应用作为库接入
 

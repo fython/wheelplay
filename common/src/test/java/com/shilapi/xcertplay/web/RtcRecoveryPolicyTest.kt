@@ -1,7 +1,7 @@
 package com.shilapi.xcertplay.web
 
 import android.content.Context
-import com.shilapi.xcertplay.AirPlayPersistence
+import moe.feng.wheelplay.AirPlayPersistence
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith

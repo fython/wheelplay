@@ -43,7 +43,7 @@ Material Components for Android 1.13.0（Apache-2.0），使用官方 Material 3
 | 用途 / 资源 | 官方图标源 |
 | --- | --- |
 | 启动 Tab · `ic_server_launch` | [play_circle_filled](https://github.com/google/material-design-icons/blob/master/src/av/play_circle_filled/materialicons/24px.svg) |
-| 车机访问卡片、服务通知 · `ic_server_server` / `ic_diplay_notification` | [cast](https://github.com/google/material-design-icons/blob/master/src/hardware/cast/materialicons/24px.svg) |
+| 车机访问卡片、服务通知 · `ic_server_server` / `ic_wheelplay_notification` | [cast](https://github.com/google/material-design-icons/blob/master/src/hardware/cast/materialicons/24px.svg) |
 | iPhone Tab、会话和状态卡片 · `ic_server_phone` | [phone_iphone](https://github.com/google/material-design-icons/blob/master/src/hardware/phone_iphone/materialicons/24px.svg) |
 | 扫描二维码配对按钮 · `ic_server_scan` | [qr_code_scanner](https://github.com/google/material-design-icons/blob/master/src/communication/qr_code_scanner/materialicons/24px.svg) |
 | 浏览器配对卡片 · `ic_server_qr` | [qr_code_2](https://github.com/google/material-design-icons/blob/master/src/communication/qr_code_2/materialicons/24px.svg) |

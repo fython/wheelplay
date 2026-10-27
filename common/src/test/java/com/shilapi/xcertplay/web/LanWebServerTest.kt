@@ -110,8 +110,8 @@ class LanWebServerTest {
     }
 
     @org.junit.Before fun provisionAuthentication() {
-        val identity = com.shilapi.xcertplay.SyntheticMfiIdentity.create()
-        com.shilapi.xcertplay.MfiAssetStore(org.robolectric.RuntimeEnvironment.getApplication().noBackupFilesDir)
+        val identity = moe.feng.wheelplay.SyntheticMfiIdentity.create()
+        moe.feng.wheelplay.MfiAssetStore(org.robolectric.RuntimeEnvironment.getApplication().noBackupFilesDir)
             .installFiles({ identity.key.inputStream() }, { identity.certificate.inputStream() })
     }
 
@@ -202,8 +202,8 @@ class LanWebServerTest {
     fun staticFramebufferReencodesForJpegFallbackAndQualityChanges() {
         val context = org.robolectric.RuntimeEnvironment.getApplication()
         WebListenSettings.saveHttpsEnabled(context, false)
-        com.shilapi.xcertplay.AirPlayPersistence.saveImageFormat(context, ImageFormat.WEBP)
-        com.shilapi.xcertplay.AirPlayPersistence.saveImageQuality(context, 75)
+        moe.feng.wheelplay.AirPlayPersistence.saveImageFormat(context, ImageFormat.WEBP)
+        moe.feng.wheelplay.AirPlayPersistence.saveImageQuality(context, 75)
         WebSession.start(context)
         fun waitFor(message: String, condition: () -> Boolean) {
             val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
@@ -237,7 +237,7 @@ class LanWebServerTest {
                     assertEquals(first.videoEpoch, fallback.videoEpoch)
                     receiveAndAck(fallback)
 
-                    com.shilapi.xcertplay.AirPlayPersistence.saveImageQuality(context, 60)
+                    moe.feng.wheelplay.AirPlayPersistence.saveImageQuality(context, 60)
                     waitFor("Static desktop picks up changed quality") { WebSession.frame?.quality == 60 }
                     val quality = WebSession.frame!!
                     assertEquals(ImageFormat.JPEG, quality.format)
@@ -314,7 +314,7 @@ class LanWebServerTest {
 
     @Test fun userJpegSettingOverridesWebpCapabilityAndReportsTheEncodedQuality() {
         val context = org.robolectric.RuntimeEnvironment.getApplication()
-        com.shilapi.xcertplay.AirPlayPersistence.saveImageFormat(context, ImageFormat.JPEG)
+        moe.feng.wheelplay.AirPlayPersistence.saveImageFormat(context, ImageFormat.JPEG)
         WebSession.start(context)
         try {
             val owner = WebSession.beginVideo(320, 180)
@@ -591,8 +591,8 @@ class LanWebServerTest {
 
     @Test fun browserMediaBufferFollowsSavedSettingsLiveAndAfterServiceRestart() {
         val context = org.robolectric.RuntimeEnvironment.getApplication()
-        com.shilapi.xcertplay.AirPlayPersistence.saveMediaBufferMillis(context, 1000)
-        com.shilapi.xcertplay.AirPlayPersistence.saveBrowserAudioPlayback(context, true)
+        moe.feng.wheelplay.AirPlayPersistence.saveMediaBufferMillis(context, 1000)
+        moe.feng.wheelplay.AirPlayPersistence.saveBrowserAudioPlayback(context, true)
         val audioSource = object : ProjectionSession {
             override val descriptor = SourceDescriptor("audio-test", "Audio test")
             override val capabilities = ProjectionCapabilities(emptySet(), audioPlayback = true)
@@ -611,7 +611,7 @@ class LanWebServerTest {
                 assertTrue(initial.getBoolean("playback"))
                 WebSession.setMediaBufferMillis(context, 500)
                 assertEquals(500, org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).getInt("mediaBufferMillis"))
-                assertEquals(500, com.shilapi.xcertplay.AirPlayPersistence.loadMediaBufferMillis(context))
+                assertEquals(500, moe.feng.wheelplay.AirPlayPersistence.loadMediaBufferMillis(context))
                 WebSession.setBrowserAudioPlayback(context, false)
                 val disabled = org.json.JSONObject(frame(client).toString(Charsets.UTF_8))
                 assertFalse(disabled.getBoolean("playback"))
@@ -677,7 +677,7 @@ class LanWebServerTest {
         } finally { WebSession.stop() }
     }
     @Test fun foregroundServiceKeepsEndpointWhenDashboardTaskIsRemoved() {
-        val service = org.robolectric.Robolectric.buildService(com.shilapi.xcertplay.DiPlaySessionService::class.java)
+        val service = org.robolectric.Robolectric.buildService(moe.feng.wheelplay.WheelPlaySessionService::class.java)
             .create().startCommand(0, 1)
         try {
             assertTrue(WebSession.running)
@@ -686,7 +686,7 @@ class LanWebServerTest {
             assertTrue(WebSession.running)
             assertEquals(code, WebSession.code)
             service.get().onStartCommand(android.content.Intent().setAction(
-                com.shilapi.xcertplay.DiPlaySessionService.ACTION_STOP), 0, 2)
+                moe.feng.wheelplay.WheelPlaySessionService.ACTION_STOP), 0, 2)
             assertFalse(WebSession.running)
         } finally { service.destroy() }
     }

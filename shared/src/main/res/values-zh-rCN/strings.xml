@@ -3,7 +3,7 @@
 <resources>
     <string name="ui_disconnect_the_iphone_before_importing_authentication_resources">请先断开 iPhone，再导入认证资源</string>
     <string name="ui_authentication_resources_imported_and_verified_you_can_now_connect">认证资源已导入并通过校验，现在可以连接 iPhone</string>
-    <string name="ui_import_failed_use_a_diplay_apk_containing_identity_pk8">导入失败：请使用包含 identity.pk8 和 certificate.p7b 的 DiPlay APK（不超过 256 MB）。原有资源已保留。</string>
+    <string name="ui_import_failed_use_an_upstream_apk_containing_identity_pk8">导入失败：请使用包含 identity.pk8 和 certificate.p7b 的 DiPlay APK（不超过 256 MB）。原有资源已保留。</string>
     <string name="ui_import_failed_choose_a_valid_matching_pkcs_8_private">导入失败：请选择有效且匹配的 PKCS#8 私钥和 P-256 证书（各不超过 16 KB）。原有资源已保留。</string>
     <string name="ui_follow_android">跟随 Android</string>
     <string name="ui_always_day">始终日间</string>

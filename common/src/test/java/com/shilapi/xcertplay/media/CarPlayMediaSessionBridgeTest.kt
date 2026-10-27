@@ -253,10 +253,10 @@ class CarPlayMediaSessionBridgeTest {
     }
 
     @Test fun serviceUsesMediaStyleAndRestoresConnectionNotificationOnDisconnect() {
-        val identity = com.shilapi.xcertplay.SyntheticMfiIdentity.create()
-        com.shilapi.xcertplay.MfiAssetStore(RuntimeEnvironment.getApplication().noBackupFilesDir)
+        val identity = moe.feng.wheelplay.SyntheticMfiIdentity.create()
+        moe.feng.wheelplay.MfiAssetStore(RuntimeEnvironment.getApplication().noBackupFilesDir)
             .installFiles({ identity.key.inputStream() }, { identity.certificate.inputStream() })
-        val serviceController = org.robolectric.Robolectric.buildService(com.shilapi.xcertplay.DiPlaySessionService::class.java).create()
+        val serviceController = org.robolectric.Robolectric.buildService(moe.feng.wheelplay.WheelPlaySessionService::class.java).create()
         val service = serviceController.get(); idle()
         val bridge = org.robolectric.util.ReflectionHelpers.getField<CarPlayMediaSessionBridge>(service, "media")
         val source = Source(); val output = Output()
@@ -282,7 +282,7 @@ class CarPlayMediaSessionBridgeTest {
         assertNull(connection.extras.getString(android.app.Notification.EXTRA_TEMPLATE))
         assertEquals(1, connection.actions.size)
         assertEquals("Stop service", connection.actions.single().title.toString())
-        assertEquals(com.shilapi.xcertplay.DiPlaySessionService.ACTION_STOP,
+        assertEquals(moe.feng.wheelplay.WheelPlaySessionService.ACTION_STOP,
             shadowOf(connection.actions.single().actionIntent).savedIntent.action)
         serviceController.destroy()
         assertFalse(bridge.session.isActive)

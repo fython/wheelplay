@@ -13,7 +13,7 @@
         android:theme="@style/Theme.Xcertplay">
 
         <receiver
-            android:name="com.shilapi.xcertplay.BootReceiver"
+            android:name="moe.feng.wheelplay.BootReceiver"
             android:enabled="true"
             tools:replace="android:enabled" />
 

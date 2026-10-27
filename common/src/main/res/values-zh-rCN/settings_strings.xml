@@ -25,8 +25,8 @@
     <string name="settings_display_effect">昼夜模式、图片格式与质量立即生效；其他画面或串流参数修改后会重新连接。</string>
     <string name="settings_audio_effect">音频输出立即生效；修改麦克风来源会重新连接。</string>
     <string name="settings_next_connection">修改后在下次连接 iPhone 生效。</string>
-    <string name="settings_diplay_title">本项目基于 DiPlay 修改</string>
-    <string name="settings_diplay_description">如果车机可以直接安装任意 Android 应用，可以尝试直接使用 DiPlay 以获得更佳的体验。本项目旨在通过浏览器提供无侵入 CarPlay 支持。</string>
+    <string name="settings_upstream_title">本项目基于 DiPlay 修改</string>
+    <string name="settings_upstream_description">如果车机可以直接安装任意 Android 应用，可以尝试直接使用 DiPlay 以获得更佳的体验。本项目旨在通过浏览器提供无侵入 CarPlay 支持。</string>
     <string name="settings_auth_missing_summary">尚未配置有效资源 · 导入后可启动 CarPlay</string>
     <string name="settings_save">保存</string>
     <string name="settings_cancel">取消</string>
@@ -152,8 +152,8 @@
     <string name="settings_auth_description">开源安装包不包含认证资源。可选择现有的两份文件，或下载 DiPlay 官网 APK 后在此导入，无需安装 DiPlay。</string>
     <string name="settings_import_apk">从 DiPlay APK 导入</string>
     <string name="settings_import_files">手动选择认证资源</string>
-    <string name="settings_diplay_download">DiPlay 官网下载</string>
-    <string name="settings_diplay_download_description">下载 APK 后返回导入，或分享给 WheelPlay</string>
+    <string name="settings_upstream_download">DiPlay 官网下载</string>
+    <string name="settings_upstream_download_description">下载 APK 后返回导入，或分享给 WheelPlay</string>
     <string name="settings_auth_storage">仅提取认证资源并保存在此设备的应用私有目录，不上传。导入结束后删除临时 APK；卸载 WheelPlay 将删除已导入资源。</string>
     <string name="settings_import_files_title">选择两份匹配的资源</string>
     <string name="settings_import_files_message">先选择 identity.pk8（PKCS#8 私钥），再选择 certificate.p7b（P-256 证书）。两份文件必须来自同一套资源；取消或校验失败不会替换原有资源。</string>
