@@ -21,6 +21,18 @@ import javax.net.ssl.HttpsURLConnection
 @RunWith(org.robolectric.RobolectricTestRunner::class)
 @org.robolectric.annotation.Config(qualifiers = "zh-rCN", sdk = [29])
 class LanWebServerTest {
+    private fun startHttpsSession(context: android.content.Context) {
+        // These tests exercise real TLS HTTP/WebSocket traffic, not async RSA startup latency.
+        // The synchronous settings path returns only after the secure listener is bound.
+        WebListenSettings.saveHttpsEnabled(context, false)
+        WebSession.start(context)
+        val failure = WebSession.setHttpsEnabled(context, true)
+        if (failure != null) {
+            WebSession.stop()
+            fail("HTTPS setup failed: $failure")
+        }
+    }
+
     @Test fun pairedNowPlayingStreamsStateCommandsAndRevocableArtworkOverRealSockets() {
         val context = org.robolectric.RuntimeEnvironment.getApplication()
         val bytes = byteArrayOf(0xff.toByte(), 0xd8.toByte(), 1, 2, 3)
@@ -462,7 +474,7 @@ class LanWebServerTest {
     @Test fun browserGpsRequiresHttpsAndExplicitOptInAndClearsWhenTheViewerDisconnects() {
         val context = org.robolectric.RuntimeEnvironment.getApplication()
         val provider = WebSession.location.createProvider()
-        provider.start(); WebSession.start(context)
+        provider.start(); startHttpsSession(context)
         val fix = """{"type":"location","latitude":25,"longitude":121,"accuracy":5,"timestamp":1700000000000,"ageMillis":0}"""
         fun settle(client: Socket) {
             text(client, """{"type":"ping"}""")
@@ -477,9 +489,7 @@ class LanWebServerTest {
             val detachedBy = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
             while (WebSession.hasViewer && System.nanoTime() < detachedBy) Thread.sleep(10)
             assertFalse(WebSession.hasViewer)
-            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(8)
-            while (WebSession.tls == null && WebSession.tlsError == null && System.nanoTime() < deadline) Thread.sleep(20)
-            val endpoint = WebSession.tls ?: error("HTTPS failed: ${WebSession.tlsError}")
+            val endpoint = requireNotNull(WebSession.tls) { "HTTPS failed: ${WebSession.tlsError}" }
             val root = CertificateFactory.getInstance("X.509").generateCertificate(endpoint.certificate.inputStream())
             val store = KeyStore.getInstance(KeyStore.getDefaultType()).apply { load(null); setCertificateEntry("wheelplay", root) }
             val managers = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply { init(store) }
@@ -508,11 +518,9 @@ class LanWebServerTest {
 
     @Test fun trustedHttpsViewerCanSupplyNegotiatedMicrophonePcm() {
         val context = org.robolectric.RuntimeEnvironment.getApplication()
-        WebSession.start(context)
+        startHttpsSession(context)
         try {
-            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(8)
-            while (WebSession.tls == null && WebSession.tlsError == null && System.nanoTime() < deadline) Thread.sleep(20)
-            val endpoint = WebSession.tls ?: error("HTTPS failed: ${WebSession.tlsError}")
+            val endpoint = requireNotNull(WebSession.tls) { "HTTPS failed: ${WebSession.tlsError}" }
             val root = CertificateFactory.getInstance("X.509")
                 .generateCertificate(endpoint.certificate.inputStream())
             val store = KeyStore.getInstance(KeyStore.getDefaultType()).apply { load(null); setCertificateEntry("wheelplay", root) }
@@ -649,11 +657,9 @@ class LanWebServerTest {
     }
     @Test fun tlsEndpointUsesThePerInstallationCertificateAndRejectsCrossOriginWebSockets() {
         val context = org.robolectric.RuntimeEnvironment.getApplication()
-        WebSession.start(context)
+        startHttpsSession(context)
         try {
-            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(8)
-            while (WebSession.tls == null && WebSession.tlsError == null && System.nanoTime() < deadline) Thread.sleep(20)
-            val endpoint = WebSession.tls ?: error("HTTPS failed: ${WebSession.tlsError}")
+            val endpoint = requireNotNull(WebSession.tls) { "HTTPS failed: ${WebSession.tlsError}" }
             val root = CertificateFactory.getInstance("X.509")
                 .generateCertificate(endpoint.certificate.inputStream())
             val store = KeyStore.getInstance(KeyStore.getDefaultType()).apply { load(null); setCertificateEntry("wheelplay", root) }

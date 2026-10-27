@@ -68,5 +68,6 @@ tasks.withType<Test>().configureEach {
     // The full Robolectric suite loads several Android SDK resource tables. Gradle's
     // default 512 MiB test worker heap is insufficient; org.gradle.jvmargs only sizes the daemon.
     maxHeapSize = "2g"
+    testLogging.exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
     jvmArgs("--add-exports=java.base/jdk.internal.access=ALL-UNNAMED")
 }

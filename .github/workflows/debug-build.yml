@@ -79,8 +79,12 @@ jobs:
             "ndk;$ANDROID_NDK_VERSION" \
             "cmake;$ANDROID_CMAKE_VERSION"
 
-      - name: Build and verify Debug
-        run: ./gradlew --no-daemon --build-cache :projection-plugin-api:testDebugUnitTest :projection-plugin-api:assembleRelease :projection-plugin-sample:lintDebug :projection-plugin-sample:assembleDebug :shared:testDebugUnitTest :common:testDebugUnitTest :common:assembleDebugAndroidTest :mobile:lintDebug :mobile:assembleDebug :mobile:assembleDebugAndroidTest
+      - name: Build and lint Debug artifacts
+        run: ./gradlew --no-daemon --build-cache :projection-plugin-api:assembleRelease :projection-plugin-sample:lintDebug :projection-plugin-sample:assembleDebug :common:assembleDebugAndroidTest :mobile:lintDebug :mobile:assembleDebug :mobile:assembleDebugAndroidTest
+
+      # Native compilation and time-sensitive socket tests must not compete for runner CPU.
+      - name: Run unit tests
+        run: ./gradlew --no-daemon --build-cache :projection-plugin-api:testDebugUnitTest :shared:testDebugUnitTest :common:testDebugUnitTest
 
       - name: Upload plugin SDK and independent sample APK
         uses: actions/upload-artifact@v4
