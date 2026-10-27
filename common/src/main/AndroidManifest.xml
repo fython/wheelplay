@@ -68,11 +68,6 @@
             android:windowSoftInputMode="adjustResize" />
 
         <activity
-            android:name="moe.feng.wheelplay.MainActivity"
-            android:exported="false"
-            android:theme="@style/Theme.Xcertplay" />
-
-        <activity
             android:name="moe.feng.wheelplay.ImageCropActivity"
             android:exported="false"
             android:screenOrientation="fullSensor"

@@ -17,8 +17,6 @@
             android:enabled="true"
             tools:replace="android:enabled" />
 
-        <service android:name="com.shilapi.xcertplay.shared.MyCarAppService" tools:node="remove" />
-        <meta-data android:name="androidx.car.app.minCarApiLevel" tools:node="remove" />
     </application>
 
 </manifest>
