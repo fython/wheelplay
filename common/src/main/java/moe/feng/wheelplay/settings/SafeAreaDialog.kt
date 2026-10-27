@@ -12,12 +12,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.shilapi.xcertplay.host.R
+import moe.feng.wheelplay.CarPlayResolutionSlot
 import moe.feng.wheelplay.CarPlaySafeMargins
 
 @Composable
 internal fun SafeAreaDialog(
     initial: CarPlaySafeMargins,
-    aspectRatio: Float = 16f / 9f,
+    slot: CarPlayResolutionSlot = CarPlayResolutionSlot.DEFAULT,
     legacy: Boolean = false,
     onDismiss: () -> Unit,
     onSave: (CarPlaySafeMargins) -> Unit,
@@ -51,7 +52,11 @@ internal fun SafeAreaDialog(
                 Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                SafeAreaPreview(preview, aspectRatio, parsed != null, ::update)
+                Text(
+                    settingsString(R.string.settings_safe_area_slot, slot.width, slot.height),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                SafeAreaPreview(preview, slot.aspectRatio, parsed != null, ::update)
                 SettingsDescription(R.string.settings_safe_area_hint)
                 if (legacy) SettingsDescription(R.string.settings_safe_area_legacy_edit)
                 TextButton(onClick = { update(CarPlaySafeMargins()) }) {

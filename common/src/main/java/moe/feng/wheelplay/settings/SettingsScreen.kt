@@ -213,7 +213,7 @@ private val previewActions =
         { _, _ -> },
         { _, _ -> null },
         { _, _ -> null },
-        {},
+        { _, _ -> },
         {},
         {},
         { _, _ -> },

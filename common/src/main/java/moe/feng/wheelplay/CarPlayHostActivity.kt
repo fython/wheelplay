@@ -694,7 +694,7 @@ class CarPlayHostActivity : ComponentActivity() {
                 displayWidthPixels = scaledDisplay.widthPixels,
                 displayHeightPixels = scaledDisplay.heightPixels,
             ),
-            safeAreaDrawOutside = if (AirPlayPersistence.loadSafeMargins(this)?.isFullScreen == false) false else safeAreaDrawOutside,
+            safeAreaDrawOutside = if (AirPlayPersistence.loadSafeMargins(this, size.width, size.height)?.isFullScreen == false) false else safeAreaDrawOutside,
         )
         val requestSummary = "Display request selected=${CarPlayUiScale.label(requestedPercent)} percent=$requestedPercent surface=${size.width}x${size.height} resolution=${displayScaleTenths * 10}% " +
             "base=${resolutionDisplay.widthPixels}x${resolutionDisplay.heightPixels} candidate=${candidate.widthPixels}x${candidate.heightPixels} fps=$fps " +
@@ -1053,20 +1053,14 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun scheduleBrowserDisplaySize(width: Int?, height: Int?) {
         if (shuttingDown.get()) return
-        val size = if (width == null || height == null) {
-            DisplaySize(1280, 720)
-        } else {
-            val scale = minOf(1.0, 3840.0 / width, 2160.0 / height)
-            fun even(value: Double) = (value.toInt().coerceAtLeast(2) / 2) * 2
-            DisplaySize(even(width * scale), even(height * scale))
+        val slot = CarPlayResolutionSlot.forBrowser(if (width != null && height != null) width to height else null)
+        val size = DisplaySize(slot.width, slot.height)
+        if (size == activeDisplaySize) {
+            pendingDisplaySize = null
+            mainHandler.removeCallbacks(applyDisplaySize)
+            return
         }
-        if (size == activeDisplaySize || size == pendingDisplaySize) return
-        activeDisplaySize?.let { active ->
-            if (kotlin.math.abs(size.width - active.width) <= 8 &&
-                kotlin.math.abs(size.height - active.height) <= 8 &&
-                kotlin.math.abs(size.width.toDouble() / size.height - active.width.toDouble() / active.height) < 0.01
-            ) return
-        }
+        if (size == pendingDisplaySize) return
         appendLog("Adaptive browser display requested: ${size.width}x${size.height}")
         pendingDisplaySize = size
         mainHandler.removeCallbacks(applyDisplaySize)

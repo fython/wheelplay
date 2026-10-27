@@ -572,7 +572,7 @@ class WheelPlayActivity : AppCompatActivity() {
             toggle = { setting, checked -> changeSettings { applySettingsEffect(settingsModel.toggle(setting, checked)) }?.let(::toast) },
             text = { setting, value -> changeSettings { applySettingsEffect(settingsModel.edit(setting, value)) } },
             credentials = { ssid, password -> changeSettings { settingsModel.saveCredentials(ssid, password) } },
-            margins = { margins -> changeSettings { applySettingsEffect(settingsModel.saveMargins(margins)) }?.let(::toast) },
+            margins = { slot, margins -> changeSettings { applySettingsEffect(settingsModel.saveMargins(slot, margins)) }?.let(::toast) },
             resetBranding = { includeName -> changeSettings { settingsModel.resetBranding(includeName) }?.let(::toast) },
             command = { command -> changeSettings { settingsCommand(command) }?.let(::toast) },
             renameBrowser = { id, name -> changeSettings { settingsModel.renameBrowser(id, name) }?.let(::toast) },

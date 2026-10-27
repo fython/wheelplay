@@ -131,19 +131,17 @@ class CarPlayExperienceSettingsTest : ComposeSettingsTest() {
     }
 
     @Test
-    fun safeMarginsRetainLegacyMappingUntilEditedAndScaleAcrossResolutions() {
+    fun safeMarginsRetainLegacyMappingUntilEditedAndStayInTheirResolutionSlot() {
         val legacy = SafeAreaRect(100, 50, 1100, 650)
         AirPlayPersistence.saveSafeAreaRect(context, 1280, 720, legacy)
         assertEquals(legacy, AirPlayPersistence.loadSafeAreaRect(context, 1280, 720))
         AirPlayPersistence.saveSafeMargins(context, CarPlaySafeMargins(10, 20, 5, 15))
         assertEquals(
-            SafeAreaRect(100, 100, 1700, 800),
-            AirPlayPersistence.loadSafeAreaRect(context, 2000, 1000),
+            SafeAreaRect(64, 72, 1088, 576),
+            AirPlayPersistence.loadSafeAreaRect(context, 1280, 720),
         )
-        assertEquals(
-            SafeAreaRect(50, 50, 850, 400),
-            AirPlayPersistence.loadSafeAreaRect(context, 1000, 500),
-        )
+        assertNull(AirPlayPersistence.loadSafeAreaRect(context, 2000, 1000))
+        assertNull(AirPlayPersistence.loadSafeAreaRect(context, 1000, 500))
         assertNotNull(CarPlaySafeMargins(40, 40, 40, 40).rectangle(1, 1))
         assertNull(CarPlaySafeMargins.decode("50,0,0,0"))
         AirPlayPersistence.saveSafeMargins(context, CarPlaySafeMargins())
@@ -213,5 +211,18 @@ class CarPlayExperienceSettingsTest : ComposeSettingsTest() {
         val safe = view["safeArea"] as Map<*, *>
         assertEquals(false, safe["drawUIOutsideSafeArea"])
         assertTrue((safe["widthPixels"] as Int) < config.main.widthPixels)
+        AirPlayPersistence.saveSafeMargins(context, CarPlaySafeMargins(right = 10), 1920, 1080)
+        val otherSize = sizeType.getDeclaredConstructor(Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+            .apply { isAccessible = true }.newInstance(1920, 1080)
+        type.getDeclaredField("displayScaleTenths").apply { isAccessible = true }.set(host, 8)
+        val other = type.getDeclaredMethod("createAirPlayConfig", sizeType)
+            .apply { isAccessible = true }.invoke(host, otherSize) as AirPlayConfig
+        assertEquals(1536, other.main.widthPixels)
+        assertEquals(0, other.main.safeArea!!.left)
+        assertTrue(other.main.safeArea!!.right > 0)
+        assertEquals(false, other.main.safeAreaDrawOutside)
+        // Encoding at 80% must still read the 1920×1080 slot, not a new 1536×864 slot.
+        assertNull(AirPlayPersistence.loadSafeMargins(context, 1536, 864))
+
     }
 }

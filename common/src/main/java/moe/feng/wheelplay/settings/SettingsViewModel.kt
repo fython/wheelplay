@@ -68,7 +68,7 @@ internal class SettingsViewModel(
 
     private fun readPreferences(previous: SettingsState): SettingsState {
         val (width, height) = safeAreaDisplaySize()
-        val margins = AirPlayPersistence.loadSafeMargins(app)
+        val margins = AirPlayPersistence.loadSafeMargins(app, width, height)
         val legacyRect =
             if (margins == null) AirPlayPersistence.loadSafeAreaRect(app, width, height) else null
         fun percent(pixels: Int, size: Int) =
@@ -142,7 +142,7 @@ internal class SettingsViewModel(
                         percent(width - it.right, width),
                     )
                 },
-            safeAreaAspectRatio = width.toFloat() / height,
+            safeAreaSlot = CarPlayResolutionSlot(width, height),
             ssid = AirPlayPersistence.loadManualHotspotSsid(app),
             password = AirPlayPersistence.loadManualHotspotPassphrase(app),
             httpPort = WebListenSettings.httpPort(app),
@@ -157,15 +157,11 @@ internal class SettingsViewModel(
         )
     }
 
-    private fun safeAreaDisplaySize(): Pair<Int, Int> {
-        val viewport =
-            WebSession.currentBrowserViewport?.takeIf {
-                AirPlayPersistence.loadAdaptiveBrowserSize(app) && it.first > 0 && it.second > 0
-            } ?: return 1280 to 720
-        val scale = minOf(1.0, 3840.0 / viewport.first, 2160.0 / viewport.second)
-        fun even(value: Double) = value.toInt().coerceAtLeast(2) / 2 * 2
-        return even(viewport.first * scale) to even(viewport.second * scale)
-    }
+    private fun safeAreaDisplaySize(): CarPlayResolutionSlot =
+        CarPlayResolutionSlot.forBrowser(
+            WebSession.currentBrowserViewport,
+            AirPlayPersistence.loadAdaptiveBrowserSize(app),
+        )
 
     fun choose(setting: ChoiceSetting, index: Int): SettingsEffect {
         if (state.value.selected(setting) == index) return SettingsEffect.None
@@ -396,10 +392,11 @@ internal class SettingsViewModel(
         reload()
     }
 
-    fun saveMargins(margins: CarPlaySafeMargins): SettingsEffect {
-        AirPlayPersistence.saveSafeMargins(app, margins)
+    fun saveMargins(slot: CarPlayResolutionSlot, margins: CarPlaySafeMargins): SettingsEffect {
+        AirPlayPersistence.saveSafeMargins(app, margins, slot.width, slot.height)
         reload()
-        return SettingsEffect.Reconnect()
+        return if (slot == safeAreaDisplaySize()) SettingsEffect.Reconnect()
+        else SettingsEffect.None
     }
 
     fun resetBranding(includeName: Boolean) {

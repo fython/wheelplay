@@ -6,6 +6,7 @@ import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.network.TeslaHttpConfig
 import com.shilapi.xcertplay.web.RememberedBrowsers
 import com.shilapi.xcertplay.web.WebListenSettings
+import moe.feng.wheelplay.CarPlayResolutionSlot
 import moe.feng.wheelplay.CarPlaySafeMargins
 
 internal enum class SettingsCategory(
@@ -99,7 +100,7 @@ internal data class SettingsState(
     val margins: CarPlaySafeMargins? = null,
     val legacySafeArea: Boolean = false,
     val legacyMargins: CarPlaySafeMargins? = null,
-    val safeAreaAspectRatio: Float = 16f / 9f,
+    val safeAreaSlot: CarPlayResolutionSlot = CarPlayResolutionSlot.DEFAULT,
     val ssid: String = "",
     val password: String = "",
     val httpPort: Int = 8080,
@@ -141,7 +142,7 @@ internal class SettingsActions(
     val toggle: (ToggleSetting, Boolean) -> Unit,
     val text: (TextSetting, String) -> String?,
     val credentials: (String, String) -> String?,
-    val margins: (CarPlaySafeMargins) -> Unit,
+    val margins: (CarPlayResolutionSlot, CarPlaySafeMargins) -> Unit,
     val resetBranding: (Boolean) -> Unit,
     val command: (SettingsCommand) -> Unit,
     val renameBrowser: (String, String) -> Unit,

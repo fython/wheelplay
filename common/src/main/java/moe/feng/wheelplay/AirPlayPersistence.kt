@@ -125,10 +125,33 @@ object AirPlayPersistence {
     fun saveBrowserOfflinePolicy(context: Context, value: BrowserOfflinePolicy) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_BROWSER_OFFLINE, value.name).apply()
     }
-    fun loadSafeMargins(context: Context): CarPlaySafeMargins? = CarPlaySafeMargins.decode(
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_SAFE_MARGINS, null))
-    fun saveSafeMargins(context: Context, value: CarPlaySafeMargins) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_SAFE_MARGINS, value.encode()).apply()
+    fun loadSafeMargins(context: Context, widthPixels: Int = 1280, heightPixels: Int = 720): CarPlaySafeMargins? {
+        migrateGlobalSafeMargins(context)
+        return CarPlaySafeMargins.decode(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(safeMarginsKey(widthPixels, heightPixels), null))
+    }
+
+    fun saveSafeMargins(context: Context, value: CarPlaySafeMargins, widthPixels: Int = 1280, heightPixels: Int = 720) {
+        migrateGlobalSafeMargins(context)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString(safeMarginsKey(widthPixels, heightPixels), value.encode()).apply()
+    }
+
+    private fun safeMarginsKey(widthPixels: Int, heightPixels: Int): String {
+        require(widthPixels > 0 && heightPixels > 0)
+        return "${KEY_SAFE_MARGINS}_${widthPixels}x${heightPixels}"
+    }
+
+    @Synchronized
+    private fun migrateGlobalSafeMargins(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val previous = prefs.getString(KEY_SAFE_MARGINS, null) ?: return
+        val key = safeMarginsKey(1280, 720)
+        val editor = prefs.edit().remove(KEY_SAFE_MARGINS)
+        if (!prefs.contains(key) && CarPlaySafeMargins.decode(previous) != null) {
+            editor.putString(key, previous)
+        }
+        editor.apply()
     }
 
     fun loadDisplayScaleTenths(context: Context): Int {
@@ -566,7 +589,7 @@ object AirPlayPersistence {
 
     fun loadSafeAreaRect(context: Context, widthPixels: Int, heightPixels: Int): SafeAreaRect? {
         require(widthPixels > 0 && heightPixels > 0) { "Activity dimensions must be positive" }
-        loadSafeMargins(context)?.let { return it.rectangle(widthPixels, heightPixels) }
+        loadSafeMargins(context, widthPixels, heightPixels)?.let { return it.rectangle(widthPixels, heightPixels) }
         return SafeAreaCodec.decode(
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .getString(safeAreaKey(widthPixels, heightPixels), null),
@@ -583,8 +606,9 @@ object AirPlayPersistence {
         require(activityWidthPixels > 0 && activityHeightPixels > 0) {
             "Activity dimensions must be positive"
         }
+        migrateGlobalSafeMargins(context)
         val editor = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .remove(KEY_SAFE_MARGINS)
+            .remove(safeMarginsKey(activityWidthPixels, activityHeightPixels))
             .putString(
                 safeAreaKey(activityWidthPixels, activityHeightPixels),
                 SafeAreaCodec.encode(rect.clampTo(activityWidthPixels, activityHeightPixels)),
@@ -601,8 +625,9 @@ object AirPlayPersistence {
         require(activityWidthPixels > 0 && activityHeightPixels > 0) {
             "Activity dimensions must be positive"
         }
+        migrateGlobalSafeMargins(context)
         val editor = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .remove(KEY_SAFE_MARGINS)
+            .remove(safeMarginsKey(activityWidthPixels, activityHeightPixels))
             .remove(safeAreaKey(activityWidthPixels, activityHeightPixels))
         if (commit) editor.commit() else editor.apply()
     }

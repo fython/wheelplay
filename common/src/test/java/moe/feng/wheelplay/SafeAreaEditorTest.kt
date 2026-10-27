@@ -66,10 +66,11 @@ class SafeAreaEditorTest : ComposeSettingsTest() {
             for (value in listOf(saved.top, saved.bottom, saved.left, saved.right)) {
                 assertTrue("Dragged margin was $value", value in 19..21)
             }
-            // The same percentages scale with the negotiated viewport, not the phone preview size.
+            assertNull(AirPlayPersistence.loadSafeAreaRect(context, 2000, 1000))
+            // Only the edited resolution receives these margins.
             assertEquals(
-                saved.rectangle(2000, 1000),
-                AirPlayPersistence.loadSafeAreaRect(context, 2000, 1000),
+                saved.rectangle(1280, 720),
+                AirPlayPersistence.loadSafeAreaRect(context, 1280, 720),
             )
         } finally {
             controller.pause().stop().destroy()
@@ -181,11 +182,49 @@ class SafeAreaEditorTest : ComposeSettingsTest() {
             AirPlayPersistence.saveAdaptiveBrowserSize(context, true)
             assertTrue(WebSession.reportBrowserViewport(2000, 1000))
             val model = SettingsViewModel(context, SavedStateHandle())
-            assertEquals(2f, model.state.value.safeAreaAspectRatio, .001f)
+            assertEquals(2f, model.state.value.safeAreaSlot.aspectRatio, .001f)
             AirPlayPersistence.saveAdaptiveBrowserSize(context, false)
             model.reload()
-            assertEquals(16f / 9f, model.state.value.safeAreaAspectRatio, .001f)
+            assertEquals(16f / 9f, model.state.value.safeAreaSlot.aspectRatio, .001f)
         } finally {
+            WebSession.stop()
+        }
+    }
+
+    @Test
+    fun openEditorKeepsItsResolutionWhenViewportChangesAndActivityRecreates() {
+        val controller = Robolectric.buildActivity(WheelPlayActivity::class.java).setup()
+        try {
+            open(controller.get())
+            compose.onNodeWithText("上边留白").performScrollTo().performTextReplacement("13")
+            compose.runOnIdle {
+                WebSession.reportBrowserViewport(1920, 1080)
+                androidx.lifecycle
+                    .ViewModelProvider(controller.get())[SettingsViewModel::class.java]
+                    .reload()
+            }
+            controller.recreate()
+            compose.onNodeWithText("上边留白").assertTextContains("13")
+            saveInput()
+            assertEquals(
+                CarPlaySafeMargins(top = 13),
+                AirPlayPersistence.loadSafeMargins(context, 1280, 720),
+            )
+            assertNull(AirPlayPersistence.loadSafeMargins(context, 1920, 1080))
+            clickTag("settings:safe-area")
+            compose.onNodeWithText("上边留白").performScrollTo().assertTextContains("0")
+            compose.onNodeWithText("上边留白").performTextReplacement("7")
+            saveInput()
+            assertEquals(
+                CarPlaySafeMargins(top = 7),
+                AirPlayPersistence.loadSafeMargins(context, 1920, 1080),
+            )
+            assertEquals(
+                CarPlaySafeMargins(top = 13),
+                AirPlayPersistence.loadSafeMargins(context, 1280, 720),
+            )
+        } finally {
+            controller.pause().stop().destroy()
             WebSession.stop()
         }
     }

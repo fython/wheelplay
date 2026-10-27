@@ -203,4 +203,5 @@
     <string name="settings_safe_area_legacy_edit" formatted="false">此设置来自旧版像素配置。编辑并保存后将按预览转换为整数百分比（每边 0–40%）；取消会保留原配置。</string>
     <string name="settings_safe_area_increase">%1$s增加 1%%</string>
     <string name="settings_safe_area_decrease">%1$s减少 1%%</string>
+    <string name="settings_safe_area_slot">分辨率：%1$d × %2$d · 独立保存</string>
 </resources>

@@ -53,4 +53,19 @@ class CarPlayBrowserDisplaySizeTest {
         ReflectionHelpers.setField(host, "physicalSizeBasis", AirPlayPhysicalSizeBasis.HEIGHT)
         assertEquals(AirPlayPhysicalSizeMm(386, 300), physicalSize(host, 1184, 920))
     }
+    @Test fun smallResolutionChangesSelectTheirOwnSlotAndReturningCancelsPendingResize() {
+        val host = host()
+        val sizeType = CarPlayHostActivity::class.java.declaredClasses.single { it.simpleName == "DisplaySize" }
+        val active = sizeType.getDeclaredConstructor(Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+            .apply { isAccessible = true }.newInstance(1280, 720)
+        ReflectionHelpers.setField(host, "activeDisplaySize", active)
+        val schedule = CarPlayHostActivity::class.java.getDeclaredMethod("scheduleBrowserDisplaySize", Integer::class.java, Integer::class.java)
+            .apply { isAccessible = true }
+        schedule.invoke(host, 1284, 720)
+        val pending = ReflectionHelpers.getField<Any>(host, "pendingDisplaySize")
+        assertEquals(1284, ReflectionHelpers.getField<Int>(pending, "width"))
+        schedule.invoke(host, 1280, 720)
+        org.junit.Assert.assertNull(ReflectionHelpers.getField<Any?>(host, "pendingDisplaySize"))
+    }
+
 }

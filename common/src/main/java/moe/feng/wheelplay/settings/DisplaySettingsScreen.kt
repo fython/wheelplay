@@ -14,6 +14,10 @@ import moe.feng.wheelplay.*
 @Composable
 internal fun DisplaySettingsScreen(state: SettingsState, actions: SettingsActions) {
     var editMargins by rememberSaveable { mutableStateOf(false) }
+    var editWidth by rememberSaveable { mutableIntStateOf(1280) }
+    var editHeight by rememberSaveable { mutableIntStateOf(720) }
+    var editInitial by rememberSaveable { mutableStateOf(CarPlaySafeMargins().encode()) }
+    var editLegacy by rememberSaveable { mutableStateOf(false) }
     SettingsChoice(
         state,
         actions,
@@ -45,8 +49,20 @@ internal fun DisplaySettingsScreen(state: SettingsState, actions: SettingsAction
                 margins.right,
             )
     SettingsRow(settingsString(R.string.settings_safe_area), summary, "settings:safe-area") {
+        editWidth = state.safeAreaSlot.width
+        editHeight = state.safeAreaSlot.height
+        editInitial = (margins ?: state.legacyMargins ?: CarPlaySafeMargins()).encode()
+        editLegacy = margins == null && state.legacySafeArea
         editMargins = true
     }
+    Text(
+        settingsString(
+            R.string.settings_safe_area_slot,
+            state.safeAreaSlot.width,
+            state.safeAreaSlot.height,
+        ),
+        style = MaterialTheme.typography.bodySmall,
+    )
     SettingsDescription(R.string.settings_safe_area_description)
     SettingsToggle(
         state,
@@ -121,11 +137,11 @@ internal fun DisplaySettingsScreen(state: SettingsState, actions: SettingsAction
     )
     if (editMargins)
         SafeAreaDialog(
-            initial = margins ?: state.legacyMargins ?: CarPlaySafeMargins(),
-            aspectRatio = state.safeAreaAspectRatio,
-            legacy = margins == null && state.legacySafeArea,
+            initial = requireNotNull(CarPlaySafeMargins.decode(editInitial)),
+            slot = CarPlayResolutionSlot(editWidth, editHeight),
+            legacy = editLegacy,
             onDismiss = { editMargins = false },
         ) {
-            actions.margins(it)
+            actions.margins(CarPlayResolutionSlot(editWidth, editHeight), it)
         }
 }
