@@ -73,21 +73,14 @@ class ManualHotspotSettingsTest : ComposeSettingsTest() {
                     stopped,
                 )
                 assertTrue(CarPlayBackgroundSession.hasSession())
-                assertFalse(
-                    "The hotspot prompt must wait for the old session to stop",
-                    ShadowDialog.getShownDialogs().any {
-                        it is androidx.appcompat.app.AlertDialog && it.isShowing
-                    },
-                )
+                compose.onNodeWithText(context.getString(com.shilapi.xcertplay.shared.R.string.ui_hotspot_is_off)).assertDoesNotExist()
                 compose.runOnIdle {
                     CarPlayBackgroundSession.clear()
                     completeStop!!.invoke()
                 }
                 compose.waitForIdle()
                 assertFalse(CarPlayBackgroundSession.hasSession())
-                assertTrue(
-                    (ShadowDialog.getLatestDialog() as androidx.appcompat.app.AlertDialog).isShowing
-                )
+                compose.onNodeWithText(context.getString(com.shilapi.xcertplay.shared.R.string.ui_hotspot_is_off)).assertExists()
                 assertEquals(
                     WirelessHotspotMode.MANUAL,
                     AirPlayPersistence.loadWirelessHotspotMode(context),

@@ -7,7 +7,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import androidx.compose.ui.test.*
-import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.shilapi.xcertplay.web.WebSession
 import java.io.File
 import java.util.zip.ZipEntry
@@ -48,7 +47,9 @@ class AuthenticationActivationTest : ComposeSettingsTest() {
         val ui = views(activity.window.decorView)
         assertNotNull(shadowOf(activity).nextStartedService)
         assertFalse(CarPlayBackgroundSession.hasSession())
-        assertFalse(ui.filterIsInstance<Button>().single { it.text == "连接 iPhone" }.isEnabled)
+        compose.onNodeWithTag("nav:phone").performClick()
+        compose.onNodeWithTag("source-carplay").performScrollTo().performClick()
+        compose.onNodeWithTag("action:CARPLAY_CONNECT").assertIsNotEnabled()
         WebSession.start(app)
         assertTrue(WebSession.running)
         assertTrue(WebSession.code.isNotEmpty())

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package moe.feng.wheelplay.settings
 
+import moe.feng.wheelplay.ui.theme.WheelPlayTheme
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -9,7 +11,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -20,37 +21,20 @@ import com.shilapi.xcertplay.host.R
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 @Composable
-internal fun SettingsTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme =
-            darkColorScheme(
-                primary = Color(0xffb4d9b1),
-                onPrimary = Color(0xff20391f),
-                background = Color(0xff11161a),
-                surface = Color(0xff11161a),
-                surfaceContainer = Color(0xff1c2428),
-                onSurface = Color(0xffe2e8e3),
-                onSurfaceVariant = Color(0xffc1c9be),
-                outline = Color(0xff8b9389),
-            ),
-        content = content,
-    )
-}
-
-@Composable
 internal fun SettingsRoute(
     model: SettingsViewModel,
     actions: SettingsActions,
     dialogs: SettingsDialogHost,
+    showDialogs: Boolean = true,
     onScroll: (Int) -> Unit,
 ) {
     val state by model.state.collectAsStateWithLifecycle()
-    SettingsTheme {
+    WheelPlayTheme {
         SettingsScreen(state, actions, model::open, model::scrollPosition) { category, offset ->
             model.rememberScroll(category, offset)
             onScroll(offset)
         }
-        SettingsPlatformDialog(dialogs)
+        if (showDialogs) SettingsPlatformDialog(dialogs)
     }
 }
 
@@ -202,13 +186,13 @@ private fun SettingsIndexScreen(
 )
 @Composable
 private fun SettingsIndexPreview() {
-    SettingsTheme { SettingsScreen(SettingsState(), previewActions, {}, { 0 }, { _, _ -> }) }
+    WheelPlayTheme { SettingsScreen(SettingsState(), previewActions, {}, { 0 }, { _, _ -> }) }
 }
 
 @Preview(name = "Audio", locale = "zh", widthDp = 360, heightDp = 800)
 @Composable
 private fun AudioSettingsPreview() {
-    SettingsTheme {
+    WheelPlayTheme {
         SettingsScreen(
             SettingsState(
                 category = SettingsCategory.AUDIO,

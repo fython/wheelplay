@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.res.Configuration
 import android.os.LocaleList
 import androidx.compose.ui.test.*
-import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.i18n.UiException
 import com.shilapi.xcertplay.i18n.UiText
@@ -116,21 +115,13 @@ class LocalizationTest : ComposeSettingsTest() {
         val controller = Robolectric.buildActivity(WheelPlayActivity::class.java).setup()
         try {
             val activity = controller.get()
-            fun views(view: android.view.View): List<android.view.View> =
-                listOf(view) +
-                    if (view is android.view.ViewGroup)
-                        (0 until view.childCount).flatMap { views(view.getChildAt(it)) }
-                    else emptyList()
-            views(activity.window.decorView)
-                .filterIsInstance<BottomNavigationView>()
-                .single()
-                .selectedItemId = 3
+            compose.onNodeWithTag("nav:settings").performClick()
             compose.waitForIdle()
             // Initial authentication setup may open its category; return using its stable semantic
             // ID.
             if (compose.onAllNodesWithTag("settings:back").fetchSemanticsNodes().isNotEmpty())
                 clickTag("settings:back")
-            compose.onNodeWithText(expectedTitle).assertExists()
+            compose.onNode(hasText(expectedTitle) and !hasTestTag("nav:settings")).assertExists()
             clickTag("category:AUDIO")
             compose.onNodeWithText(audioTitle).assertExists()
             clickTag("choice:${ChoiceSetting.AUDIO_OUTPUT}")

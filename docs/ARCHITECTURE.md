@@ -70,17 +70,19 @@ v3 可使用 WebP，最多两帧在途，并以媒体版本和帧序号精确 AC
 
 主要 Activity、`ServerUi`、`ServerWindow` 和宿主配套代码位于 `moe.feng.wheelplay`，设置页面位于 `moe.feng.wheelplay.settings`，Compose 主题位于 `moe.feng.wheelplay.ui.theme`。原 `DiPlay` 前缀的类和方法统一使用 `WheelPlay`。旧主界面和 CarPlay 宿主的组件名称保留为 Activity 别名，兼容已有快捷方式；偏好文件名、配对标识及通知频道等持久标识保持兼容。
 
-`WheelPlayActivity` 是唯一的主界面与启动入口，承载启动（Launch）、输入源、设置三个同级页面。`ServerUi.Shell` 持有三页内容、底部标准 BottomNavigationView 和状态栏遮罩，切换仅改变页面可见性，保留页面控件及滚动位置；重复点击当前 Tab 不重建视图，不启动 Activity，不重置滚动。
+`WheelPlayActivity` 是唯一的主界面与启动入口，通过 `setContent` 挂载 `WheelPlayScreen`。启动、输入源、设置及各输入源详情均使用 Compose Material 3，底部使用 `NavigationBar`。`rememberSaveableStateHolder` 按路由保留滚动和展开状态；当前路由和 Android Auto 连接方式在 Activity 重建时恢复，重复点击当前 Tab 不重置页面。设置分类及其滚动由原 `SettingsViewModel` 管理。
 
-使用 Material Components 1.13.0 与 `Theme.Material3.Dark.NoActionBar`。按钮、开关、文本、分隔线、输入框、弹窗与连接进度指示器分别使用对应的 Material 组件；Tab 指示器采用组件默认动效，页面本身没有整屏平移。主题集中在 `themes.xml`。
+`WheelPlayUiState` 是界面读取的不可变快照。Activity 在恢复前台、操作完成及前台定时刷新时读取服务和输入源状态；Composables 只展示状态和派发用户操作，不在重组时连接或停止投影。`WheelPlayTheme` 统一主界面和设置页的深色配色。
+
+`WheelPlayDialogs` 管理设备选择、连接表单与确认弹窗，认证和证书输入继续使用 Compose 的 `SettingsDialogHost`。密码、临时表单和回调不写入保存状态，关闭或销毁页面即释放；VNC 提交使用的临时字符数组会清零。
 
 `CarPlayHostActivity` 保留协议控制器与权限申请的所有权，仅作为显式连接或 USB 接入流程使用，不再承载 Tab。会话启动后返回主界面，连接仍在后台运行。通知也直接打开主界面。打开主界面启动 Web 服务；自动连接继续受用户设置控制。断开 iPhone 后恢复独立 Web 服务，让服务面板继续可用。
 
-控制器、认证、离屏解码和触摸协议未改动。连接方式与设置仍调用原有持久化和重连流程；启动连接时的权限由系统界面处理。主界面旋转时重建布局，但不重建 CarPlay 会话。
+控制器、认证、离屏解码和触摸协议未改动。连接方式与设置仍调用原有持久化和重连流程；启动连接时的权限由系统界面处理。主界面随窗口配置重新组合，但不重建 CarPlay 会话。
 
 `ServerWindow` 统一要求主界面及连接流程显示系统状态栏和导航栏，内容区避开系统栏和屏幕开孔。服务端不再读取旧全屏偏好或提供本机全屏开关，浏览器全屏控制不受影响。
 
-选择型偏好使用 `ServerUi.PreferenceRow`：左侧标题，右侧当前值及方向提示，无按钮边框，整行带主题水波纹并支持键盘焦点和读屏。选择确认后更新值文本，原有 Material 单选弹窗与保存/重连回调保留。
+选择型偏好使用 Compose 设置组件和单选弹窗，保留保存、校验与重连回调。`ServerUi` 仅保留 `CarPlayHostActivity` 连接过程所需的少量 View 工具，主界面不再使用 View 页面或原生 View 弹窗。
 
 `LanAddresses` 结合 Android ConnectivityManager 的网络类型/当前网络及 NetworkInterface 的 IPv4 地址，保留接口来源；无法取得系统元数据时按接口名降级识别。稳定排序优先普通 Wi-Fi / 以太网，其次热点、USB、未知网络、Wi-Fi Direct、VPN、移动网络，同级优先当前网络。仅显示启用的非回环接口上的私有 IPv4 地址。主界面只展示首选项，其余默认折叠；每秒刷新地址变化时保留展开状态，避免反复重建地址列表。排序不代表对车机可达性的实际探测。
 

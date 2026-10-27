@@ -4,7 +4,6 @@ import android.content.res.Configuration
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
-import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.shilapi.xcertplay.host.R
 import moe.feng.wheelplay.settings.SettingsCategory
 import org.junit.Assert.*
@@ -21,11 +20,6 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [29], qualifiers = "zh-rCN-w360dp-h800dp-mdpi")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class SettingsCategoryNavigationTest : ComposeSettingsTest() {
-    private fun tabs(activity: WheelPlayActivity) =
-        SettingsNavigation.views(activity.window.decorView)
-            .filterIsInstance<BottomNavigationView>()
-            .single()
-
     private fun back() = clickTag("settings:back")
 
     private fun scrollY() =
@@ -54,9 +48,9 @@ class SettingsCategoryNavigationTest : ComposeSettingsTest() {
             compose.onNodeWithTag("choice:MICROPHONE").assertExists()
             compose.runOnIdle { activity.onBackPressedDispatcher.onBackPressed() }
             compose.onNodeWithTag("category:DISPLAY").assertExists()
-            assertEquals(3, tabs(activity).selectedItemId)
+            compose.onNodeWithTag("nav:settings").assertIsSelected()
             compose.runOnIdle { activity.onBackPressedDispatcher.onBackPressed() }
-            assertEquals(1, tabs(activity).selectedItemId)
+            compose.onNodeWithTag("nav:service").assertIsSelected()
             assertNull(shadowOf(activity).nextStartedActivity)
         } finally {
             controller.pause().stop().destroy()
@@ -128,13 +122,12 @@ class SettingsCategoryNavigationTest : ComposeSettingsTest() {
             compose.onNodeWithTag("toggle:HEVC").performScrollTo()
             val offset = scrollY()
             assertTrue(offset > 0)
-            val host = activity.findViewById<ComposeView>(R.id.settings_compose)
-            compose.runOnIdle {
-                tabs(activity).selectedItemId = 2
-                tabs(activity).selectedItemId = 3
-            }
+            val host = activity.findViewById<android.view.ViewGroup>(android.R.id.content).getChildAt(0)
+            compose.onNodeWithTag("nav:phone").performClick()
+            compose.onNodeWithTag("nav:settings").performClick()
+
             compose.onNodeWithTag("choice:APPEARANCE").assertExists()
-            assertSame(host, activity.findViewById(R.id.settings_compose))
+            assertSame(host, activity.findViewById<android.view.ViewGroup>(android.R.id.content).getChildAt(0))
             assertEquals(offset, scrollY())
             compose.runOnIdle {
                 activity.onConfigurationChanged(Configuration(activity.resources.configuration))
@@ -143,7 +136,7 @@ class SettingsCategoryNavigationTest : ComposeSettingsTest() {
             controller.recreate()
             activity = controller.get()
             compose.onNodeWithTag("choice:APPEARANCE").assertExists()
-            assertEquals(3, tabs(activity).selectedItemId)
+            compose.onNodeWithTag("nav:settings").assertIsSelected()
             assertEquals(offset, scrollY())
             back()
             compose.onNodeWithTag("category:AUTHENTICATION").assertExists()

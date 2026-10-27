@@ -5,7 +5,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import moe.feng.wheelplay.settings.SettingsTextDialog
-import moe.feng.wheelplay.settings.SettingsTheme
+import moe.feng.wheelplay.ui.theme.WheelPlayTheme
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -36,7 +36,7 @@ class ComposeSettingsSmokeTest {
         val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup()
         try {
             controller.get().setContent {
-                SettingsTheme { SettingsTextDialog("Port", "8443", onDismiss = {}) { null } }
+                WheelPlayTheme { SettingsTextDialog("Port", "8443", onDismiss = {}) { null } }
             }
             compose.onNodeWithText("8443").assertExists()
         } finally {
