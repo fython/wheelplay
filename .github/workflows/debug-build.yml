@@ -59,15 +59,14 @@ jobs:
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
           echo "root=$ANDROID_HOME" >> "$GITHUB_OUTPUT"
 
-      - name: Cache required Android toolchain
+      # Platform and build-tools are preinstalled and root-owned on GitHub runners.
+      - name: Cache downloaded native Android toolchain
         uses: actions/cache@v4
         with:
           path: |
-            ${{ steps.android-sdk.outputs.root }}/platforms/android-${{ env.ANDROID_API_LEVEL }}
-            ${{ steps.android-sdk.outputs.root }}/build-tools/${{ env.ANDROID_BUILD_TOOLS }}
             ${{ steps.android-sdk.outputs.root }}/ndk/${{ env.ANDROID_NDK_VERSION }}
             ${{ steps.android-sdk.outputs.root }}/cmake/${{ env.ANDROID_CMAKE_VERSION }}
-          key: android-toolchain-v1-ubuntu24-${{ runner.arch }}-api${{ env.ANDROID_API_LEVEL }}-bt${{ env.ANDROID_BUILD_TOOLS }}-ndk${{ env.ANDROID_NDK_VERSION }}-cmake${{ env.ANDROID_CMAKE_VERSION }}
+          key: android-native-toolchain-v2-ubuntu24-${{ runner.arch }}-ndk${{ env.ANDROID_NDK_VERSION }}-cmake${{ env.ANDROID_CMAKE_VERSION }}
 
       - name: Verify SDK installation helper
         run: node --test test/ci-android-*.test.js
