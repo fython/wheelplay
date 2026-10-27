@@ -86,8 +86,10 @@ class LocalizationTest : ComposeSettingsTest() {
         assertEquals("请输入可供热点访问的 IPv4 单播地址", failure.userMessage(localized("zh-CN")))
         assertEquals("請輸入可供熱點存取的 IPv4 單播地址", failure.userMessage(localized("zh-TW")))
         WebSession.setStage(UiText(UiR.string.ui_iphone_disconnected))
-        assertEquals("iPhone disconnected", WebSession.stage(localized("en-US")))
-        assertEquals("iPhone 已中斷連線", WebSession.stage(localized("zh-TW")))
+        // Verify the localized detail, independently of a retained runtime failure that
+        // intentionally takes precedence in stage() after another session test.
+        assertEquals("iPhone disconnected", WebSession.stageDetail(localized("en-US")))
+        assertEquals("iPhone 已中斷連線", WebSession.stageDetail(localized("zh-TW")))
     }
 
     @Test

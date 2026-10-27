@@ -90,7 +90,7 @@ internal class ServerUi(private val context: Context) {
         }
     }
     /** Compact trailing button; its state layer is clipped to a pill-shaped target. */
-    inner class DisclosureRow(private val title: String, action: () -> Unit) : LinearLayout(context) {
+    inner class DisclosureRow(private val title: String, private val fullWidth: Boolean = false, action: () -> Unit) : LinearLayout(context) {
         private var expanded = false
         private val arrow = android.widget.ImageView(context).apply {
             setImageResource(R.drawable.ic_settings_chevron)
@@ -120,7 +120,7 @@ internal class ServerUi(private val context: Context) {
                 states, pill(255))
             addView(text(title, 14, MUTED).apply {
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            }, LayoutParams(-2, -2))
+            }, if (fullWidth) LayoutParams(0, -2, 1f) else LayoutParams(-2, -2))
             addView(arrow, LayoutParams(dp(20), dp(20)).apply { marginStart = dp(4) })
             contentDescription = title
             isFocusable = true
@@ -178,33 +178,91 @@ internal class ServerUi(private val context: Context) {
         }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(16) })
     }
 
-    /** One accessible navigation target, with no nested settings or connection actions. */
-    fun sourceCard(parent: LinearLayout, title: String, summary: String, icon: Int, action: () -> Unit) {
-        val row = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = android.view.Gravity.CENTER_VERTICAL
-            minimumHeight = dp(132)
-            setPadding(dp(cardPadding), dp(24), dp(cardPadding), dp(24))
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
-        }
-        row.addView(android.widget.ImageView(context).apply { setImageResource(icon) },
-            LinearLayout.LayoutParams(dp(40), dp(40)).apply { marginEnd = dp(16) })
-        row.addView(column().apply {
-            addView(text(title, 22, TEXT, true))
-            addView(text(summary, 14, MUTED).apply { setPadding(0, dp(8), 0, 0) })
-        }, LinearLayout.LayoutParams(0, -2, 1f))
-        row.addView(android.widget.ImageView(context).apply { setImageResource(R.drawable.ic_settings_chevron) },
-            LinearLayout.LayoutParams(dp(24), dp(24)).apply { marginStart = dp(12) })
-        parent.addView(object : MaterialCardView(context) {
-            override fun getAccessibilityClassName(): CharSequence = android.widget.Button::class.java.name
-        }.apply {
-            radius = dp(24).toFloat(); cardElevation = 0f; strokeWidth = 0
+    /** One navigation target: state is text as well as emphasis, never a connection action. */
+    inner class SourceRow(private val title: String, private val summary: String, icon: Int, action: () -> Unit) : MaterialCardView(context) {
+        private val state = text("", 14, ACCENT).apply { visibility = View.GONE }
+        init {
+            val row = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                minimumHeight = dp(88)
+                setPadding(dp(16), dp(14), dp(16), dp(14))
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            }
+            row.addView(android.widget.ImageView(context).apply { setImageResource(icon) },
+                LinearLayout.LayoutParams(dp(28), dp(28)).apply { marginEnd = dp(12) })
+            row.addView(column().apply {
+                addView(text(title, 18, TEXT, true))
+                addView(text(summary, 14, MUTED).apply {
+                    setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
+                    setPadding(0, dp(4), 0, 0)
+                })
+                addView(state.apply { setPadding(0, dp(4), 0, 0) })
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            row.addView(android.widget.ImageView(context).apply { setImageResource(R.drawable.ic_settings_chevron) },
+                LinearLayout.LayoutParams(dp(20), dp(20)).apply { marginStart = dp(8) })
+            radius = dp(16).toFloat(); cardElevation = 0f; strokeWidth = 0
             setCardBackgroundColor(SURFACE)
-            contentDescription = "$title, $summary"
             isFocusable = true
             setOnClickListener { action() }
             addView(row, android.view.ViewGroup.LayoutParams(-1, -2))
-        }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(16) })
+            setStatus("")
+        }
+        fun setStatus(value: String) {
+            if (state.text.toString() != value) state.text = value
+            state.visibility = if (value.isEmpty()) View.GONE else View.VISIBLE
+            contentDescription = listOf(title, summary, value).filter { it.isNotEmpty() }.joinToString(", ")
+        }
+        override fun getAccessibilityClassName(): CharSequence = android.widget.Button::class.java.name
+    }
+
+    fun sourceRows(parent: LinearLayout, rows: List<SourceRow>) {
+        val columns = if (context.resources.configuration.screenWidthDp >= 600 &&
+            context.resources.configuration.fontScale <= 1.3f) 2 else 1
+        rows.chunked(columns).forEach { items ->
+            val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; isBaselineAligned = false }
+            items.forEachIndexed { index, item ->
+                row.addView(item, LinearLayout.LayoutParams(0, -1, 1f).apply { if (index > 0) marginStart = dp(12) })
+            }
+            if (items.size < columns) row.addView(View(context), LinearLayout.LayoutParams(0, 0, 1f).apply { marginStart = dp(12) })
+            parent.addView(row, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
+        }
+    }
+
+    fun sourceToolbar(parent: LinearLayout, title: String, back: () -> Unit) {
+        val toolbar = com.google.android.material.appbar.MaterialToolbar(context).apply {
+            setTitle(title)
+            setTitleTextAppearance(context, com.google.android.material.R.style.TextAppearance_Material3_TitleLarge)
+            setTitleTextColor(TEXT)
+            setNavigationIcon(R.drawable.ic_settings_back)
+            setNavigationContentDescription(UiR.string.source_back)
+            setNavigationOnClickListener { back() }
+            setContentInsetsRelative(0, 0)
+            minimumHeight = dp(56)
+            // Permit large text and translated titles to wrap instead of disappearing.
+            for (i in 0 until childCount) (getChildAt(i) as? TextView)?.apply {
+                setSingleLine(false); maxLines = Int.MAX_VALUE; ellipsize = null
+            }
+        }
+        parent.addView(toolbar, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) })
+    }
+
+    fun textButton(title: String, action: () -> Unit): MaterialButton =
+        (android.view.LayoutInflater.from(context).inflate(R.layout.server_button_text, null) as MaterialButton).apply {
+            text = title
+            setOnClickListener { action() }
+        }
+
+    fun details(parent: LinearLayout, title: String, build: (LinearLayout) -> Unit) {
+        val body = column().apply { visibility = View.GONE; setPadding(0, dp(8), 0, dp(16)); build(this) }
+        lateinit var disclosure: DisclosureRow
+        disclosure = DisclosureRow(title, fullWidth = true) {
+            val expanded = body.visibility != View.VISIBLE
+            body.visibility = if (expanded) View.VISIBLE else View.GONE
+            disclosure.setExpanded(expanded)
+        }
+        parent.addView(disclosure, LinearLayout.LayoutParams(-1, -2))
+        parent.addView(body, LinearLayout.LayoutParams(-1, -2))
     }
     fun content(build: (LinearLayout) -> Unit): ScrollView {
         val gutter = pageGutter

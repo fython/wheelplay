@@ -72,6 +72,11 @@ class DiPlayActivity : AppCompatActivity() {
     private var page = "service"
     private val sourceDetailPages = SourcePage.entries.map { it.id }.toSet()
     private val pluginFailureLabels = mutableMapOf<String, MutableList<TextView>>()
+    private val sourceRows = mutableMapOf<SourcePage, ServerUi.SourceRow>()
+    private val pluginConnectButtons = mutableMapOf<String, MutableList<Button>>()
+    private var sourceOverview: TextView? = null
+    private enum class AaConnection { LOCAL, USB, NETWORK }
+    private var aaConnection = AaConnection.LOCAL
     private val sourceStatuses = mutableMapOf<String, TextView>()
     private val sourceStopButtons = mutableMapOf<String, Button>()
     private val settingsModel by lazy { ViewModelProvider(this)[SettingsViewModel::class.java] }
@@ -264,6 +269,7 @@ class DiPlayActivity : AppCompatActivity() {
         refreshAuthentication()
         selectedPrivateKey = savedInstanceState?.getString("selectedPrivateKey")?.let(Uri::parse)
         pendingAndroidAutoSourceId = savedInstanceState?.getString("pendingAndroidAutoSourceId")
+        aaConnection = AaConnection.entries.firstOrNull { it.name == savedInstanceState?.getString("aaConnection") } ?: AaConnection.LOCAL
         awaitingTeslaVpnConsent = savedInstanceState?.getBoolean("awaitingTeslaVpnConsent") ?: false
         page = savedInstanceState?.getString("page") ?: intent.getStringExtra("page")
             ?: if (setupError == null) "service" else "settings"
@@ -302,6 +308,7 @@ class DiPlayActivity : AppCompatActivity() {
         outState.putString("page", page)
         outState.putString("selectedPrivateKey", selectedPrivateKey?.toString())
         outState.putString("pendingAndroidAutoSourceId", pendingAndroidAutoSourceId)
+        outState.putString("aaConnection", aaConnection.name)
         outState.putBoolean("awaitingTeslaVpnConsent", awaitingTeslaVpnConsent)
         super.onSaveInstanceState(outState)
     }
@@ -371,6 +378,7 @@ class DiPlayActivity : AppCompatActivity() {
     private fun refreshPhone() {
         status = null; connectButton = null; disconnectButton = null; lastRunning = null
         sourceStatuses.clear(); sourceStopButtons.clear(); pluginFailureLabels.clear()
+        sourceRows.clear(); pluginConnectButtons.clear(); sourceOverview = null
         shell.put("phone", ui.content(::sourceIndex))
         shell.put(SourcePage.CARPLAY.id, ui.content(::carPlaySource))
         shell.put(SourcePage.ANDROID_AUTO.id, ui.content(::androidAutoSource))
@@ -671,71 +679,164 @@ class DiPlayActivity : AppCompatActivity() {
     }
 
     private fun sourceIndex(content: LinearLayout) {
-        content.addView(label(getString(UiR.string.source_tab), 30, TEXT, true).apply { setPadding(0, 0, 0, dp(24)) })
-        ui.sourceCard(content, getString(UiR.string.source_carplay), getString(UiR.string.source_carplay_summary), R.drawable.ic_server_phone) { navigate(SourcePage.CARPLAY.id) }
-        ui.sourceCard(content, "Android Auto", getString(UiR.string.source_aa_summary), R.drawable.ic_server_launch) { navigate(SourcePage.ANDROID_AUTO.id) }
-        val carLinkPlugins = projectionPlugins(this).entriesForSource(ProjectionPlugin.SOURCE_ICCOA_CARLINK)
-        val carLinkSummary = if (carLinkPlugins.isEmpty()) getString(UiR.string.source_iccoa_summary)
-            else getString(UiR.string.plugin_iccoa_installed, carLinkPlugins.joinToString { it.name })
-        ui.sourceCard(content, "ICCOA CarLink", carLinkSummary, R.drawable.ic_server_wifi) { navigate(SourcePage.ICCOA.id) }
-        ui.sourceCard(content, "VNC", getString(UiR.string.vnc_summary), R.drawable.ic_server_server) { navigate(SourcePage.VNC.id) }
-        ui.sourceCard(content, getString(UiR.string.desktop_title), getString(UiR.string.desktop_summary), R.drawable.ic_server_phone) { navigate(SourcePage.DESKTOP.id) }
-        ui.sourceCard(content, getString(UiR.string.plugin_sources), getString(UiR.string.plugin_summary), R.drawable.ic_server_launch) { navigate(SourcePage.PLUGINS.id) }
-        ui.sourceCard(content, getString(UiR.string.source_diagnostics), getString(UiR.string.source_diagnostics_summary), R.drawable.ic_server_server) { navigate(SourcePage.DIAGNOSTICS.id) }
+        content.addView(label(getString(UiR.string.source_tab), 30, TEXT, true))
+        sourceOverview = label("", 15, MUTED).apply {
+            setPadding(0, dp(8), 0, dp(16))
+        }.also { content.addView(it) }
+        fun row(page: SourcePage, title: String, summary: String, icon: Int) =
+            ui.SourceRow(title, summary, icon) { navigate(page.id) }.also { sourceRows[page] = it }
+        ui.sourceRows(content, listOf(
+            row(SourcePage.CARPLAY, getString(UiR.string.source_carplay), getString(UiR.string.source_carplay_summary), R.drawable.ic_server_phone),
+            row(SourcePage.ANDROID_AUTO, "Android Auto", getString(UiR.string.source_aa_summary), R.drawable.ic_server_phone),
+            row(SourcePage.ICCOA, "ICCOA CarLink", getString(UiR.string.source_carlink_brief), R.drawable.ic_server_wifi),
+            row(SourcePage.VNC, "VNC", getString(UiR.string.vnc_summary), R.drawable.ic_server_server),
+            row(SourcePage.DESKTOP, getString(UiR.string.desktop_title), getString(UiR.string.source_desktop_brief), R.drawable.ic_server_phone),
+        ))
+        content.addView(label(getString(UiR.string.source_tools), 18, TEXT, true).apply {
+            setPadding(0, dp(16), 0, dp(12))
+            androidx.core.view.ViewCompat.setAccessibilityHeading(this, true)
+        })
+        ui.sourceRows(content, listOf(
+            row(SourcePage.PLUGINS, getString(UiR.string.plugin_sources), getString(UiR.string.plugin_summary), R.drawable.ic_server_settings),
+            row(SourcePage.DIAGNOSTICS, getString(UiR.string.source_diagnostics), getString(UiR.string.source_diagnostics_summary), R.drawable.ic_server_server),
+        ))
+    }
+
+    private fun sourcePageFor(id: String): SourcePage? = when {
+        id == ProjectionSourceIds.CARPLAY -> SourcePage.CARPLAY
+        id == ProjectionSourceIds.ANDROID_DESKTOP -> SourcePage.DESKTOP
+        id == ProjectionSourceIds.ANDROID_AUTO || belongsToSource(id, ProjectionSourceIds.ANDROID_AUTO) -> SourcePage.ANDROID_AUTO
+        id == ProjectionSourceIds.VNC || belongsToSource(id, ProjectionSourceIds.VNC) -> SourcePage.VNC
+        belongsToSource(id, ProjectionSourceIds.DEMO) -> SourcePage.DIAGNOSTICS
+        id.startsWith(ProjectionSourceIds.PLUGIN_PREFIX) -> {
+            val plugin = (projectionSessions.snapshot() as? RemotePluginSession)?.plugin?.takeIf { it.id == id }
+                ?: projectionPlugins(this).entries().find { it.id == id }
+            if (plugin?.sourceId == ProjectionPlugin.SOURCE_ICCOA_CARLINK) SourcePage.ICCOA else SourcePage.PLUGINS
+        }
+        else -> null
+    }
+
+    private fun refreshSourceIndex() {
+        val state = projectionSessions.stateSnapshot()
+        val active = projectionSessions.snapshot()
+        val running = projectionSessions.hasSession()
+        val selected = selectedHomeSource()
+        val carPlayRunning = CarPlayBackgroundSession.hasSession()
+        val currentId = state.source?.id?.takeIf { running } ?: if (carPlayRunning) ProjectionSourceIds.CARPLAY else null
+        val currentPage = currentId?.let(::sourcePageFor)
+        val phase = when {
+            running -> state.message(this)
+            CarPlayBackgroundSession.active -> getString(UiR.string.projection_state_running)
+            else -> getString(UiR.string.projection_state_connecting)
+        }
+        sourceOverview?.text = buildString {
+            append(getString(UiR.string.source_home_selection, selected.name))
+            if (currentId != null) {
+                append("\n")
+                append(getString(UiR.string.source_current_session,
+                    state.source?.displayName?.takeIf { running } ?: getString(UiR.string.source_carplay), phase))
+            }
+        }
+        val registry = projectionPlugins(this)
+        sourceRows.forEach { (page, row) ->
+            val flags = mutableListOf<String>()
+            if (selected.page == page) flags += getString(UiR.string.source_home_default)
+            if (page == currentPage) flags += if (state.failure != null) getString(UiR.string.source_needs_attention) else phase
+            else if (state.failure != null && state.source?.id?.let(::sourcePageFor) == page) flags += getString(UiR.string.source_needs_attention)
+            else when (page) {
+                SourcePage.ICCOA -> {
+                    val plugins = registry.entriesForSource(ProjectionPlugin.SOURCE_ICCOA_CARLINK)
+                    flags += getString(when {
+                        plugins.isEmpty() -> UiR.string.source_install_required
+                        plugins.none { it.problem == null } -> UiR.string.source_update_required
+                        plugins.none { registry.available(it) } -> UiR.string.source_enable_required
+                        plugins.any { registry.lastFailure(it.id) != null } -> UiR.string.source_needs_attention
+                        else -> UiR.string.source_ready
+                    })
+                }
+                SourcePage.DESKTOP -> if (desktopProvider().probe() !is SourceAvailability.Ready) flags += getString(UiR.string.source_setup_required)
+                else -> Unit
+            }
+            row.setStatus(flags.joinToString(" · "))
+        }
+        pluginConnectButtons.forEach { (id, buttons) ->
+            buttons.forEach { button ->
+                // The summary above owns Stop, including acquisition and cleanup before/after a session.
+                button.visibility = if (running && (state.source?.id == id || active?.descriptor?.id == id)) View.GONE else View.VISIBLE
+            }
+        }
+    }
+
+    private fun pluginInstallHelp(content: LinearLayout, carLink: Boolean) {
+        content.addView(label(getString(if (carLink) UiR.string.plugin_iccoa_missing else UiR.string.source_no_plugins), 21, TEXT, true))
+        content.addView(label(getString(UiR.string.source_plugin_empty_hint), 15, MUTED).apply { setPadding(0, dp(8), 0, dp(12)) })
+        ui.details(content, getString(UiR.string.source_install_help)) { body ->
+            body.addView(label(getString(if (carLink) UiR.string.plugin_iccoa_hint else UiR.string.source_plugin_install_steps), 15, MUTED))
+        }
     }
 
     private fun pluginSources(content: LinearLayout) {
         sourceHeading(content, getString(UiR.string.plugin_sources))
         val plugins = projectionPlugins(this)
-        content.addView(label(getString(UiR.string.plugin_install_hint), 15, MUTED))
-        content.addView(button(getString(UiR.string.plugin_refresh), false) {
+        val installed = plugins.entries()
+        if (installed.isEmpty()) pluginInstallHelp(content, false)
+        // A disappearing APK may still own resources; keep its stop/error summary accessible.
+        if (installed.isNotEmpty() || projectionSessions.stateSnapshot().source?.id?.startsWith(ProjectionSourceIds.PLUGIN_PREFIX) == true) {
+            sourceSessionControls(content, ProjectionSourceIds.PLUGIN)
+        }
+        installed.forEach { pluginCard(content, it) }
+        content.addView(ui.textButton(getString(UiR.string.plugin_refresh)) {
             plugins.refresh(); refreshPhone()
-        }, matchButton(12))
-        sourceSessionControls(content, ProjectionSourceIds.PLUGIN)
-        if (plugins.entries().isEmpty()) content.addView(label(getString(UiR.string.plugin_none), 16, MUTED))
-        plugins.entries().forEach { pluginCard(content, it) }
+        }, ui.secondaryButtonLayout(8))
+        ui.details(content, getString(UiR.string.source_plugin_capabilities)) { body ->
+            body.addView(label(getString(UiR.string.plugin_install_hint), 15, MUTED))
+        }
     }
 
     private fun pluginCard(content: LinearLayout, plugin: InstalledProjectionPlugin) {
         val plugins = projectionPlugins(this)
-        ui.card(content, plugin.name, R.drawable.ic_server_launch) { body ->
-            body.addView(label(plugin.component.packageName, 13, MUTED))
+        ui.card(content, plugin.name, R.drawable.ic_server_phone) { body ->
             val failureLabel = label("", 15, WARNING).apply { visibility = View.GONE }
             pluginFailureLabels.getOrPut(plugin.id) { mutableListOf() }.add(failureLabel)
             body.addView(failureLabel)
             val enabled = plugins.enabled(plugin)
-            body.addView(label(plugin.problem ?: getString(if (enabled) UiR.string.plugin_enabled else UiR.string.plugin_disabled), 15, MUTED))
-            if (plugin.problem == null || enabled) body.addView(button(getString(if (enabled) UiR.string.plugin_disable else UiR.string.plugin_enable), false) {
-                if (enabled) { plugins.setEnabled(plugin, false); refreshPhone() }
-                else android.app.AlertDialog.Builder(this)
-                    .setTitle(getString(UiR.string.plugin_enable))
-                    .setMessage(getString(UiR.string.plugin_enable_prompt, plugin.name, plugin.component.packageName))
-                    .setPositiveButton(android.R.string.ok) { _, _ ->
-                        runCatching { plugins.setEnabled(plugin, true) }.onFailure { toast(getString(UiR.string.plugin_unavailable)) }
-                        refreshPhone()
-                    }.setNegativeButton(android.R.string.cancel, null).show()
-            }, matchButton(12))
-            if (plugin.settings != null) body.addView(button(getString(UiR.string.plugin_settings), false) {
+            body.addView(label(plugin.problem ?: getString(if (enabled) UiR.string.plugin_enabled else UiR.string.source_plugin_enable_hint), 15, MUTED))
+            if (plugin.problem == null) {
+                if (enabled) {
+                    val connect = button(getString(UiR.string.plugin_connect), true) { startProjectionSource(plugin.id) }
+                    pluginConnectButtons.getOrPut(plugin.id) { mutableListOf() }.add(connect)
+                    body.addView(connect, matchButton(12))
+                } else body.addView(button(getString(UiR.string.plugin_enable), true) {
+                    android.app.AlertDialog.Builder(this)
+                        .setTitle(getString(UiR.string.plugin_enable))
+                        .setMessage(getString(UiR.string.plugin_enable_prompt, plugin.name, plugin.component.packageName))
+                        .setPositiveButton(UiR.string.plugin_enable) { _, _ ->
+                            runCatching { plugins.setEnabled(plugin, true) }.onFailure { toast(getString(UiR.string.plugin_unavailable)) }
+                            refreshPhone()
+                        }.setNegativeButton(android.R.string.cancel, null).show()
+                }, matchButton(12))
+            }
+            if (plugin.settings != null) body.addView(ui.textButton(getString(UiR.string.plugin_settings)) {
                 runCatching { startActivity(Intent().setComponent(plugin.settings)) }
                     .onFailure { toast(getString(UiR.string.plugin_unavailable)) }
-            }, matchButton(12))
-            body.addView(button(getString(UiR.string.plugin_connect), true) { startProjectionSource(plugin.id) }.apply {
-                isEnabled = enabled && plugin.problem == null
-            }, matchButton(12))
+            }, ui.secondaryButtonLayout(8))
+            ui.details(body, getString(UiR.string.source_plugin_manage)) { details ->
+                details.addView(label(plugin.component.packageName, 14, MUTED).apply { setTextIsSelectable(true) })
+                if (enabled) details.addView(ui.textButton(getString(UiR.string.plugin_disable)) {
+                    plugins.setEnabled(plugin, false); refreshPhone()
+                }, ui.secondaryButtonLayout())
+            }
         }
     }
 
     private fun sourceHeading(content: LinearLayout, title: String) {
-        content.addView(button(getString(UiR.string.source_back), false, R.drawable.ic_settings_back) { navigate("phone") },
-            LinearLayout.LayoutParams(-2, -2).apply { bottomMargin = dp(16) })
-        content.addView(label(title, 30, TEXT, true).apply { setPadding(0, 0, 0, dp(24)) })
+        ui.sourceToolbar(content, title) { navigate("phone") }
     }
 
     private fun carPlaySource(content: LinearLayout) {
         sourceHeading(content, getString(UiR.string.source_carplay))
-        content.addView(label(getString(UiR.string.ui_this_device_receives_carplay_the_head_unit_browser_provides), 16, MUTED).apply { setPadding(0, dp(8), 0, dp(24)) })
-        status = label(getString(UiR.string.ui_waiting_for_connection), 20, ACCENT, true)
-        ui.card(content, getString(UiR.string.ui_connection_status), R.drawable.ic_server_phone) { it.addView(status) }
+        status = label(getString(UiR.string.source_idle), 16, MUTED).apply { setPadding(0, 0, 0, dp(16)) }
+        content.addView(status)
         ui.card(content, getString(UiR.string.ui_wireless_connection), R.drawable.ic_server_wifi) { body ->
             body.addView(label(getString(UiR.string.ui_pair_the_iphone_with_this_android_device_over_bluetooth), 15, MUTED))
             body.addView(ui.preference("iPhone", selectedPhoneName()) { choosePhone() }, matchButton())
@@ -760,39 +861,78 @@ class DiPlayActivity : AppCompatActivity() {
             body.addView(button(getString(UiR.string.ui_connect_over_usb), false) { connect(false) }, ui.secondaryButtonLayout(16))
         }
         setupError?.let { content.addView(label(it, 16, WARNING)) }
+        ui.details(content, getString(UiR.string.source_connection_help)) { body ->
+            body.addView(label(getString(UiR.string.ui_this_device_receives_carplay_the_head_unit_browser_provides), 16, MUTED))
+        }
     }
 
     private fun androidAutoSource(content: LinearLayout) {
         sourceHeading(content, "Android Auto")
         sourceSessionControls(content, ProjectionSourceIds.ANDROID_AUTO)
-        ui.card(content, getString(UiR.string.aa_local_title), R.drawable.ic_server_phone) { body ->
-            body.addView(label(getString(UiR.string.aa_local_summary), 15, MUTED))
-            body.addView(button(getString(UiR.string.aa_local_connect), true) { connectLocalAndroidAuto() }, matchButton(12))
-            body.addView(button(getString(UiR.string.aa_local_help), false) { showLocalAndroidAutoSetup() }, ui.secondaryButtonLayout(12))
+        content.addView(label(getString(UiR.string.source_connection_method), 18, TEXT, true).apply { setPadding(0, 0, 0, dp(8)) })
+        val modes = listOf(UiR.string.source_aa_local, UiR.string.source_aa_usb, UiR.string.source_aa_network)
+        val selector = com.google.android.material.button.MaterialButtonToggleGroup(this).apply {
+            isSingleSelection = true; isSelectionRequired = true
         }
-        ui.card(content, getString(UiR.string.ui_usb_connection), R.drawable.ic_server_usb) { body ->
-            body.addView(label(getString(UiR.string.aa_usb_hint), 15, MUTED))
-            body.addView(button(getString(UiR.string.aa_usb_connect), false) { startProjectionSource(ProjectionSourceIds.ANDROID_AUTO_USB) }, matchButton(12))
+        val ids = modes.map { title ->
+            val choice = button(getString(title), false) {}.apply {
+                id = View.generateViewId(); minWidth = 0; minimumWidth = 0
+                setPadding(dp(8), dp(12), dp(8), dp(12))
+            }
+            selector.addView(choice, LinearLayout.LayoutParams(0, -2, 1f))
+            choice.id
         }
-        ui.card(content, getString(UiR.string.aa_remote_title), R.drawable.ic_server_wifi) { body ->
-            body.addView(label(getString(UiR.string.aa_tcp_hint), 15, MUTED))
-            body.addView(button(getString(UiR.string.aa_remote_connect), false) { configureAndroidAutoTcp() }, matchButton(12))
+        selector.check(ids[aaConnection.ordinal])
+        content.addView(selector, matchButton())
+        val panel = column()
+        fun showConnection() {
+            panel.removeAllViews()
+            val mode = aaConnection
+            val hint = when (mode) {
+                AaConnection.LOCAL -> UiR.string.source_aa_local_brief
+                AaConnection.USB -> UiR.string.aa_usb_hint
+                AaConnection.NETWORK -> UiR.string.source_aa_network_brief
+            }
+            panel.addView(label(getString(hint), 16, MUTED).apply { setPadding(0, dp(16), 0, 0) })
+            val action = when (mode) {
+                AaConnection.LOCAL -> UiR.string.aa_local_connect
+                AaConnection.USB -> UiR.string.aa_usb_connect
+                AaConnection.NETWORK -> UiR.string.aa_remote_connect
+            }
+            panel.addView(button(getString(action), true) {
+                when (mode) {
+                    AaConnection.LOCAL -> connectLocalAndroidAuto()
+                    AaConnection.USB -> startProjectionSource(ProjectionSourceIds.ANDROID_AUTO_USB)
+                    AaConnection.NETWORK -> configureAndroidAutoTcp()
+                }
+            }, matchButton(16))
+            if (mode == AaConnection.LOCAL) panel.addView(ui.textButton(getString(UiR.string.aa_local_help)) {
+                showLocalAndroidAutoSetup()
+            }, ui.secondaryButtonLayout(8))
+            ui.details(panel, getString(UiR.string.source_connection_help)) { body ->
+                body.addView(label(getString(when (mode) { AaConnection.LOCAL -> UiR.string.aa_local_summary; AaConnection.USB -> UiR.string.source_aa_usb_help; AaConnection.NETWORK -> UiR.string.aa_tcp_hint }), 15, MUTED))
+            }
         }
+        selector.addOnButtonCheckedListener { _, checkedId, checked ->
+            if (checked) {
+                aaConnection = AaConnection.entries[ids.indexOf(checkedId)]
+                showConnection()
+            }
+        }
+        showConnection()
+        content.addView(panel)
     }
 
     private fun iccoaSource(content: LinearLayout) {
         sourceHeading(content, "ICCOA CarLink")
         val plugins = projectionPlugins(this).entriesForSource(ProjectionPlugin.SOURCE_ICCOA_CARLINK)
         if (plugins.isEmpty()) {
-            ui.card(content, getString(UiR.string.plugin_iccoa_missing), R.drawable.ic_server_phone) { body ->
-                body.addView(label(getString(UiR.string.plugin_iccoa_hint), 16, MUTED))
-                body.addView(button(getString(UiR.string.plugin_refresh), false) {
-                    projectionPlugins(this).refresh(); refreshPhone()
-                }, matchButton(12))
-                body.addView(button(getString(UiR.string.plugin_sources), false) { navigate(SourcePage.PLUGINS.id) }, matchButton(12))
-            }
+            pluginInstallHelp(content, true)
+            content.addView(ui.textButton(getString(UiR.string.plugin_refresh)) {
+                projectionPlugins(this).refresh(); refreshPhone()
+            }, ui.secondaryButtonLayout(8))
+            content.addView(ui.textButton(getString(UiR.string.plugin_sources)) { navigate(SourcePage.PLUGINS.id) }, ui.secondaryButtonLayout())
         }
-        // Keep stop/status available if the APK disappears while its session is being cleaned up.
         if (plugins.isNotEmpty() || projectionSessions.snapshot()?.let { sessionBelongsToSource(it, ProjectionSourceIds.ICCOA) } == true) {
             sourceSessionControls(content, ProjectionSourceIds.ICCOA)
         }
@@ -898,9 +1038,11 @@ class DiPlayActivity : AppCompatActivity() {
     private fun vncSource(content: LinearLayout) {
         sourceHeading(content, "VNC")
         sourceSessionControls(content, ProjectionSourceIds.VNC)
-        ui.card(content, getString(UiR.string.vnc_desktop), R.drawable.ic_server_server) { body ->
+        content.addView(label(getString(UiR.string.source_vnc_brief), 16, MUTED))
+        content.addView(button(getString(UiR.string.vnc_connect), true) { configureVnc() }, matchButton(16))
+        ui.details(content, getString(UiR.string.source_vnc_help)) { body ->
             body.addView(label(getString(UiR.string.vnc_hint), 15, MUTED))
-            body.addView(button(getString(UiR.string.vnc_connect), true) { configureVnc() }, matchButton(12))
+            body.addView(label(getString(UiR.string.vnc_security_hint), 15, MUTED).apply { setPadding(0, dp(12), 0, 0) })
         }
     }
 
@@ -955,18 +1097,18 @@ class DiPlayActivity : AppCompatActivity() {
         else session.descriptor.id == group || belongsToSource(session.descriptor.id, group)
 
     private fun sourceSessionControls(content: LinearLayout, group: String) {
-        ui.card(content, getString(UiR.string.ui_connection_status), R.drawable.ic_server_phone) { body ->
-            sourceStatuses[group] = label(getString(UiR.string.projection_waiting), 16, TEXT).also { body.addView(it) }
-            sourceStopButtons[group] = button(getString(UiR.string.projection_stop), false) {
-                val session = projectionSessions.snapshot()?.takeIf { sessionBelongsToSource(it, group) }
-                val state = projectionSessions.stateSnapshot()
-                val pendingHere = state.source?.id?.let { it == group || belongsToSource(it, group) } == true && projectionSessions.hasSession()
-                if (session != null || pendingHere) projectionSessions.stop(session).whenComplete { _, failure -> runOnUiThread {
-                    if (failure != null) toast(getString(UiR.string.projection_failed, projectionFailure(failure).message(this@DiPlayActivity)))
-                    refreshStatus(); refreshService()
-                } }
-            }.also { body.addView(it, ui.secondaryButtonLayout(12)) }
-        }
+        val body = column().apply { setPadding(0, 0, 0, dp(16)) }
+        content.addView(body)
+        sourceStatuses[group] = label(getString(UiR.string.source_idle), 16, MUTED).also { body.addView(it) }
+        sourceStopButtons[group] = button(getString(UiR.string.projection_stop), false) {
+            val session = projectionSessions.snapshot()?.takeIf { sessionBelongsToSource(it, group) }
+            val state = projectionSessions.stateSnapshot()
+            val pendingHere = state.source?.id?.let { it == group || belongsToSource(it, group) } == true && projectionSessions.hasSession()
+            if (session != null || pendingHere) projectionSessions.stop(session).whenComplete { _, failure -> runOnUiThread {
+                if (failure != null) toast(getString(UiR.string.projection_failed, projectionFailure(failure).message(this@DiPlayActivity)))
+                refreshStatus(); refreshService()
+            } }
+        }.also { body.addView(it, ui.secondaryButtonLayout(12)) }
     }
 
     private fun chooseDiagnosticSource() {
@@ -1358,9 +1500,9 @@ class DiPlayActivity : AppCompatActivity() {
             val state = projectionSessions.stateSnapshot()
             val belongs = state.source?.id?.let { it == group || belongsToSource(it, group) } == true
             label.text = when {
-                belongs && (state.failure != null || session == null) -> state.message(this)
+                belongs && (state.failure != null || (session == null && projectionSessions.hasSession())) -> state.message(this)
                 session != null -> session.statusText ?: state.message(this)
-                else -> getString(UiR.string.projection_waiting)
+                else -> getString(UiR.string.source_idle)
             }
             sourceStopButtons[group]?.visibility = if (session != null || (belongs && projectionSessions.hasSession())) View.VISIBLE else View.GONE
         }
@@ -1382,6 +1524,7 @@ class DiPlayActivity : AppCompatActivity() {
         }
         connectButton?.isEnabled = setupError == null && !DiPlayBootstrap.importing
         refreshHomeSource()
+        refreshSourceIndex()
     }
     private fun reportFileName() = "WheelPlay-${SimpleDateFormat("yyyyMMdd-HHmmss-SSS", Locale.US).format(Date())}.txt"
 

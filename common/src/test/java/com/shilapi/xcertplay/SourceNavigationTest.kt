@@ -47,13 +47,25 @@ class SourceNavigationTest {
     private fun page(activity: DiPlayActivity) = views(activity.window.decorView).filterIsInstance<ScrollView>().single { it.visibility == View.VISIBLE }
     private fun cards(activity: DiPlayActivity) = views(page(activity)).filterIsInstance<MaterialCardView>()
     private fun buttons(activity: DiPlayActivity) = views(page(activity)).filterIsInstance<Button>()
+    private fun goBack(activity: DiPlayActivity) {
+        views(page(activity)).single { it.isClickable && it.contentDescription == activity.getString(com.shilapi.xcertplay.shared.R.string.source_back) }.performClick()
+    }
+    private fun selectAaMode(activity: DiPlayActivity, name: String) {
+        buttons(activity).single { it.text == name }.performClick()
+    }
+    private fun expandPluginManagement(activity: DiPlayActivity) {
+        val target = cards(activity).single { card -> views(card).filterIsInstance<TextView>().any { it.text.toString() == "test.carlink" } }
+        views(target).single { it.isClickable && it.contentDescription == "管理插件" }.performClick()
+    }
     private fun capture(activity: DiPlayActivity, name: String, bottom: Boolean = false) {
         shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(350))
         val root = activity.findViewById<ViewGroup>(android.R.id.content).getChildAt(0)
-        root.measure(View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY))
-        root.layout(0, 0, 360, 800)
+        val width = activity.resources.configuration.screenWidthDp
+        val height = activity.resources.configuration.screenHeightDp
+        root.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
+        root.layout(0, 0, width, height)
         if (bottom) page(activity).let { it.scrollTo(0, it.getChildAt(0).height) }
-        val bitmap = Bitmap.createBitmap(360, 800, Bitmap.Config.ARGB_8888)
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         root.draw(Canvas(bitmap))
         File("build/reports/material-ui/sources").apply { mkdirs() }.resolve("$name.png").outputStream().use {
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
@@ -82,19 +94,24 @@ class SourceNavigationTest {
             assertEquals(7, cards(activity).size)
             cards(activity)[1].performClick()
             assertTrue(buttons(activity).any { it.text == "连接本机 Android Auto" })
+            selectAaMode(activity, "USB")
             assertTrue(buttons(activity).any { it.text == "通过 USB 连接 Android Auto" })
             assertFalse(buttons(activity).any { it.text == "连接 iPhone" })
+            capture(activity, "android-auto-usb")
+            selectAaMode(activity, "网络")
+            capture(activity, "android-auto-network")
+            selectAaMode(activity, "本机")
             capture(activity, "android-auto")
-            buttons(activity).single { it.text == "返回输入源" }.performClick()
+            goBack(activity)
             cards(activity)[2].performClick()
             assertTrue(views(page(activity)).filterIsInstance<TextView>().any { it.text == "安装 CarLink 插件" })
             assertFalse(buttons(activity).any { it.text == "停止投影" })
             buttons(activity).single { it.text == "插件输入源" }.performClick()
-            assertTrue(views(page(activity)).filterIsInstance<TextView>().any { it.text == "未发现兼容的插件服务。" })
+            assertTrue(views(page(activity)).filterIsInstance<TextView>().any { it.text == "尚未安装插件" })
             assertTrue(buttons(activity).any { it.text == "刷新已安装插件" })
             assertSame(initialSession, projectionSessions.snapshot())
             capture(activity, "plugins-empty")
-            buttons(activity).single { it.text == "返回输入源" }.performClick()
+            goBack(activity)
             cards(activity)[3].performClick()
             assertTrue(buttons(activity).any { it.text == "连接 VNC" })
             capture(activity, "vnc")
@@ -125,7 +142,11 @@ class SourceNavigationTest {
             assertTrue(buttons(activity).any { it.text == "授权 WheelPlay" })
             assertTrue(buttons(activity).any { it.text == "选择可启动的本机应用" })
             assertFalse(buttons(activity).single { it.text == "启动虚拟桌面" }.isEnabled)
-            assertTrue(views(page(activity)).filterIsInstance<TextView>().any { it.text.toString().contains("未安装 Shizuku") })
+            // Assert the provider's reason: Robolectric can retain an application-scoped
+            // provider from a different locale while recreating the Activity's resources.
+            val desktop = projectionSessions.sources().filterIsInstance<moe.feng.wheelplay.projection.desktop.AndroidDesktopSource>().single()
+            val unavailable = desktop.probe() as SourceAvailability.Unavailable
+            assertTrue(views(page(activity)).filterIsInstance<TextView>().any { it.text.toString() == unavailable.reason })
             assertSame(initial, projectionSessions.snapshot())
             assertNull(shadowOf(activity).nextStartedActivity)
             assertTrue(shadowOf(RuntimeEnvironment.getApplication()).boundServiceConnections.isEmpty())
@@ -270,18 +291,18 @@ class SourceNavigationTest {
             val initialSession = projectionSessions.snapshot()
             tabs(activity).selectedItemId = 2
             val summary = views(cards(activity)[2]).filterIsInstance<TextView>().map { it.text.toString() }.joinToString()
-            assertTrue(summary.contains("test.carlink")); assertFalse(summary.contains("test.unrelated"))
+            assertTrue(summary.contains("未启用")); assertFalse(summary.contains("需安装插件")); assertFalse(summary.contains("test.unrelated"))
             cards(activity)[2].performClick()
             val text = views(page(activity)).filterIsInstance<TextView>().map { it.text.toString() }
             assertFalse(text.contains("安装 CarLink 插件")); assertFalse(text.contains("暂不可用"))
             assertFalse(text.any { it.contains("test.unrelated") })
             assertEquals(2, buttons(activity).count { it.text == "启用插件" })
             assertEquals(2, buttons(activity).count { it.text == "插件设置与权限" })
-            assertTrue(buttons(activity).filter { it.text == "连接插件" }.all { !it.isEnabled })
+            assertFalse(buttons(activity).any { it.text == "连接插件" })
             assertSame(initialSession, projectionSessions.snapshot())
             assertNull(shadowOf(activity).nextStartedActivity)
             assertTrue(shadowOf(context).boundServiceConnections.isEmpty())
-            val pluginCard = cards(activity).single { card -> views(card).filterIsInstance<TextView>().any { it.text == "test.carlink" } }
+            val pluginCard = cards(activity).single { card -> views(card).filterIsInstance<TextView>().any { it.text.toString() == "test.carlink" } }
             views(pluginCard).filterIsInstance<Button>().single { it.text == "插件设置与权限" }.performClick()
             assertEquals(ComponentName("test.carlink", "test.carlink.Settings"), shadowOf(activity).nextStartedActivity.component)
             views(pluginCard).filterIsInstance<Button>().single { it.text == "启用插件" }.performClick()
@@ -296,8 +317,10 @@ class SourceNavigationTest {
             installPlugin("test.carlink", ProjectionPlugin.SOURCE_ICCOA_CARLINK, api = 99)
             discoverPlugins("test.carlink")
             controller.resume()
-            assertTrue(views(page(activity)).filterIsInstance<TextView>().any { it.text.toString().contains("插件接口版本不兼容") })
-            assertTrue(buttons(activity).filter { it.text == "连接插件" }.all { !it.isEnabled })
+            val problem = projectionPlugins(context).entries().single { it.component.packageName == "test.carlink" }.problem
+            assertNotNull(problem)
+            assertTrue(views(page(activity)).filterIsInstance<TextView>().any { it.text.toString() == problem })
+            assertFalse(buttons(activity).any { it.text == "连接插件" })
             // Returning after uninstall restores the install page without leaving stale settings.
             controller.pause(); discoverPlugins(); controller.resume()
             assertTrue(views(page(activity)).filterIsInstance<TextView>().any { it.text == "安装 CarLink 插件" })
@@ -343,6 +366,7 @@ class SourceNavigationTest {
             tabs(activity).selectedItemId = 1
             selectHomeSource(activity, "Android Auto")
             buttons(activity).single { it.text == "设置并连接" }.performClick()
+            selectAaMode(activity, "USB")
             assertTrue(buttons(activity).any { it.text == "通过 USB 连接 Android Auto" })
             assertSame(initial, projectionSessions.snapshot())
         } finally { controller.pause().stop().destroy(); WebSession.stop() }
@@ -372,6 +396,7 @@ class SourceNavigationTest {
             capture(activity, "home-carlink", bottom = true)
             buttons(activity).single { it.text == "输入源设置" }.performClick()
             assertTrue(views(page(activity)).filterIsInstance<TextView>().any { it.text == "ICCOA CarLink" })
+            expandPluginManagement(activity)
             buttons(activity).single { it.text == "停用插件" }.performClick()
             tabs(activity).selectedItemId = 1
             assertTrue(buttons(activity).any { it.text == "切换输入源：CarPlay (iPhone)" })
@@ -418,6 +443,7 @@ class SourceNavigationTest {
             shadowOf(activity.application).denyPermissions(android.Manifest.permission.RECORD_AUDIO)
             tabs(activity).selectedItemId = 2
             cards(activity)[1].performClick()
+            selectAaMode(activity, "USB")
             buttons(activity).single { it.text == "通过 USB 连接 Android Auto" }.performClick()
             val request = shadowOf(activity).lastRequestedPermission
             assertArrayEquals(arrayOf(android.Manifest.permission.RECORD_AUDIO), request.requestedPermissions)
@@ -459,6 +485,130 @@ class SourceNavigationTest {
             projectionSessions.ended(active)
             controller.pause().stop().destroy(); WebSession.stop()
         }
+    }
+
+    @Test fun indexDistinguishesHomeSelectionFromRunningAndStoppingSession() {
+        val cleanup = java.util.concurrent.CompletableFuture<Unit>()
+        val session = object : ProjectionSession {
+            override val descriptor = SourceDescriptor(ProjectionSourceIds.ANDROID_AUTO_USB, "Android Auto · USB")
+            override val capabilities = ProjectionCapabilities(setOf(VideoIngressKind.SURFACE))
+            override val inputReady = true
+            override fun touch(contacts: List<ProjectionContact>) = false
+            override fun stop() = cleanup
+        }
+        assertTrue(projectionSessions.adopt(session, setOf(ProjectionResource.DISPLAY)))
+        val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
+        val activity = controller.get()
+        try {
+            selectHomeSource(activity, "VNC")
+            tabs(activity).selectedItemId = 2
+            shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(1))
+            fun description(index: Int) = cards(activity)[index].contentDescription.toString()
+            assertTrue(description(3).contains("首页默认"))
+            assertFalse(description(1).contains("首页默认"))
+            assertTrue(description(1).contains(activity.getString(com.shilapi.xcertplay.shared.R.string.projection_state_running)))
+            capture(activity, "index-running")
+            val stopped = projectionSessions.stop(session)
+            shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(1))
+            assertTrue(description(1).contains(activity.getString(com.shilapi.xcertplay.shared.R.string.projection_state_stopping)))
+            capture(activity, "index-stopping")
+            assertFalse(stopped.isDone)
+            cleanup.complete(Unit); stopped.join()
+            shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(1))
+            assertFalse(description(1).contains(activity.getString(com.shilapi.xcertplay.shared.R.string.projection_state_stopping)))
+            assertTrue(description(3).contains("首页默认"))
+        } finally { cleanup.complete(Unit); projectionSessions.stop().join(); controller.pause().stop().destroy(); WebSession.stop() }
+    }
+
+    @Test fun aaTransportSelectionSurvivesRefreshAndRecreationWithoutStarting() {
+        val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
+        var activity = controller.get()
+        try {
+            tabs(activity).selectedItemId = 2; cards(activity)[1].performClick()
+            selectAaMode(activity, "网络")
+            assertTrue(buttons(activity).any { it.text == "设置地址并连接" && it.isShown })
+            assertFalse(buttons(activity).any { it.text == "连接本机 Android Auto" })
+            assertNull(projectionSessions.snapshot())
+            controller.recreate(); activity = controller.get()
+            assertTrue(buttons(activity).any { it.text == "设置地址并连接" && it.isShown })
+            assertNull(projectionSessions.snapshot())
+            selectAaMode(activity, "USB")
+            assertTrue(buttons(activity).any { it.text == "通过 USB 连接 Android Auto" && it.isShown })
+            assertNull(projectionSessions.snapshot())
+        } finally { controller.pause().stop().destroy(); WebSession.stop() }
+    }
+
+    @Test fun pluginEmptyStateOffersHelpWithoutPretendingToWaitForAConnection() {
+        discoverPlugins()
+        val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
+        val activity = controller.get()
+        try {
+            tabs(activity).selectedItemId = 2; cards(activity)[5].performClick()
+            val text = views(page(activity)).filterIsInstance<TextView>().filter { it.isShown }.joinToString { it.text }
+            assertTrue(text.contains("尚未安装插件"))
+            assertFalse(text.contains("等待连接"))
+            assertFalse(text.contains("未连接"))
+            assertFalse(text.contains("暂不提供音频"))
+            views(page(activity)).single { it.isClickable && it.contentDescription == "如何安装插件" }.performClick()
+            assertTrue(views(page(activity)).filterIsInstance<TextView>().any { it.isShown && it.text.contains("从插件开发者处获取") })
+            assertNull(shadowOf(activity).nextStartedActivity)
+            capture(activity, "plugins-install-help")
+        } finally { controller.pause().stop().destroy(); WebSession.stop() }
+    }
+
+    @Test fun sourceDetailsUseLocalizedNavigationAndWrapTranslatedCopy() {
+        try {
+            for (locale in listOf("en-rUS", "zh-rTW")) {
+                RuntimeEnvironment.setQualifiers("$locale-w360dp-h800dp-mdpi")
+                RuntimeEnvironment.setFontScale(1.3f)
+                val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
+                val activity = controller.get()
+                try {
+                    tabs(activity).selectedItemId = 2
+                    capture(activity, "review-$locale-index")
+                    for (index in listOf(1, 2, 3, 5)) {
+                        cards(activity)[index].performClick()
+                        capture(activity, "review-$locale-detail-$index")
+                        val toolbar = views(page(activity)).filterIsInstance<com.google.android.material.appbar.MaterialToolbar>().single()
+                        assertEquals(activity.getString(com.shilapi.xcertplay.shared.R.string.source_back), toolbar.navigationContentDescription)
+                        goBack(activity)
+                    }
+                    assertNull(projectionSessions.snapshot())
+                } finally { controller.pause().stop().destroy(); WebSession.stop() }
+            }
+        } finally { RuntimeEnvironment.setFontScale(1f); RuntimeEnvironment.setQualifiers("zh-rCN-w360dp-h800dp-mdpi") }
+    }
+
+    @Test fun sourceScreensReflowWithLargeFontsNarrowAndWideWindows() {
+        try {
+            for ((width, height, scale) in listOf(Triple(320, 640, 1f), Triple(360, 800, 1.3f), Triple(320, 640, 2f), Triple(800, 400, 1f))) {
+                RuntimeEnvironment.setQualifiers("zh-rCN-w${width}dp-h${height}dp-mdpi")
+                RuntimeEnvironment.setFontScale(scale)
+                val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
+                val activity = controller.get()
+                try {
+                    tabs(activity).selectedItemId = 2
+                    capture(activity, "review-$width-$scale-index")
+                    val first = cards(activity)[0]; val second = cards(activity)[1]
+                    if (width >= 600) assertSame(first.parent, second.parent)
+                    else assertNotSame(first.parent, second.parent)
+                    for (index in listOf(0, 1, 2, 3, 5)) {
+                        cards(activity)[index].performClick()
+                        capture(activity, "review-$width-$scale-detail-$index")
+                        views(page(activity)).filterIsInstance<TextView>().filter { it.isShown && it.text.isNotBlank() }.forEach { text ->
+                            val layout = text.layout ?: return@forEach
+                            for (line in 0 until layout.lineCount) assertEquals("Truncated: ${text.text}", 0, layout.getEllipsisCount(line))
+                            assertTrue("Clipped text: ${text.text}", layout.height <= text.height - text.compoundPaddingTop - text.compoundPaddingBottom + 1)
+                        }
+                        if (index == 1) {
+                            selectAaMode(activity, "USB")
+                            capture(activity, "review-$width-$scale-aa-usb")
+                        }
+                        goBack(activity)
+                    }
+                } finally { controller.pause().stop().destroy(); WebSession.stop() }
+            }
+        } finally { RuntimeEnvironment.setFontScale(1f); RuntimeEnvironment.setQualifiers("zh-rCN-w360dp-h800dp-mdpi") }
     }
 
     @Test fun detailSurvivesRecreationAndBackAndTabReselectionReturnToIndex() {
