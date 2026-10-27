@@ -70,7 +70,7 @@ jobs:
           key: android-toolchain-v1-ubuntu24-${{ runner.arch }}-api${{ env.ANDROID_API_LEVEL }}-bt${{ env.ANDROID_BUILD_TOOLS }}-ndk${{ env.ANDROID_NDK_VERSION }}-cmake${{ env.ANDROID_CMAKE_VERSION }}
 
       - name: Verify SDK installation helper
-        run: node --test test/ci-android-toolchain.test.js
+        run: node --test test/ci-android-*.test.js
 
       - name: Install missing Android packages
         run: |
@@ -146,25 +146,19 @@ jobs:
       matrix:
         api-level: [28, 36]
     steps:
-      - name: Locate emulator cache directories
-        id: emulator-cache
-        run: |
-          echo "sdk=$ANDROID_HOME" >> "$GITHUB_OUTPUT"
-          echo "image-version=$ImageVersion" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
 
-      # Cache only this API's image and clean AVD. The runner image version also
-      # invalidates snapshots when the preinstalled emulator/host software changes.
-      - name: Restore Android emulator and clean snapshot
-        id: avd-cache
-        uses: actions/cache/restore@v4
+      - name: Locate Android SDK
+        id: runtime-sdk
+        run: echo "root=$ANDROID_HOME" >> "$GITHUB_OUTPUT"
+
+      # Only cache downloaded images. Preinstalled platform directories are root-owned;
+      # restoring them caused thousands of tar errors. Each run gets a fresh AVD.
+      - name: Cache Android system image
+        uses: actions/cache@v4
         with:
-          path: |
-            ${{ steps.emulator-cache.outputs.sdk }}/emulator
-            ${{ steps.emulator-cache.outputs.sdk }}/platforms/android-${{ matrix.api-level }}
-            ${{ steps.emulator-cache.outputs.sdk }}/system-images/android-${{ matrix.api-level }}/google_apis/x86_64
-            ~/.android/avd
-            ~/.android/adb*
-          key: android-avd-v1-ubuntu24-${{ runner.arch }}-${{ steps.emulator-cache.outputs.image-version }}-api${{ matrix.api-level }}-google_apis-x86_64
+          path: ${{ steps.runtime-sdk.outputs.root }}/system-images/android-${{ matrix.api-level }}/google_apis/x86_64
+          key: android-system-image-v2-ubuntu24-${{ runner.arch }}-api${{ matrix.api-level }}-google_apis-x86_64
 
       - name: Download browser runtime test APK
         uses: actions/download-artifact@v4
@@ -193,53 +187,26 @@ jobs:
       - name: Enable KVM
         run: sudo chmod a+rw /dev/kvm
 
-      - name: Create clean emulator snapshot on cache miss
-        if: steps.avd-cache.outputs.cache-hit != 'true'
+      - name: Start adb outside the emulator action
+        run: adb start-server > adb-server.log 2>&1
+
+      - name: Verify browser and plugin runtimes
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ matrix.api-level }}
           arch: x86_64
           target: google_apis
           avd-name: browser-runtime
-          force-avd-creation: false
-          disable-animations: false
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: echo 'Clean emulator snapshot created.'
-
-      # Save before installing or running tests so later jobs restore a clean device.
-      - name: Save clean emulator snapshot
-        if: steps.avd-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ${{ steps.emulator-cache.outputs.sdk }}/emulator
-            ${{ steps.emulator-cache.outputs.sdk }}/platforms/android-${{ matrix.api-level }}
-            ${{ steps.emulator-cache.outputs.sdk }}/system-images/android-${{ matrix.api-level }}/google_apis/x86_64
-            ~/.android/avd
-            ~/.android/adb*
-          key: ${{ steps.avd-cache.outputs.cache-primary-key }}
-
-      - name: Verify localized pages on Android ICU
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: ${{ matrix.api-level }}
-          arch: x86_64
-          target: google_apis
-          avd-name: browser-runtime
-          force-avd-creation: false
-          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          force-avd-creation: true
+          # Detach output from the action pipes so emulator helper processes cannot
+          # keep a successful step alive after adb emu kill (seen on API 28).
+          emulator-options: -no-snapshot -no-metrics -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none > emulator.log 2>&1 < /dev/null
           disable-animations: true
-          script: |
-            adb install -r runtime-tests/common-debug-androidTest.apk
-            adb shell am instrument -w -r -e class com.shilapi.xcertplay.web.BrowserPageRuntimeTest com.shilapi.xcertplay.host.test/androidx.test.runner.AndroidJUnitRunner > browser-runtime.log
-            adb install -r plugin-host/mobile-debug.apk
-            adb install -r plugin-sdk/projection-plugin-sample/build/outputs/apk/debug/projection-plugin-sample-debug.apk
-            adb install -r plugin-tests/mobile-debug-androidTest.apk
-            adb shell am instrument -w -r -e class moe.feng.wheelplay.plugin.PluginSurfaceIntegrationTest moe.feng.wheelplay.debug.test/androidx.test.runner.AndroidJUnitRunner > plugin-runtime.log
-            cat plugin-runtime.log
-            grep -Eq '^OK \([1-9][0-9]* tests?\)' plugin-runtime.log
-            cat browser-runtime.log
-            grep -Eq '^OK \([1-9][0-9]* tests?\)' browser-runtime.log
+          script: bash .github/scripts/run-android-runtime-tests.sh
+
+      - name: Stop adb
+        if: always()
+        run: timeout --kill-after=5s 15s adb kill-server || true
 
       - name: Upload runtime test result
         if: always()
@@ -249,4 +216,8 @@ jobs:
           path: |
             browser-runtime.log
             plugin-runtime.log
+            runtime-logcat.log
+            runtime-services.log
+            emulator.log
+            adb-server.log
           if-no-files-found: warn
