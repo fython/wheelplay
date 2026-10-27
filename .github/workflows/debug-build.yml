@@ -149,7 +149,9 @@ jobs:
 
       - name: Locate Android SDK
         id: runtime-sdk
-        run: echo "root=$ANDROID_HOME" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "root=$ANDROID_HOME" >> "$GITHUB_OUTPUT"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
 
       # Only cache downloaded images. Preinstalled platform directories are root-owned;
       # restoring them caused thousands of tar errors. Each run gets a fresh AVD.
