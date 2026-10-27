@@ -703,4 +703,15 @@
     <string name="projection_state_connecting">Connecting to source…</string>
     <string name="projection_state_running">Source ready</string>
     <string name="projection_state_stopping">Releasing source resources…</string>
+    <string name="ui_crop_title">Crop car icon</string>
+    <string name="ui_crop_format">Square · 1024 × 1024</string>
+    <string name="ui_crop_zoom">Zoom</string>
+    <string name="ui_crop_zoom_value">Zoom · %1$d%%</string>
+    <string name="ui_crop_reset">Reset</string>
+    <string name="ui_crop_saving">Saving…</string>
+    <string name="ui_crop_preview">Icon crop preview</string>
+    <string name="ui_crop_move_left">Move image left</string>
+    <string name="ui_crop_move_right">Move image right</string>
+    <string name="ui_crop_move_up">Move image up</string>
+    <string name="ui_crop_move_down">Move image down</string>
 </resources>

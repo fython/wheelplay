@@ -41,7 +41,7 @@ open class ComposeSettingsTest {
         compose.onNodeWithText("取消").performClick()
     }
 
-    protected fun captureSettings(activity: WheelPlayActivity, name: String) {
+    protected fun captureSettings(activity: android.app.Activity, name: String) {
         compose.waitForIdle()
         val root = activity.findViewById<android.view.ViewGroup>(android.R.id.content).getChildAt(0)
         val metrics = activity.resources.displayMetrics

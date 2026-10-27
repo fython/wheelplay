@@ -75,3 +75,15 @@ Material Components for Android 1.13.0（Apache-2.0），使用官方 Material 3
 `RootWebPorts.kt` 生成低位端口转发规则及占用检查，由 `RootHttpRouting.kt` 与共享 IPv4 地址、热点投递和回程规则在同一事务 shell 中管理。端口权限依据 [Linux 内核 ip_unprivileged_port_start 文档](https://docs.kernel.org/networking/ip-sysctl.html)；按 [Netfilter DNAT 文档](https://ipset.netfilter.org/iptables-extensions.man.html) 只修改 TCP 目标端口，限定到共享地址 `/32` 并保留目标 IP。普通 Web 监听使用无需 Root 的高位端口。此端口转发是 WheelPlay 的本地服务扩展。
 
 目标地址已限定为成功安装的本地 `/32`，端口规则无需额外的 `addrtype --dst-type LOCAL` 匹配。移除此依赖以兼容缺少 `addrtype` 内核模块的 ROM；TCP、comment、conntrack 及 DNAT 行为保留。事务 shell 记录具体失败命令和原始错误，回滚后仍保留首次失败的诊断。
+
+## Compose 图标裁剪
+
+图标裁剪页参考 [Tanish-Ranjan/crop-kit](https://github.com/Tanish-Ranjan/crop-kit) 的
+[`cf0fc8a66c885ab2ad2402336ea95eb1edf8ec65`](https://github.com/Tanish-Ranjan/crop-kit/tree/cf0fc8a66c885ab2ad2402336ea95eb1edf8ec65)
+版本：沿用状态与 Canvas 分离的结构，`IconCropScreen.kt` 的遮罩和三分线绘制改编自
+`ImageCropper.kt`。许可为 MIT，Copyright (c) 2022 Tanish Ranjan，完整文本见
+[CROP-KIT-LICENSE.txt](CROP-KIT-LICENSE.txt)，同时打包到 APK 的 `assets/licenses/crop-kit.txt`。
+
+WheelPlay 实现固定 1:1 选区、图片平移/双指缩放、无障碍移动与缩放、横竖屏布局及重置；
+原图坐标与窗口尺寸解耦，加载和保存由 ViewModel 管理。仅输出车厂图标所需的
+1024 × 1024 PNG，不引入 crop-kit/JitPack 运行时依赖。

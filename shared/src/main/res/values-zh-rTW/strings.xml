@@ -703,4 +703,15 @@
     <string name="projection_state_connecting">正在連線至輸入源…</string>
     <string name="projection_state_running">輸入源已就緒</string>
     <string name="projection_state_stopping">正在釋放輸入源資源…</string>
+    <string name="ui_crop_title">裁切車廠圖示</string>
+    <string name="ui_crop_format">正方形 · 1024 × 1024</string>
+    <string name="ui_crop_zoom">縮放</string>
+    <string name="ui_crop_zoom_value">縮放 · %1$d%%</string>
+    <string name="ui_crop_reset">重設</string>
+    <string name="ui_crop_saving">正在儲存…</string>
+    <string name="ui_crop_preview">圖示裁切預覽</string>
+    <string name="ui_crop_move_left">向左移動圖片</string>
+    <string name="ui_crop_move_right">向右移動圖片</string>
+    <string name="ui_crop_move_up">向上移動圖片</string>
+    <string name="ui_crop_move_down">向下移動圖片</string>
 </resources>

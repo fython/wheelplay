@@ -7,10 +7,6 @@ import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.net.Uri
 import android.util.AtomicFile
-import android.view.View
-import android.view.ViewGroup
-import android.widget.Button
-import android.widget.TextView
 import androidx.compose.ui.test.*
 import com.shilapi.xcertplay.airplay.AirPlayConfig
 import com.shilapi.xcertplay.airplay.AirPlayInfoPlist
@@ -33,16 +29,6 @@ import org.robolectric.annotation.GraphicsMode
 class OemSettingsTest : ComposeSettingsTest() {
     private val context
         get() = RuntimeEnvironment.getApplication()
-
-    private fun views(view: View): List<View> =
-        listOf(view) +
-            if (view is ViewGroup) (0 until view.childCount).flatMap { views(view.getChildAt(it)) }
-            else emptyList()
-
-    private fun button(activity: Activity, title: String) =
-        views(activity.window.decorView).filterIsInstance<Button>().single {
-            it.text.toString() == title
-        }
 
     private fun openSettings(activity: WheelPlayActivity) {
         SettingsNavigation.open(activity, "车厂与定位", compose)
@@ -211,19 +197,10 @@ class OemSettingsTest : ComposeSettingsTest() {
         }
     }
 
-    private fun waitForText(activity: Activity, text: String) {
-        val deadline = System.nanoTime() + 8_000_000_000L
-        while (System.nanoTime() < deadline) {
-            shadowOf(android.os.Looper.getMainLooper()).idle()
-            if (
-                views(activity.window.decorView).filterIsInstance<TextView>().any {
-                    it.text.toString() == text
-                }
-            )
-                return
-            Thread.sleep(10)
+    private fun waitForText(text: String) {
+        compose.waitUntil(8_000) {
+            compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
         }
-        fail("Image loading should complete: $text")
     }
 
     @Test
@@ -237,14 +214,12 @@ class OemSettingsTest : ComposeSettingsTest() {
                 )
                 .setup()
         val activity = controller.get()
-        val root = activity.findViewById<View>(android.R.id.content)
-        root.measure(
-            View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY),
-        )
-        root.layout(0, 0, 360, 800)
-        waitForText(activity, "拖动调整位置，双指缩放；保存为正方形图标")
-        button(activity, "保存图标").performClick()
+        waitForText("拖动调整位置，双指缩放；保存为正方形图标")
+        compose.onNodeWithTag("crop:save").performClick()
+        compose.waitUntil(8_000) {
+            compose.waitForIdle()
+            activity.isFinishing
+        }
         assertEquals(Activity.RESULT_OK, shadowOf(activity).resultCode)
         source.delete()
         val file = AirPlayPersistence.loadCustomAirPlayIconFile(context)!!
@@ -269,10 +244,10 @@ class OemSettingsTest : ComposeSettingsTest() {
                 )
                 .setup()
         val activity = controller.get()
-        waitForText(activity, "无法读取图片，请返回重新选择 PNG 或 JPEG 图片")
-        button(activity, "保存图标").performClick()
+        waitForText("无法读取图片，请返回重新选择 PNG 或 JPEG 图片")
+        compose.onNodeWithTag("crop:save").assertIsNotEnabled()
         assertFalse(activity.isFinishing)
-        button(activity, "取消").performClick()
+        compose.onNodeWithText("取消").performClick()
         assertEquals(Activity.RESULT_CANCELED, shadowOf(activity).resultCode)
         assertArrayEquals(
             original,
