@@ -4,7 +4,6 @@ package moe.feng.wheelplay.settings
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
-import moe.feng.wheelplay.*
 import com.shilapi.xcertplay.airplay.CarPlaySize
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.hud.BydOutputSettings
@@ -15,6 +14,7 @@ import com.shilapi.xcertplay.web.*
 import java.util.Locale
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import moe.feng.wheelplay.*
 
 internal sealed interface SettingsEffect {
     data object None : SettingsEffect
@@ -66,8 +66,14 @@ internal class SettingsViewModel(
         mutableState.value = mutableState.value.copy(runtime = runtime)
     }
 
-    private fun readPreferences(previous: SettingsState): SettingsState =
-        previous.copy(
+    private fun readPreferences(previous: SettingsState): SettingsState {
+        val (width, height) = safeAreaDisplaySize()
+        val margins = AirPlayPersistence.loadSafeMargins(app)
+        val legacyRect =
+            if (margins == null) AirPlayPersistence.loadSafeAreaRect(app, width, height) else null
+        fun percent(pixels: Int, size: Int) =
+            kotlin.math.round(pixels * 100.0 / size).toInt().coerceIn(0, 40)
+        return previous.copy(
             choices =
                 mapOf(
                     ChoiceSetting.APPEARANCE to AirPlayPersistence.loadAppearance(app).ordinal,
@@ -125,11 +131,18 @@ internal class SettingsViewModel(
             manufacturer = AirPlayPersistence.loadSimulatedManufacturerName(app),
             iconPath = AirPlayPersistence.loadCustomAirPlayIconFile(app)?.absolutePath,
             iconVersion = AirPlayPersistence.loadCustomAirPlayIconFile(app)?.lastModified() ?: 0,
-            margins = AirPlayPersistence.loadSafeMargins(app),
-            legacySafeArea =
-                (WebSession.currentBrowserViewport ?: (1280 to 720)).let { (w, h) ->
-                    AirPlayPersistence.loadSafeAreaRect(app, w, h) != null
+            margins = margins,
+            legacySafeArea = legacyRect != null,
+            legacyMargins =
+                legacyRect?.let {
+                    CarPlaySafeMargins(
+                        percent(it.top, height),
+                        percent(height - it.bottom, height),
+                        percent(it.left, width),
+                        percent(width - it.right, width),
+                    )
                 },
+            safeAreaAspectRatio = width.toFloat() / height,
             ssid = AirPlayPersistence.loadManualHotspotSsid(app),
             password = AirPlayPersistence.loadManualHotspotPassphrase(app),
             httpPort = WebListenSettings.httpPort(app),
@@ -142,6 +155,17 @@ internal class SettingsViewModel(
             tesla = TeslaHttpCompatibility.config(app),
             browsers = WebSession.rememberedBrowsers(app).list(),
         )
+    }
+
+    private fun safeAreaDisplaySize(): Pair<Int, Int> {
+        val viewport =
+            WebSession.currentBrowserViewport?.takeIf {
+                AirPlayPersistence.loadAdaptiveBrowserSize(app) && it.first > 0 && it.second > 0
+            } ?: return 1280 to 720
+        val scale = minOf(1.0, 3840.0 / viewport.first, 2160.0 / viewport.second)
+        fun even(value: Double) = value.toInt().coerceAtLeast(2) / 2 * 2
+        return even(viewport.first * scale) to even(viewport.second * scale)
+    }
 
     fun choose(setting: ChoiceSetting, index: Int): SettingsEffect {
         if (state.value.selected(setting) == index) return SettingsEffect.None

@@ -83,7 +83,7 @@
     <string name="settings_right_hand">Right-hand drive layout</string>
     <string name="settings_right_hand_description">Move CarPlay controls to the right.</string>
     <string name="settings_safe_area_preview">Display safe area preview</string>
-    <string name="settings_safe_area_hint" formatted="false">The highlighted region is the CarPlay layout area. Each margin accepts 0–40%; 0 means no margin.</string>
+    <string name="settings_safe_area_hint" formatted="false">Drag an edge or enter a percentage. Each margin accepts 0–40%; 0 means no margin. Save to apply; an active CarPlay connection will reconnect.</string>
     <string name="settings_margin_top">Top margin</string>
     <string name="settings_margin_bottom">Bottom margin</string>
     <string name="settings_margin_left">Left margin</string>
@@ -200,4 +200,7 @@
     <string name="settings_image_quality">Image quality (1–100)</string>
     <string name="settings_image_quality_description">Default: 75. Higher values preserve more detail and usually use more bandwidth. JPEG and WebP quality values are not equivalent. Saving also refreshes a static image; WebRTC video quality is unaffected.</string>
     <string name="settings_image_quality_invalid">Enter a whole number from 1 to 100.</string>
+    <string name="settings_safe_area_legacy_edit" formatted="false">This older setting uses pixels. Editing and saving converts the preview to whole percentages (0–40% per edge). Cancel keeps the original setting.</string>
+    <string name="settings_safe_area_increase">Increase %1$s by 1%%</string>
+    <string name="settings_safe_area_decrease">Decrease %1$s by 1%%</string>
 </resources>

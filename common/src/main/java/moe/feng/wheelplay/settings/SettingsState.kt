@@ -2,11 +2,11 @@
 package moe.feng.wheelplay.settings
 
 import androidx.annotation.StringRes
-import moe.feng.wheelplay.CarPlaySafeMargins
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.network.TeslaHttpConfig
 import com.shilapi.xcertplay.web.RememberedBrowsers
 import com.shilapi.xcertplay.web.WebListenSettings
+import moe.feng.wheelplay.CarPlaySafeMargins
 
 internal enum class SettingsCategory(
     @param:StringRes val title: Int,
@@ -98,6 +98,8 @@ internal data class SettingsState(
     val iconVersion: Long = 0,
     val margins: CarPlaySafeMargins? = null,
     val legacySafeArea: Boolean = false,
+    val legacyMargins: CarPlaySafeMargins? = null,
+    val safeAreaAspectRatio: Float = 16f / 9f,
     val ssid: String = "",
     val password: String = "",
     val httpPort: Int = 8080,

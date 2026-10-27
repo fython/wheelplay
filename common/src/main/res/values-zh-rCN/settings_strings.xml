@@ -83,7 +83,7 @@
     <string name="settings_right_hand">右舵布局</string>
     <string name="settings_right_hand_description">将 CarPlay 控件移到右侧。</string>
     <string name="settings_safe_area_preview">画面安全区域预览</string>
-    <string name="settings_safe_area_hint" formatted="false">高亮区域为 CarPlay 布局区域。每边 0–40%，0 表示不留白。</string>
+    <string name="settings_safe_area_hint" formatted="false">拖动边界或输入百分比。每边 0–40%，0 表示不留白。保存后生效，已连接的 CarPlay 将重新连接。</string>
     <string name="settings_margin_top">上边留白</string>
     <string name="settings_margin_bottom">下边留白</string>
     <string name="settings_margin_left">左边留白</string>
@@ -200,4 +200,7 @@
     <string name="settings_image_quality">图片质量（1–100）</string>
     <string name="settings_image_quality_description">默认 75。数值越高，细节越多，通常也更占带宽；JPEG 与 WebP 的相同数值不代表相同画质。保存后静态画面也会刷新，不影响 WebRTC 视频质量。</string>
     <string name="settings_image_quality_invalid">请输入 1 到 100 之间的整数。</string>
+    <string name="settings_safe_area_legacy_edit" formatted="false">此设置来自旧版像素配置。编辑并保存后将按预览转换为整数百分比（每边 0–40%）；取消会保留原配置。</string>
+    <string name="settings_safe_area_increase">%1$s增加 1%%</string>
+    <string name="settings_safe_area_decrease">%1$s减少 1%%</string>
 </resources>

@@ -171,7 +171,8 @@ class CarPlayExperienceSettingsTest : ComposeSettingsTest() {
                 AirPlayPersistence.loadSafeMargins(context),
             )
             clickTag("settings:safe-area")
-            clickText("恢复全屏")
+            compose.onNodeWithText("恢复全屏").performScrollTo().performClick()
+            saveInput()
             assertEquals(CarPlaySafeMargins(), AirPlayPersistence.loadSafeMargins(context))
             row(activity, "画面安全区域").assertTextContains("全屏")
         } finally {

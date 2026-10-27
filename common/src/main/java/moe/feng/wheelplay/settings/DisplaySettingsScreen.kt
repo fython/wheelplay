@@ -1,26 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package moe.feng.wheelplay.settings
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.unit.dp
-import moe.feng.wheelplay.*
 import com.shilapi.xcertplay.airplay.CarPlaySize
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.web.RtcRecoveryPolicy
 import com.shilapi.xcertplay.web.StreamTechnology
+import moe.feng.wheelplay.*
 
 @Composable
 internal fun DisplaySettingsScreen(state: SettingsState, actions: SettingsActions) {
@@ -93,13 +82,19 @@ internal fun DisplaySettingsScreen(state: SettingsState, actions: SettingsAction
     )
     SettingsDescription(R.string.settings_stream_description)
     SettingsChoice(
-        state, actions, ChoiceSetting.IMAGE_FORMAT, R.string.settings_image_format,
+        state,
+        actions,
+        ChoiceSetting.IMAGE_FORMAT,
+        R.string.settings_image_format,
         listOf("JPEG", "WebP"),
     )
     SettingsDescription(R.string.settings_image_format_description)
     SettingsTextPreference(
-        actions, TextSetting.IMAGE_QUALITY, R.string.settings_image_quality,
-        state.imageQuality.toString(), numeric = true,
+        actions,
+        TextSetting.IMAGE_QUALITY,
+        R.string.settings_image_quality,
+        state.imageQuality.toString(),
+        numeric = true,
     )
     SettingsDescription(R.string.settings_image_quality_description)
     SettingsChoice(
@@ -125,109 +120,12 @@ internal fun DisplaySettingsScreen(state: SettingsState, actions: SettingsAction
         R.string.settings_right_hand_description,
     )
     if (editMargins)
-        SafeAreaDialog(margins ?: CarPlaySafeMargins(), { editMargins = false }) {
+        SafeAreaDialog(
+            initial = margins ?: state.legacyMargins ?: CarPlaySafeMargins(),
+            aspectRatio = state.safeAreaAspectRatio,
+            legacy = margins == null && state.legacySafeArea,
+            onDismiss = { editMargins = false },
+        ) {
             actions.margins(it)
         }
-}
-
-@Composable
-private fun SafeAreaDialog(
-    initial: CarPlaySafeMargins,
-    onDismiss: () -> Unit,
-    onSave: (CarPlaySafeMargins) -> Unit,
-) {
-    var top by rememberSaveable { mutableStateOf(initial.top.toString()) }
-    var bottom by rememberSaveable { mutableStateOf(initial.bottom.toString()) }
-    var left by rememberSaveable { mutableStateOf(initial.left.toString()) }
-    var right by rememberSaveable { mutableStateOf(initial.right.toString()) }
-    var error by remember { mutableStateOf<String?>(null) }
-    val fields = listOf(top, bottom, left, right)
-    val parsed =
-        runCatching {
-                fields.map { it.toInt() }.let { CarPlaySafeMargins(it[0], it[1], it[2], it[3]) }
-            }
-            .getOrNull()
-    val preview = parsed ?: initial
-    val background = MaterialTheme.colorScheme.surfaceContainer
-    val highlight = MaterialTheme.colorScheme.primary.copy(alpha = .4f)
-    val previewDescription = settingsString(R.string.settings_safe_area_preview)
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(settingsString(R.string.settings_safe_area)) },
-        text = {
-            Column(
-                Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Canvas(
-                    Modifier.fillMaxWidth().height(112.dp).semantics {
-                        contentDescription = previewDescription
-                    }
-                ) {
-                    drawRect(background)
-                    drawRect(
-                        highlight,
-                        Offset(size.width * preview.left / 100, size.height * preview.top / 100),
-                        Size(
-                            size.width * (100 - preview.left - preview.right) / 100,
-                            size.height * (100 - preview.top - preview.bottom) / 100,
-                        ),
-                    )
-                }
-                SettingsDescription(R.string.settings_safe_area_hint)
-                val labels =
-                    listOf(
-                        R.string.settings_margin_top,
-                        R.string.settings_margin_bottom,
-                        R.string.settings_margin_left,
-                        R.string.settings_margin_right,
-                    )
-                val changes: List<(String) -> Unit> =
-                    listOf({ top = it }, { bottom = it }, { left = it }, { right = it })
-                fields.forEachIndexed { index, value ->
-                    OutlinedTextField(
-                        value,
-                        {
-                            changes[index](it)
-                            error = null
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text(settingsString(labels[index])) },
-                        suffix = { Text("%") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        isError = error != null,
-                    )
-                }
-                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            }
-        },
-        confirmButton = {
-            val invalidMessage = settingsString(R.string.settings_safe_area_invalid)
-            TextButton(
-                onClick = {
-                    if (parsed == null) error = invalidMessage
-                    else {
-                        onSave(parsed)
-                        onDismiss()
-                    }
-                }
-            ) {
-                Text(settingsString(R.string.settings_save))
-            }
-        },
-        dismissButton = {
-            Row {
-                TextButton(
-                    onClick = {
-                        onSave(CarPlaySafeMargins())
-                        onDismiss()
-                    }
-                ) {
-                    Text(settingsString(R.string.settings_restore_fullscreen))
-                }
-                TextButton(onClick = onDismiss) { Text(settingsString(R.string.settings_cancel)) }
-            }
-        },
-    )
 }
