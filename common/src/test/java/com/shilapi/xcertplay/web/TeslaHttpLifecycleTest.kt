@@ -107,12 +107,12 @@ class TeslaHttpLifecycleTest {
         val controller = Robolectric.buildService(RoutingVpnService::class.java).create()
         val service = controller.get()
         try {
-            assertEquals(CarPlayVpnService.AttachResult.Started, service.attachWireless(
+            assertTrue(service.attachWireless(
                 java.net.InetAddress.getByName("127.0.0.1"),
                 AirPlayConfig("Test", "00:11:22:33:44:55", "00:11:22:33:44:55", "1.0",
                     AirPlayDisplayConfig(1280, 720), port = 0),
                 AirPlayIdentity.generate(), PairingStore(), null,
-                object : AirPlaySessionListener {}, object : AirPlayMediaHandler {}))
+                object : AirPlaySessionListener {}, object : AirPlayMediaHandler {}) is CarPlayVpnService.AttachResult.Started)
             assertTrue(service.isAttached())
             service.onRevoke()
             assertTrue("Wireless listener is independent of the wired VPN", service.isAttached())

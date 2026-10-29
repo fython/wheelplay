@@ -23,7 +23,6 @@ import com.shilapi.xcertplay.transport.NcmUsbBridge
 import java.io.IOException
 import java.net.Inet6Address
 import java.net.InetAddress
-import java.net.InetSocketAddress
 import java.net.NetworkInterface
 import java.net.ServerSocket
 import java.net.Socket
@@ -42,7 +41,7 @@ open class CarPlayVpnService : VpnService() {
     }
 
     sealed class AttachResult {
-        data object Started : AttachResult()
+        data class Started(val port: Int) : AttachResult()
 
         data object AlreadyStarted : AttachResult()
 
@@ -232,11 +231,11 @@ open class CarPlayVpnService : VpnService() {
             ipv6Bridge.start()
             bridge = ipv6Bridge
 
-            startAirPlayServer(
+            val port = startAirPlayServer(
                 generation,
                 AirPlayAttachment(address, config, identity, pairings, mfi, listener, media),
             )
-            AttachResult.Started
+            AttachResult.Started(port)
         } catch (error: Exception) {
             releaseLocked()
             AttachResult.Failed(error.message ?: error.javaClass.simpleName)
@@ -265,7 +264,7 @@ open class CarPlayVpnService : VpnService() {
         active.set(true)
         val generation = ++attachGeneration
         return try {
-            startAirPlayServer(
+            val port = startAirPlayServer(
                 generation,
                 AirPlayAttachment(
                     bindAddress,
@@ -278,7 +277,7 @@ open class CarPlayVpnService : VpnService() {
                     listenerIdentity,
                 ),
             )
-            AttachResult.Started
+            AttachResult.Started(port)
         } catch (error: Exception) {
             releaseLocked()
             AttachResult.Failed(error.message ?: error.javaClass.simpleName)
@@ -315,15 +314,17 @@ open class CarPlayVpnService : VpnService() {
         super.onDestroy()
     }
 
-    private fun startAirPlayServer(generation: Int, replacement: AirPlayAttachment) {
-        val server = ServerSocket()
-        server.bind(InetSocketAddress(replacement.address, replacement.config.port))
-        attachment = replacement
+    private fun startAirPlayServer(generation: Int, replacement: AirPlayAttachment): Int {
+        val server = bindAirPlayListener(replacement.address, replacement.config.port)
+        val port = server.localPort
+        attachment = replacement.copy(config = replacement.config.copy(port = port))
         serverSocket = server
         Thread({ acceptLoop(generation, server) }, "airplay-accept").apply {
             isDaemon = true
             start()
         }
+        Log.i(TAG, "AirPlay listener port=$port requestedPort=${replacement.config.port}")
+        return port
     }
 
     private fun acceptLoop(generation: Int, server: ServerSocket) {

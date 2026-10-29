@@ -936,7 +936,7 @@ class CarPlayController(
             val service = awaitVpnService()
                 ?: throw IOException("Could not bind the CarPlay AirPlay service")
             startedHotspot?.validateReady()
-            when (
+            val boundAirPlayPort = when (
                 val result = service.attachWireless(
                     bindAddress = hostAddress,
                     config = wirelessAirPlayConfig,
@@ -948,15 +948,16 @@ class CarPlayController(
                     media = media,
                 )
             ) {
-                CarPlayVpnService.AttachResult.Started -> Unit
+                is CarPlayVpnService.AttachResult.Started -> result.port
                 CarPlayVpnService.AttachResult.AlreadyStarted ->
                     throw IOException("Wireless AirPlay transport is already attached")
                 is CarPlayVpnService.AttachResult.Failed ->
                     throw IOException(result.message)
             }
+            val boundAirPlayConfig = wirelessAirPlayConfig.copy(port = boundAirPlayPort)
             debugLog(
                 "wireless AirPlay listener attached bind=$hostAddressText " +
-                    "port=${airPlayConfig.port}",
+                    "port=$boundAirPlayPort",
             )
             if (isStaleWirelessRun(generation)) {
                 closeWirelessStack()
@@ -965,7 +966,7 @@ class CarPlayController(
 
             val bonjourClient = CarPlayBonjour(
                 context = appContext,
-                config = wirelessAirPlayConfig,
+                config = boundAirPlayConfig,
                 identity = identity,
                 advertisedHost = hostAddress.hostAddress,
                 // Bind discovery and its connect probe to the same AP/address family as AirPlay.
@@ -1017,7 +1018,7 @@ class CarPlayController(
                 channel = hotspotInfo.channel,
                 security = hotspotInfo.security,
                 ipAddresses = listOf(hostAddressText),
-                airPlayPort = airPlayConfig.port,
+                airPlayPort = boundAirPlayPort,
                 deviceIdentifier = deviceIdentifier,
                 publicKey = identity.publicKeyHex,
                 sourceVersion = airPlayConfig.sourceVersion,
@@ -1641,9 +1642,8 @@ class CarPlayController(
 
             val ncmHostMac = ncm.hostMac ?: config.hostMac
             debugLog("ncm using hostMac=${ncmHostMac.macString()}")
-            if (!attachVpn(ncm, ncmHostMac)) {
-                throw IphoneUsbException.DeviceUnavailable("Could not attach the NCM/VPN AirPlay transport")
-            }
+            val boundAirPlayPort = attachVpn(ncm, ncmHostMac)
+                ?: throw IphoneUsbException.DeviceUnavailable("Could not attach the NCM/VPN AirPlay transport")
             ncmOwnedLocally = false
             debugLog("wired NCM/VPN AirPlay transport attached")
             if (closed) {
@@ -1655,7 +1655,7 @@ class CarPlayController(
                 ?: throw IphoneUsbException.DeviceUnavailable("MFi coprocessor client is unavailable")
             val endpoint = Iap2WiredCarPlayEndpoint(
                 ipv6Addresses = listOf(config.linkLocal),
-                airPlayPort = airPlayConfig.port,
+                airPlayPort = boundAirPlayPort,
                 publicKey = identity.publicKeyHex,
                 sourceVersion = airPlayConfig.sourceVersion,
                 deviceIdentifier = ncmHostMac.macString(),
@@ -1966,12 +1966,12 @@ class CarPlayController(
         else -> CONTROL_LOOP_TIMEOUT_MILLIS
     }
 
-    private fun attachVpn(ncm: NcmUsbBridge, hostMac: ByteArray): Boolean {
+    private fun attachVpn(ncm: NcmUsbBridge, hostMac: ByteArray): Int? {
         onStatus(CarPlayStatus.AttachingNetwork)
         val service = awaitVpnService() ?: run {
             debugLog("wired VPN service bind failed")
             ncm.close()
-            return false
+            return null
         }
         debugLog("wired VPN service bound; attaching NCM transport")
         val result = try {
@@ -1989,23 +1989,23 @@ class CarPlayController(
         } catch (error: Throwable) {
             ncm.close()
             onStatus(CarPlayStatus.Failed(error.message ?: error.javaClass.simpleName))
-            return false
+            return null
         }
         return when (result) {
-            CarPlayVpnService.AttachResult.Started -> {
-                debugLog("wired VPN/NCM transport attach result=started")
-                true
+            is CarPlayVpnService.AttachResult.Started -> {
+                debugLog("wired VPN/NCM transport attach result=started port=${result.port}")
+                result.port
             }
             CarPlayVpnService.AttachResult.AlreadyStarted -> {
                 debugLog("wired VPN/NCM transport attach result=already-started")
                 ncm.close()
-                false
+                null
             }
             is CarPlayVpnService.AttachResult.Failed -> {
                 debugLog("wired VPN/NCM transport attach result=failed ${result.message}")
                 ncm.close()
                 onStatus(CarPlayStatus.Failed(result.message))
-                false
+                null
             }
         }
     }

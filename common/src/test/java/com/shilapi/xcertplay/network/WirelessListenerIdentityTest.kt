@@ -27,12 +27,14 @@ class WirelessListenerIdentityTest {
         try {
             repeat(2) { generation ->
                 val identity = AirPlayListenerIdentity(generation)
-                assertEquals(CarPlayVpnService.AttachResult.Started, service.attachWireless(
+                val result = service.attachWireless(
                     InetAddress.getLoopbackAddress(), AirPlayConfig("test", "00:00:00:00:00:01",
                         "00:00:00:00:00:02", "1", AirPlayDisplayConfig(800, 480), port = 0),
                     AirPlayIdentity(ByteArray(32), ByteArray(32), "test"), PairingStore(), null,
-                    listener, object : AirPlayMediaHandler {}, listenerIdentity = identity))
+                    listener, object : AirPlayMediaHandler {}, listenerIdentity = identity)
+                assertTrue(result is CarPlayVpnService.AttachResult.Started)
                 val server = ReflectionHelpers.getField<ServerSocket>(service, "serverSocket")
+                assertEquals(server.localPort, (result as CarPlayVpnService.AttachResult.Started).port)
                 Socket(InetAddress.getLoopbackAddress(), server.localPort).use {
                     val accepted = requireNotNull(events.poll(2, TimeUnit.SECONDS))
                     assertSame(identity, accepted.listener)
