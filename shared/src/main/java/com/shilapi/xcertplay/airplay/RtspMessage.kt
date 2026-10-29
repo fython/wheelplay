@@ -5,7 +5,7 @@ import java.io.ByteArrayOutputStream
 /**
  * RTSP/HTTP-style request framing for the CarPlay control channel.
  *
- * The control connection on TCP :7000 speaks a text request line plus headers plus an optional
+ * The control connection on the advertised TCP port speaks a text request line plus headers plus an optional
  * body, using the same framing RTSP and HTTP share. Encryption, once pair-verify completes, wraps
  * this framing in a separate layer.
  */

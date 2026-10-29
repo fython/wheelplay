@@ -70,7 +70,7 @@ class CarPlayVpnScopeTest {
 
     @Test fun rejectedWiredReplacementClosesWirelessListenerAndAllowsFreshWirelessAttach() {
         withService { service ->
-            assertEquals(CarPlayVpnService.AttachResult.Started, attachWireless(service))
+            assertTrue(attachWireless(service) is CarPlayVpnService.AttachResult.Started)
             assertTrue(service.isAttached())
             assertTrue(ReflectionHelpers.getField<ServerSocket>(service, "serverSocket").localPort > 0)
             assertTrue("Wireless must not establish a VPN", VpnScopeBoundary.calls.isEmpty())
@@ -82,7 +82,7 @@ class CarPlayVpnScopeTest {
             assertEquals(listOf("allow:${service.packageName}"), VpnScopeBoundary.calls)
             assertReleased(service)
 
-            assertEquals(CarPlayVpnService.AttachResult.Started, attachWireless(service))
+            assertTrue(attachWireless(service) is CarPlayVpnService.AttachResult.Started)
             assertTrue(service.isAttached())
             val newServer = ReflectionHelpers.getField<ServerSocket>(service, "serverSocket")
             service.detach()

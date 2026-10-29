@@ -38,6 +38,7 @@ data class AirPlayConfig(
     val main: AirPlayDisplayConfig,
     val cluster: AirPlayDisplayConfig? = null,
     val rightHandDrive: Boolean = false,
+    /** Preferred listen port; conflicts fall back to an OS-assigned port. Zero requests one directly. */
     val port: Int = 7000,
     val entertainmentSampleRate: Int = 48000,
     val hevc: Boolean = false,
