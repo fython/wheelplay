@@ -1,0 +1,32 @@
+<resources>
+    <string name="source_tools">更多工具</string>
+    <string name="source_carlink_brief">連接支援 CarLink 的手機</string>
+    <string name="source_desktop_brief">在獨立桌面中執行本機應用程式</string>
+    <string name="source_home_selection">首頁選擇：%1$s</string>
+    <string name="source_current_session">目前工作階段：%1$s · %2$s</string>
+    <string name="source_home_default">首頁預設</string>
+    <string name="source_install_required">需安裝外掛</string>
+    <string name="source_update_required">需更新外掛</string>
+    <string name="source_enable_required">未啟用</string>
+    <string name="source_setup_required">待設定</string>
+    <string name="source_needs_attention">需要處理</string>
+    <string name="source_ready">可連接</string>
+    <string name="source_idle">未連接</string>
+    <string name="source_no_plugins">尚未安裝外掛</string>
+    <string name="source_plugin_empty_hint">從可信開發者處安裝相容外掛，再回到此處啟用。</string>
+    <string name="source_install_help">如何安裝外掛</string>
+    <string name="source_plugin_install_steps">從外掛開發者處取得相容的 APK，透過 Android 完成安裝。返回 WheelPlay 重新整理清單，開啟外掛設定完成配置和授權，再啟用並連接。</string>
+    <string name="source_plugin_capabilities">設定與功能說明</string>
+    <string name="source_plugin_enable_hint">啟用此外掛後即可連接。</string>
+    <string name="source_plugin_manage">管理外掛</string>
+    <string name="source_connection_help">連接說明與限制</string>
+    <string name="source_connection_method">連接方式</string>
+    <string name="source_aa_local">本機</string>
+    <string name="source_aa_usb">USB</string>
+    <string name="source_aa_network">網路</string>
+    <string name="source_aa_local_brief">投影本機 Android Auto，首次使用需完成設定。</string>
+    <string name="source_aa_network_brief">透過 IP 位址連接另一台手機的車機伺服器。</string>
+    <string name="source_aa_usb_help">聲音由本裝置播放；麥克風使用 Android 麥克風設定，暫不支援瀏覽器麥克風。</string>
+    <string name="source_vnc_brief">連接區域網路或 VPN 中已有的 VNC 伺服器。</string>
+    <string name="source_vnc_help">操作方式與連接要求</string>
+</resources>

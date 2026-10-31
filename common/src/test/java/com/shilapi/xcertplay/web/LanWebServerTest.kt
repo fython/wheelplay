@@ -21,6 +21,18 @@ import javax.net.ssl.HttpsURLConnection
 @RunWith(org.robolectric.RobolectricTestRunner::class)
 @org.robolectric.annotation.Config(qualifiers = "zh-rCN", sdk = [29])
 class LanWebServerTest {
+    private fun startHttpsSession(context: android.content.Context) {
+        // These tests exercise real TLS HTTP/WebSocket traffic, not async RSA startup latency.
+        // The synchronous settings path returns only after the secure listener is bound.
+        WebListenSettings.saveHttpsEnabled(context, false)
+        WebSession.start(context)
+        val failure = WebSession.setHttpsEnabled(context, true)
+        if (failure != null) {
+            WebSession.stop()
+            fail("HTTPS setup failed: $failure")
+        }
+    }
+
     @Test fun pairedNowPlayingStreamsStateCommandsAndRevocableArtworkOverRealSockets() {
         val context = org.robolectric.RuntimeEnvironment.getApplication()
         val bytes = byteArrayOf(0xff.toByte(), 0xd8.toByte(), 1, 2, 3)
@@ -110,8 +122,8 @@ class LanWebServerTest {
     }
 
     @org.junit.Before fun provisionAuthentication() {
-        val identity = com.shilapi.xcertplay.SyntheticMfiIdentity.create()
-        com.shilapi.xcertplay.MfiAssetStore(org.robolectric.RuntimeEnvironment.getApplication().noBackupFilesDir)
+        val identity = moe.feng.wheelplay.SyntheticMfiIdentity.create()
+        moe.feng.wheelplay.MfiAssetStore(org.robolectric.RuntimeEnvironment.getApplication().noBackupFilesDir)
             .installFiles({ identity.key.inputStream() }, { identity.certificate.inputStream() })
     }
 
@@ -202,8 +214,8 @@ class LanWebServerTest {
     fun staticFramebufferReencodesForJpegFallbackAndQualityChanges() {
         val context = org.robolectric.RuntimeEnvironment.getApplication()
         WebListenSettings.saveHttpsEnabled(context, false)
-        com.shilapi.xcertplay.AirPlayPersistence.saveImageFormat(context, ImageFormat.WEBP)
-        com.shilapi.xcertplay.AirPlayPersistence.saveImageQuality(context, 75)
+        moe.feng.wheelplay.AirPlayPersistence.saveImageFormat(context, ImageFormat.WEBP)
+        moe.feng.wheelplay.AirPlayPersistence.saveImageQuality(context, 75)
         WebSession.start(context)
         fun waitFor(message: String, condition: () -> Boolean) {
             val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
@@ -237,7 +249,7 @@ class LanWebServerTest {
                     assertEquals(first.videoEpoch, fallback.videoEpoch)
                     receiveAndAck(fallback)
 
-                    com.shilapi.xcertplay.AirPlayPersistence.saveImageQuality(context, 60)
+                    moe.feng.wheelplay.AirPlayPersistence.saveImageQuality(context, 60)
                     waitFor("Static desktop picks up changed quality") { WebSession.frame?.quality == 60 }
                     val quality = WebSession.frame!!
                     assertEquals(ImageFormat.JPEG, quality.format)
@@ -314,7 +326,7 @@ class LanWebServerTest {
 
     @Test fun userJpegSettingOverridesWebpCapabilityAndReportsTheEncodedQuality() {
         val context = org.robolectric.RuntimeEnvironment.getApplication()
-        com.shilapi.xcertplay.AirPlayPersistence.saveImageFormat(context, ImageFormat.JPEG)
+        moe.feng.wheelplay.AirPlayPersistence.saveImageFormat(context, ImageFormat.JPEG)
         WebSession.start(context)
         try {
             val owner = WebSession.beginVideo(320, 180)
@@ -462,7 +474,7 @@ class LanWebServerTest {
     @Test fun browserGpsRequiresHttpsAndExplicitOptInAndClearsWhenTheViewerDisconnects() {
         val context = org.robolectric.RuntimeEnvironment.getApplication()
         val provider = WebSession.location.createProvider()
-        provider.start(); WebSession.start(context)
+        provider.start(); startHttpsSession(context)
         val fix = """{"type":"location","latitude":25,"longitude":121,"accuracy":5,"timestamp":1700000000000,"ageMillis":0}"""
         fun settle(client: Socket) {
             text(client, """{"type":"ping"}""")
@@ -477,9 +489,7 @@ class LanWebServerTest {
             val detachedBy = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
             while (WebSession.hasViewer && System.nanoTime() < detachedBy) Thread.sleep(10)
             assertFalse(WebSession.hasViewer)
-            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(8)
-            while (WebSession.tls == null && WebSession.tlsError == null && System.nanoTime() < deadline) Thread.sleep(20)
-            val endpoint = WebSession.tls ?: error("HTTPS failed: ${WebSession.tlsError}")
+            val endpoint = requireNotNull(WebSession.tls) { "HTTPS failed: ${WebSession.tlsError}" }
             val root = CertificateFactory.getInstance("X.509").generateCertificate(endpoint.certificate.inputStream())
             val store = KeyStore.getInstance(KeyStore.getDefaultType()).apply { load(null); setCertificateEntry("wheelplay", root) }
             val managers = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply { init(store) }
@@ -508,11 +518,9 @@ class LanWebServerTest {
 
     @Test fun trustedHttpsViewerCanSupplyNegotiatedMicrophonePcm() {
         val context = org.robolectric.RuntimeEnvironment.getApplication()
-        WebSession.start(context)
+        startHttpsSession(context)
         try {
-            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(8)
-            while (WebSession.tls == null && WebSession.tlsError == null && System.nanoTime() < deadline) Thread.sleep(20)
-            val endpoint = WebSession.tls ?: error("HTTPS failed: ${WebSession.tlsError}")
+            val endpoint = requireNotNull(WebSession.tls) { "HTTPS failed: ${WebSession.tlsError}" }
             val root = CertificateFactory.getInstance("X.509")
                 .generateCertificate(endpoint.certificate.inputStream())
             val store = KeyStore.getInstance(KeyStore.getDefaultType()).apply { load(null); setCertificateEntry("wheelplay", root) }
@@ -591,8 +599,8 @@ class LanWebServerTest {
 
     @Test fun browserMediaBufferFollowsSavedSettingsLiveAndAfterServiceRestart() {
         val context = org.robolectric.RuntimeEnvironment.getApplication()
-        com.shilapi.xcertplay.AirPlayPersistence.saveMediaBufferMillis(context, 1000)
-        com.shilapi.xcertplay.AirPlayPersistence.saveBrowserAudioPlayback(context, true)
+        moe.feng.wheelplay.AirPlayPersistence.saveMediaBufferMillis(context, 1000)
+        moe.feng.wheelplay.AirPlayPersistence.saveBrowserAudioPlayback(context, true)
         val audioSource = object : ProjectionSession {
             override val descriptor = SourceDescriptor("audio-test", "Audio test")
             override val capabilities = ProjectionCapabilities(emptySet(), audioPlayback = true)
@@ -611,7 +619,7 @@ class LanWebServerTest {
                 assertTrue(initial.getBoolean("playback"))
                 WebSession.setMediaBufferMillis(context, 500)
                 assertEquals(500, org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).getInt("mediaBufferMillis"))
-                assertEquals(500, com.shilapi.xcertplay.AirPlayPersistence.loadMediaBufferMillis(context))
+                assertEquals(500, moe.feng.wheelplay.AirPlayPersistence.loadMediaBufferMillis(context))
                 WebSession.setBrowserAudioPlayback(context, false)
                 val disabled = org.json.JSONObject(frame(client).toString(Charsets.UTF_8))
                 assertFalse(disabled.getBoolean("playback"))
@@ -649,11 +657,9 @@ class LanWebServerTest {
     }
     @Test fun tlsEndpointUsesThePerInstallationCertificateAndRejectsCrossOriginWebSockets() {
         val context = org.robolectric.RuntimeEnvironment.getApplication()
-        WebSession.start(context)
+        startHttpsSession(context)
         try {
-            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(8)
-            while (WebSession.tls == null && WebSession.tlsError == null && System.nanoTime() < deadline) Thread.sleep(20)
-            val endpoint = WebSession.tls ?: error("HTTPS failed: ${WebSession.tlsError}")
+            val endpoint = requireNotNull(WebSession.tls) { "HTTPS failed: ${WebSession.tlsError}" }
             val root = CertificateFactory.getInstance("X.509")
                 .generateCertificate(endpoint.certificate.inputStream())
             val store = KeyStore.getInstance(KeyStore.getDefaultType()).apply { load(null); setCertificateEntry("wheelplay", root) }
@@ -677,7 +683,7 @@ class LanWebServerTest {
         } finally { WebSession.stop() }
     }
     @Test fun foregroundServiceKeepsEndpointWhenDashboardTaskIsRemoved() {
-        val service = org.robolectric.Robolectric.buildService(com.shilapi.xcertplay.DiPlaySessionService::class.java)
+        val service = org.robolectric.Robolectric.buildService(moe.feng.wheelplay.WheelPlaySessionService::class.java)
             .create().startCommand(0, 1)
         try {
             assertTrue(WebSession.running)
@@ -686,7 +692,7 @@ class LanWebServerTest {
             assertTrue(WebSession.running)
             assertEquals(code, WebSession.code)
             service.get().onStartCommand(android.content.Intent().setAction(
-                com.shilapi.xcertplay.DiPlaySessionService.ACTION_STOP), 0, 2)
+                moe.feng.wheelplay.WheelPlaySessionService.ACTION_STOP), 0, 2)
             assertFalse(WebSession.running)
         } finally { service.destroy() }
     }

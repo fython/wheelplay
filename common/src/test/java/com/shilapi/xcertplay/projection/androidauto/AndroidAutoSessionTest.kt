@@ -149,6 +149,13 @@ class AndroidAutoSessionTest {
             if (!bound && peer.isDone) peer.get()
             assertTrue("Peer did not bind input: ${session.statusText}", bound)
             assertTrue("Frame did not reach generic output", frame.await(5, TimeUnit.SECONDS))
+            // The peer can read the bind ACK before the host publishes inputReady.
+            val inputDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+            while (!session.inputReady && System.nanoTime() < inputDeadline) {
+                if (peer.isDone) peer.get()
+                Thread.sleep(10)
+            }
+            assertTrue("Host input did not become ready: ${session.statusText}", session.inputReady)
             assertTrue(session.touch(listOf(ProjectionContact(0, .5, .5, true))))
             peer.get(10, TimeUnit.SECONDS)
             session.stop().get(5, TimeUnit.SECONDS)

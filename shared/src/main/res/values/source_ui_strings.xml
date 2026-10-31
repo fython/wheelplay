@@ -1,0 +1,32 @@
+<resources>
+    <string name="source_tools">More tools</string>
+    <string name="source_carlink_brief">Connect a CarLink phone</string>
+    <string name="source_desktop_brief">Run apps on a separate Android display</string>
+    <string name="source_home_selection">Home selection: %1$s</string>
+    <string name="source_current_session">Current session: %1$s · %2$s</string>
+    <string name="source_home_default">Home selection</string>
+    <string name="source_install_required">Plugin required</string>
+    <string name="source_update_required">Plugin update required</string>
+    <string name="source_enable_required">Not enabled</string>
+    <string name="source_setup_required">Setup required</string>
+    <string name="source_needs_attention">Needs attention</string>
+    <string name="source_ready">Ready to connect</string>
+    <string name="source_idle">Not connected</string>
+    <string name="source_no_plugins">No plugins installed</string>
+    <string name="source_plugin_empty_hint">Install a compatible plugin from a trusted developer, then return here to enable it.</string>
+    <string name="source_install_help">How to install a plugin</string>
+    <string name="source_plugin_install_steps">Obtain a compatible APK from its developer and install it with Android. Return to WheelPlay and refresh this list. Open the plugin settings to finish setup and permissions, then enable and connect it.</string>
+    <string name="source_plugin_capabilities">Setup and supported features</string>
+    <string name="source_plugin_enable_hint">Enable this plugin before connecting.</string>
+    <string name="source_plugin_manage">Manage plugin</string>
+    <string name="source_connection_help">Connection help and limitations</string>
+    <string name="source_connection_method">Connection method</string>
+    <string name="source_aa_local">Local</string>
+    <string name="source_aa_usb">USB</string>
+    <string name="source_aa_network">Network</string>
+    <string name="source_aa_local_brief">Project Android Auto from this device. First-time setup is required.</string>
+    <string name="source_aa_network_brief">Connect to the Head Unit Server on another phone by IP address.</string>
+    <string name="source_aa_usb_help">Audio plays on this device. Microphone input follows the Android microphone setting; browser microphone input is not supported.</string>
+    <string name="source_vnc_brief">Connect to an existing VNC server on your local network or VPN.</string>
+    <string name="source_vnc_help">Controls and connection requirements</string>
+</resources>

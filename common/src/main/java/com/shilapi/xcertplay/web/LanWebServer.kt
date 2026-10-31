@@ -418,7 +418,7 @@ internal class LanWebServer(
                     )
                         WebSession.frame?.takeIf { it.format == ImageFormat.JPEG ||
                             imageProtocol == 3 && imageFormat == ImageFormat.WEBP &&
-                                com.shilapi.xcertplay.AirPlayPersistence.loadImageFormat(context) == ImageFormat.WEBP }
+                                moe.feng.wheelplay.AirPlayPersistence.loadImageFormat(context) == ImageFormat.WEBP }
                     else null
                 },
                 write = { super.sendFrame(it) },
@@ -477,7 +477,7 @@ internal class LanWebServer(
                 rtcAnswered = false
                 val id = ++rtcId
                 val recovery =
-                    com.shilapi.xcertplay.AirPlayPersistence.loadRtcRecoveryPolicy(context)
+                    moe.feng.wheelplay.AirPlayPersistence.loadRtcRecoveryPolicy(context)
                 val stream =
                     RtcVideoStream(
                         source,
