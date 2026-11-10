@@ -29,7 +29,7 @@
             android:authorities="${applicationId}.shizuku" android:multiprocess="false"
             android:enabled="true" android:exported="true"
             android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
-        <activity android:name="com.shilapi.xcertplay.DiPlayActivity"
+        <activity android:name="moe.feng.wheelplay.WheelPlayActivity"
             android:exported="true" android:launchMode="singleTop"
             android:configChanges="density|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:theme="@style/Theme.Xcertplay">
@@ -47,20 +47,6 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:scheme="content" android:mimeType="application/vnd.android.package-archive" />
             </intent-filter>
-        </activity>
-        <service android:name="com.shilapi.xcertplay.DiPlaySessionService"
-            android:exported="false" android:foregroundServiceType="connectedDevice|microphone|mediaPlayback" />
-
-        <activity
-            android:name="com.shilapi.xcertplay.CarPlayHostActivity"
-            android:configChanges="density|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
-            android:exported="true"
-            android:launchMode="singleTask"
-            android:resizeableActivity="true"
-            android:screenOrientation="fullSensor"
-            android:theme="@style/Theme.Xcertplay"
-            android:windowSoftInputMode="adjustResize">
-
             <intent-filter>
                 <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
             </intent-filter>
@@ -68,20 +54,35 @@
                 android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
                 android:resource="@xml/usb_device_filter" />
         </activity>
+        <service android:name="moe.feng.wheelplay.WheelPlaySessionService"
+            android:exported="false" android:foregroundServiceType="connectedDevice|microphone|mediaPlayback" />
 
         <activity
-            android:name="com.shilapi.xcertplay.MainActivity"
-            android:exported="false"
-            android:theme="@style/Theme.Xcertplay" />
+            android:name="moe.feng.wheelplay.CarPlayHostActivity"
+            android:configChanges="density|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:resizeableActivity="true"
+            android:screenOrientation="fullSensor"
+            android:theme="@style/Theme.WheelPlay.ConnectionDialog"
+            android:windowSoftInputMode="adjustResize" />
 
         <activity
-            android:name="com.shilapi.xcertplay.ImageCropActivity"
+            android:name="moe.feng.wheelplay.ImageCropActivity"
             android:exported="false"
             android:screenOrientation="fullSensor"
             android:theme="@style/Theme.Xcertplay" />
 
+        <!-- Keep existing shortcuts and explicit launch intents working after the UI package move. -->
+        <activity-alias android:name="com.shilapi.xcertplay.DiPlayActivity"
+            android:targetActivity="moe.feng.wheelplay.WheelPlayActivity"
+            android:exported="true" />
+        <activity-alias android:name="com.shilapi.xcertplay.CarPlayHostActivity"
+            android:targetActivity="moe.feng.wheelplay.CarPlayHostActivity"
+            android:exported="true" />
+
         <receiver
-            android:name="com.shilapi.xcertplay.BootReceiver"
+            android:name="moe.feng.wheelplay.BootReceiver"
             android:enabled="true"
             android:exported="true">
             <intent-filter>

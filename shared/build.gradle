@@ -31,7 +31,7 @@ android {
     }
 }
 dependencies {
-    implementation libs.androidx.app
+    implementation libs.androidx.annotation
     implementation libs.bouncycastle
     implementation libs.jmdns
     testImplementation libs.junit

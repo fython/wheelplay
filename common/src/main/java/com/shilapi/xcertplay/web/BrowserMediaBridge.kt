@@ -4,7 +4,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import com.shilapi.xcertplay.projection.projectionSessions
-import com.shilapi.xcertplay.DiPlaySessionService
+import moe.feng.wheelplay.WheelPlaySessionService
 import com.shilapi.xcertplay.media.CarPlayMediaSource
 import com.shilapi.xcertplay.media.MediaArtwork
 import com.shilapi.xcertplay.media.MediaCommand
@@ -20,8 +20,8 @@ internal class BrowserMediaBridge(
     private val send: (String) -> Unit,
     private val currentSource: () -> CarPlayMediaSource? = { projectionSessions.snapshot()?.media },
     private val observeSource: (() -> Unit) -> AutoCloseable = { listener -> projectionSessions.subscribe { listener() } },
-    private val dispatch: (CarPlayMediaSource, Long, MediaCommand) -> CompletableFuture<MediaCommandResult> = DiPlaySessionService::browserMediaCommand,
-    private val dispatchSeek: (CarPlayMediaSource, Long, Long, Long) -> CompletableFuture<MediaCommandResult> = DiPlaySessionService::browserMediaSeek,
+    private val dispatch: (CarPlayMediaSource, Long, MediaCommand) -> CompletableFuture<MediaCommandResult> = WheelPlaySessionService::browserMediaCommand,
+    private val dispatchSeek: (CarPlayMediaSource, Long, Long, Long) -> CompletableFuture<MediaCommandResult> = WheelPlaySessionService::browserMediaSeek,
     private val main: Handler = Handler(Looper.getMainLooper()),
     private val clock: () -> Long = SystemClock::elapsedRealtime,
 ) : AutoCloseable {
