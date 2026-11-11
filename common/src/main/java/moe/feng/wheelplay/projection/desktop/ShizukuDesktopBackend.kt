@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.util.Log
 import android.view.Surface
 import com.shilapi.xcertplay.shared.R
 import com.shilapi.xcertplay.projection.*
@@ -187,27 +188,36 @@ internal class ShizukuDesktopBackend(private val context: Context) : DesktopBack
         override fun healthy(): DesktopSessionState = desktopRemoteCall {
             check(!closed)
             service.healthy(token, DesktopProtocol.LAYOUT).checkedState().also {
-                desktopCheck(it.phase == DesktopSessionState.RUNNING, DesktopErrorCode.INVALID_STATE) { "Helper is not running" }
                 it.failure?.throwIfError()
+                desktopCheck(it.phase == DesktopSessionState.RUNNING, DesktopErrorCode.INVALID_STATE) { "Helper is not running" }
             }
         }
         override fun state(): DesktopSessionState = desktopRemoteCall { service.getState(token).checkedState() }
 
         @Synchronized override fun close() {
             if (closed) return
-            try {
-                if (service.asBinder().isBinderAlive) {
-                    try { if (started) service.stop(token).checkSuccess() } finally { runCatching { service.destroy() } }
+            val binder = service.asBinder()
+            var cleanupFailure: Exception? = null
+            fun attempt(action: () -> Unit) {
+                try { action() } catch (error: Exception) {
+                    if (cleanupFailure == null) cleanupFailure = error
+                    else if (cleanupFailure !== error) cleanupFailure!!.addSuppressed(error)
                 }
-            } catch (_: Exception) {
-                // A revoked Shizuku grant still permits the owning app to destroy its own helper Binder.
-                runCatching { service.destroy() }
-            } finally { unbind() }
-            if (service.asBinder().isBinderAlive && !dead.await(5, TimeUnit.SECONDS))
+            }
+            if (binder.isBinderAlive) {
+                attempt { if (started) service.stop(token).checkSuccess() }
+                // Direct destruction remains possible when the Shizuku grant/service is gone.
+                attempt { service.destroy() }
+            }
+            attempt(unbind)
+            // Shizuku can disappear before unbind returns. Its error must not skip the
+            // independent helper-death check or strand a safely released consumer Surface.
+            if (binder.isBinderAlive && !dead.await(5, TimeUnit.SECONDS))
                 throw ProjectionCleanupException("Virtual desktop helper did not exit",
-                    DesktopException(DesktopErrorCode.CLEANUP_FAILED, "Helper Binder remained alive after destroy"))
+                    DesktopException(DesktopErrorCode.CLEANUP_FAILED, "Helper Binder remained alive after destroy", cleanupFailure))
             closed = true
-            runCatching { service.asBinder().unlinkToDeath(death, 0) }
+            runCatching { binder.unlinkToDeath(death, 0) }
+            cleanupFailure?.let { Log.w("AndroidDesktop", "Helper exit confirmed after cleanup call failure", it) }
         }
     }
 

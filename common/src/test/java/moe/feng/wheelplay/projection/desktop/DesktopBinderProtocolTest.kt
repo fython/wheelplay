@@ -3,9 +3,12 @@ package moe.feng.wheelplay.projection.desktop
 import android.graphics.SurfaceTexture
 import android.os.Binder
 import android.os.IBinder
+import android.os.IInterface
 import android.os.Parcel
+import android.os.RemoteException
 import android.view.Surface
 import com.shilapi.xcertplay.projection.ProjectionContact
+import com.shilapi.xcertplay.projection.ProjectionCleanupException
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -30,6 +33,10 @@ class DesktopBinderProtocolTest {
         var inputEpoch = 0
         var touchFlags = 0
         var touchReplyWasNull = false
+        var phase = DesktopSessionState.RUNNING
+        var failure: DesktopStatus? = null
+        var onDestroy: () -> Unit = {}
+        val lifecycle = mutableListOf<String>()
         override fun hello(version: Int, hostFeatures: Long, requiredFeatures: Long): DesktopHandshakeResult {
             val enabled = offered and hostFeatures
             val serviceInfo = DesktopNegotiation.negotiate(version = version, requested = enabled, helperUid = 2000, required = requiredFeatures)
@@ -58,7 +65,8 @@ class DesktopBinderProtocolTest {
         private fun snapshot() = DesktopStateResult().apply {
             status = if (omitStatus) null else this@Helper.status
             state = if (omitState) null else DesktopSessionState().apply {
-                phase = DesktopSessionState.RUNNING; enabledFeatures = enabled
+                phase = this@Helper.phase; enabledFeatures = enabled
+                failure = this@Helper.failure
                 inputEpoch = this@Helper.inputEpoch; display = actual
             }
         }
@@ -67,8 +75,98 @@ class DesktopBinderProtocolTest {
         override fun cancelInput(token: String, layout: Int, inputEpoch: Int): DesktopStatus {
             assertEquals(this.inputEpoch + 1, inputEpoch); this.inputEpoch = inputEpoch; return status
         }
-        override fun stop(token: String) = status
-        override fun destroy() = Unit
+        override fun stop(token: String): DesktopStatus { lifecycle += "stop"; return status }
+        override fun destroy() { lifecycle += "destroy"; onDestroy() }
+    }
+
+    private class RemoteHelper(private val helper: Helper) : IBinder by Binder() {
+        private var alive = true
+        private var recipient: IBinder.DeathRecipient? = null
+        override fun queryLocalInterface(descriptor: String): IInterface? = null
+        override fun isBinderAlive() = alive
+        override fun linkToDeath(recipient: IBinder.DeathRecipient, flags: Int) { this.recipient = recipient }
+        override fun unlinkToDeath(recipient: IBinder.DeathRecipient, flags: Int): Boolean {
+            this.recipient = null
+            return true
+        }
+        override fun transact(code: Int, data: Parcel, reply: Parcel?, flags: Int) = helper.transact(code, data, reply, flags)
+        fun die() { alive = false; recipient?.binderDied() }
+    }
+
+    @Test fun deadHelperStillReleasesConnectionWhenShizukuUnbindFails() {
+        val helper = Helper()
+        val remote = RemoteHelper(helper)
+        helper.onDestroy = remote::die
+        var unbindCalls = 0
+        val connection = ShizukuDesktopBackend.Connection(IDesktopService.Stub.asInterface(remote), {
+            unbindCalls++
+            throw RemoteException("Shizuku has stopped")
+        }).apply { handshake() }
+        val surface = Surface(SurfaceTexture(0))
+        try {
+            connection.start(surface, "app/.Main", DesktopDisplayConfig())
+            connection.close()
+            connection.close()
+            assertEquals(listOf("stop", "destroy"), helper.lifecycle)
+            assertEquals(1, unbindCalls)
+            assertThrows(IllegalStateException::class.java) { connection.touch(emptyList()) }
+        } finally { surface.release() }
+    }
+
+    @Test fun helperDeathBeforeStopDoesNotCallItsDeadBinder() {
+        val helper = Helper()
+        val remote = RemoteHelper(helper)
+        var unbindCalls = 0
+        val connection = ShizukuDesktopBackend.Connection(IDesktopService.Stub.asInterface(remote), { unbindCalls++ }).apply { handshake() }
+        remote.die()
+        connection.close()
+        assertTrue(helper.lifecycle.isEmpty())
+        assertEquals(1, unbindCalls)
+    }
+
+    @Test fun failedUnbindCannotConfirmCleanupWhileTheHelperIsAlive() {
+        val helper = Helper()
+        val remote = RemoteHelper(helper)
+        val unbindFailure = RemoteException("Shizuku has stopped")
+        val connection = ShizukuDesktopBackend.Connection(IDesktopService.Stub.asInterface(remote), { throw unbindFailure })
+            .apply { handshake() }
+        try {
+            val failure = assertThrows(ProjectionCleanupException::class.java) { connection.close() }
+            assertTrue(generateSequence<Throwable>(failure) { it.cause }.any { it === unbindFailure })
+        } finally {
+            remote.die()
+            connection.close()
+        }
+    }
+
+    @Test fun rejectedStopStillDestroysHelperBeforeConnectionCloses() {
+        val helper = Helper()
+        val remote = RemoteHelper(helper)
+        helper.onDestroy = remote::die
+        val connection = ShizukuDesktopBackend.Connection(IDesktopService.Stub.asInterface(remote), {}).apply { handshake() }
+        val surface = Surface(SurfaceTexture(0))
+        try {
+            connection.start(surface, "app/.Main", DesktopDisplayConfig())
+            helper.status = DesktopStatus(DesktopErrorCode.CLEANUP_FAILED.wire, "Display release failed")
+            connection.close()
+            assertEquals(listOf("stop", "destroy"), helper.lifecycle)
+        } finally { surface.release() }
+    }
+
+    @Test fun failedHealthSnapshotRetainsTheHelperFailureCodeAndDiagnostic() {
+        val helper = Helper()
+        val connection = connect(helper)
+        val surface = Surface(SurfaceTexture(0))
+        try {
+            connection.start(surface, "app/.Main", DesktopDisplayConfig())
+            helper.phase = DesktopSessionState.FAILED
+            helper.failure = DesktopStatus(DesktopErrorCode.INPUT_FAILED.wire, "Device rejected display-directed input")
+            val failure = assertThrows(DesktopException::class.java) { connection.healthy() }
+            assertEquals(DesktopErrorCode.INPUT_FAILED, failure.category)
+            assertEquals(helper.failure!!.diagnostic, failure.diagnostic)
+            // A diagnostic query can still inspect the terminal snapshot without renewing health.
+            assertEquals(DesktopSessionState.FAILED, connection.state().phase)
+        } finally { surface.release() }
     }
 
     private fun connect(helper: Helper, sessionFeatures: Long = DesktopFeatures.HOST_SUPPORTED): ShizukuDesktopBackend.Connection {
