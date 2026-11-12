@@ -15,6 +15,7 @@
 - [WebRTC 稳定性与卡顿恢复](WEBRTC_RECOVERY.md)：回退原因、可配置容忍时间及真机排查方法。
 - [认证资源导入](AUTHENTICATION_IMPORT.md)：手动选择资源、从用户下载的 DiPlay APK 提取及本地存储。
 - [Tesla HTTP 兼容模式](TESLA_HTTP.md)：无证书虚拟地址入口、可选域名和实机验证限制。
+- [eMudhra CA 的 HTTPS 签发框架](HTTPS_SIGNING_CA.md)：编译内置、CA 证书链与私钥导入、按访问地址签发及 HTTPS 监听更新。
 - [验证记录](VALIDATION.md)：已通过的检查、APK 校验值和未完成的真机验证。
 - [组件间距检查](SPACING_REVIEW.md)：本轮发现、尺寸约定、修正和验证范围。
 - [上游来源](UPSTREAM.md)：原版提交及本分支改动范围。
