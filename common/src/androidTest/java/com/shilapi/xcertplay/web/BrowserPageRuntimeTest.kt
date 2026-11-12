@@ -53,7 +53,20 @@ class BrowserPageRuntimeTest {
                         html.contains(owner.getString(UiR.string.web_connect_your_carplay_display))
                     )
                     assertFalse(html.contains("{{"))
-                    assertTrue(html.contains("pattern=\"[0-9]{6}\""))
+                    val inputs = Regex("""<input\b[^>]*>""").findAll(html).map { it.value }.toList()
+                    val pinFields = inputs.filter { Regex("""\bid="code-digit-[0-9]+"""").containsMatchIn(it) }
+                    assertEquals("$tag $path: six PIN fields", 6, pinFields.size)
+                    for (digit in 1..6) {
+                        val field = pinFields.single { it.contains("id=\"code-digit-$digit\"") }
+                        assertTrue("$tag $path: digit $digit accepts one number", field.contains("pattern=\"[0-9]\""))
+                        assertTrue("$tag $path: digit $digit suppresses the system keyboard", field.contains("inputmode=\"none\""))
+                        assertTrue("$tag $path: digit $digit is readonly", Regex("""\sreadonly(?:\s|>)""").containsMatchIn(field))
+                        assertTrue("$tag $path: digit $digit opens the page keypad", field.contains("aria-controls=\"pairing-keypad\""))
+                    }
+                    assertTrue("$tag $path: canonical pairing value", inputs.any {
+                        it.contains("id=\"code\"") && it.contains("name=\"code\"") && it.contains("type=\"hidden\"")
+                    })
+                    assertTrue("$tag $path: floating keypad", html.contains("id=\"pairing-keypad\""))
                     assertTrue(html.contains("<script src=\"/i18n.js\"></script>"))
                     assertTrue(html.contains("<script type=\"module\" src=\"/app.js\"></script>"))
                 }
