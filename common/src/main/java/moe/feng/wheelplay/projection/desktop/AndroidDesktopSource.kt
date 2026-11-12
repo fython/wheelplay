@@ -114,7 +114,7 @@ internal class AndroidDesktopSource(
                 started && video?.hasFrame == true -> ProjectionPhase.RUNNING
                 started -> ProjectionPhase.NEGOTIATING
                 else -> ProjectionPhase.CONNECTING }, capabilities, inputReady, lifecycleFailure)
-        override val inputReady get() = started && !stopped.get() && video?.hasFrame == true &&
+        override val inputReady get() = started && !stopped.get() && video?.hasFrame == true && video?.hasPublishedFrame == true &&
             (capabilities.maxTouchContacts > 0 || capabilities.backButton)
         override val statusText: String get() = failure ?: when {
             stopped.get() -> context.getString(R.string.desktop_stopping)
@@ -138,8 +138,12 @@ internal class AndroidDesktopSource(
                 } else enqueue {
                     if (!started) return@enqueue
                     val dependency = backend.probe()
-                    desktopCheck(dependency is SourceAvailability.Ready, DesktopErrorCode.DISCONNECTED) {
-                        (dependency as SourceAvailability.Unavailable).reason
+                    if (dependency is SourceAvailability.Unavailable) {
+                        throw DesktopException(
+                            if (dependency.failure.category == ProjectionErrorCategory.PERMISSION) DesktopErrorCode.PERMISSION_DENIED
+                            else DesktopErrorCode.DISCONNECTED,
+                            dependency.reason,
+                        )
                     }
                     helperState = connection.healthy()
                     projectionSessions.changed(this)

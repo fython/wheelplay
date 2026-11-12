@@ -62,7 +62,7 @@ Android 模块和 Gradle 配置已迁至项目根目录，原版资料归档至 
 
 ## Material Design 3 更新复核
 
-主界面改用 Material Components 1.13.0、M3 深色主题及标准 TabLayout。服务 / iPhone / 设置均在 `DiPlayActivity` 内切换，持有原页面，Tab 切换不启动 Activity。原协议宿主仅处理连接与权限流程。
+主界面改用 Material Components 1.13.0、M3 深色主题及标准 TabLayout。服务 / iPhone / 设置均在 `WheelPlayActivity` 内切换，持有原页面，Tab 切换不启动 Activity。原协议宿主仅处理连接与权限流程。
 
 - `:mobile:assembleDebug` 成功；本机直接构建可使用 `.local/maven/` 的官方依赖缓存，无需临时代理进程。
 - Android 测试 245 项通过：common 49 项、shared 196 项，0 失败。

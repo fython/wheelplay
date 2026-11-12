@@ -1,5 +1,7 @@
 # WheelPlay 组件间距检查
 
+> 本文记录旧 View 界面的间距复核。主界面现已迁移至 Compose，当前结构见 [架构说明](ARCHITECTURE.md#apk-界面层)；以下类名和尺寸表作为历史记录保留。
+
 日期：2026-09-29。
 
 **复查更正**：上一轮只验证了导航外部布局，遗漏 Bottom Tabs 内部图标和中英文标签的检查，不能据此断言细节已全部完善。本轮已将底部安全区移至独立外层容器，导航内容区最小 80 dp、图标 24 dp；统一选中 / 未选中文字样式和字体留白，消除中英文标签高度差。真机分别选择三个 Tab 后，图标均为 72×72 px 且 Y 坐标一致，标签区域均为 60 px 高且上下边界一致，截图确认完整显示。新增内部可见范围与标签基线测试，界面测试共 6 项通过。
@@ -29,14 +31,14 @@
 | 严重度 | 位置 | 核实的问题及影响 | 修正 |
 | --- | --- | --- | --- |
 | P2 | `ServerUi.section`、iPhone 选择行、无线设置 | 首个行组件已有 12 / 16 dp 顶部留白，分组又加 16 dp；选择行外层还有 12 / 16 dp margin，造成相关内容显得分离 | 分组起止间距扣除首尾组件已有 padding；移除选择行与无线设置中重复的外层间距 |
-| P2 | `DiPlayActivity.toggle` | 仅说明文字右侧留出 16 dp，标题未留相同空隙，大字体标题容易贴近开关 | 整个文字列与开关之间统一使用 16 dp margin；标题和说明间距统一为 4 dp |
+| P2 | `WheelPlayActivity.toggle` | 仅说明文字右侧留出 16 dp，标题未留相同空隙，大字体标题容易贴近开关 | 整个文字列与开关之间统一使用 16 dp margin；标题和说明间距统一为 4 dp |
 | P2 | `ServerUi.content/card` | 320 dp 屏宽减去页面两侧 24 dp 与卡片两侧 20 dp 后，内容只有 232 dp，容易频繁换行 | 小于 360 dp 的窗口使用 16 dp 页面边距与 16 dp 卡片水平内边距，内容宽度增加到 256 dp；卡片上下仍为 20 dp |
-| P2 | `ServerUi.PreferenceRow`、`DiPlayActivity.choice` | 选项值只占剩余宽度的 40%，带「默认 / 较低负载」的值出现不自然换行 | 标题 / 当前值改为均分剩余宽度；行内仅显示当前值，完整选项说明保留在弹窗中 |
+| P2 | `ServerUi.PreferenceRow`、`WheelPlayActivity.choice` | 选项值只占剩余宽度的 40%，带「默认 / 较低负载」的值出现不自然换行 | 标题 / 当前值改为均分剩余宽度；行内仅显示当前值，完整选项说明保留在弹窗中 |
 | P3 | `server_button_filled.xml`、`server_button_outlined.xml` | 默认上下 inset 使按钮可见表面与外层指定间距不一致，卡片底部视觉留白偏大 | 上下 inset 设为 0；保留 56 dp 最小高度及 12 dp 垂直文字 padding，长文字仍可增高 |
-| P3 | `DiPlayActivity.refreshService` | 最后一个备用地址的底部 16 dp 与卡片本身 20 dp 叠加；设置末尾的分隔线、分组间距和页面底部留白也重复 | 地址之间保留 16 dp，最后一项不额外追加底部 padding；最后一个设置分组不再绘制分隔线，使用页面统一 32 dp 底部留白 |
+| P3 | `WheelPlayActivity.refreshService` | 最后一个备用地址的底部 16 dp 与卡片本身 20 dp 叠加；设置末尾的分隔线、分组间距和页面底部留白也重复 | 地址之间保留 16 dp，最后一项不额外追加底部 padding；最后一个设置分组不再绘制分隔线，使用页面统一 32 dp 底部留白 |
 | P3 | 页面介绍、帮助按钮与提示 | 10 / 18 / 28 dp 与附近的 12 / 16 / 24 dp 混用，同类内容节奏不一致 | 收敛为 12 / 16 / 24 dp；取消说明文字与分组底部重复的留白 |
 
-相关实现：`common/src/main/java/com/shilapi/xcertplay/ServerUi.kt`、`DiPlayActivity.kt` 和 `common/src/main/res/layout/server_button_*.xml`。
+相关实现：`common/src/main/java/moe/feng/wheelplay/ServerUi.kt`、`WheelPlayActivity.kt` 和 `common/src/main/res/layout/server_button_*.xml`。
 
 ## 最终尺寸约定
 

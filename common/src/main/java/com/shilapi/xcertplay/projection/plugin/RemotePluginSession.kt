@@ -3,7 +3,7 @@ package com.shilapi.xcertplay.projection.plugin
 import android.content.*
 import android.os.*
 import android.content.res.Configuration
-import com.shilapi.xcertplay.AirPlayPersistence
+import moe.feng.wheelplay.AirPlayPersistence
 import com.shilapi.xcertplay.projection.*
 import moe.feng.wheelplay.plugin.*
 import java.util.UUID

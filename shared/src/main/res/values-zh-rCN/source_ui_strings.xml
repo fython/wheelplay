@@ -1,0 +1,32 @@
+<resources>
+    <string name="source_tools">更多工具</string>
+    <string name="source_carlink_brief">连接支持 CarLink 的手机</string>
+    <string name="source_desktop_brief">在独立桌面中运行本机应用</string>
+    <string name="source_home_selection">首页选择：%1$s</string>
+    <string name="source_current_session">当前会话：%1$s · %2$s</string>
+    <string name="source_home_default">首页默认</string>
+    <string name="source_install_required">需安装插件</string>
+    <string name="source_update_required">需更新插件</string>
+    <string name="source_enable_required">未启用</string>
+    <string name="source_setup_required">待设置</string>
+    <string name="source_needs_attention">需要处理</string>
+    <string name="source_ready">可连接</string>
+    <string name="source_idle">未连接</string>
+    <string name="source_no_plugins">尚未安装插件</string>
+    <string name="source_plugin_empty_hint">从可信开发者处安装兼容插件，再回到这里启用。</string>
+    <string name="source_install_help">如何安装插件</string>
+    <string name="source_plugin_install_steps">从插件开发者处获取兼容的 APK，通过 Android 完成安装。返回 WheelPlay 刷新列表，打开插件设置完成配置和授权，再启用并连接。</string>
+    <string name="source_plugin_capabilities">设置与能力说明</string>
+    <string name="source_plugin_enable_hint">启用此插件后即可连接。</string>
+    <string name="source_plugin_manage">管理插件</string>
+    <string name="source_connection_help">连接说明与限制</string>
+    <string name="source_connection_method">连接方式</string>
+    <string name="source_aa_local">本机</string>
+    <string name="source_aa_usb">USB</string>
+    <string name="source_aa_network">网络</string>
+    <string name="source_aa_local_brief">投影本机 Android Auto，首次使用需完成设置。</string>
+    <string name="source_aa_network_brief">通过 IP 地址连接另一台手机的车机服务器。</string>
+    <string name="source_aa_usb_help">声音由本设备播放；麦克风使用 Android 麦克风设置，暂不支持浏览器麦克风。</string>
+    <string name="source_vnc_brief">连接局域网或 VPN 中已有的 VNC 服务器。</string>
+    <string name="source_vnc_help">操作方式与连接要求</string>
+</resources>

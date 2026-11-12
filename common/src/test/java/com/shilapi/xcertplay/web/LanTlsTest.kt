@@ -1,7 +1,7 @@
 package com.shilapi.xcertplay.web
 
-import com.shilapi.xcertplay.MfiAssetStore
-import com.shilapi.xcertplay.SyntheticMfiIdentity
+import moe.feng.wheelplay.MfiAssetStore
+import moe.feng.wheelplay.SyntheticMfiIdentity
 import org.bouncycastle.asn1.x500.X500Name
 import org.bouncycastle.asn1.x509.BasicConstraints
 import org.bouncycastle.asn1.x509.Extension

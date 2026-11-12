@@ -54,7 +54,7 @@ class AndroidDesktopSourceTest {
     private val output = object : ProjectionVideoOutput {
         override val surface = Surface(SurfaceTexture(0))
         override var hasFrame = false
-        override val hasPublishedFrame get() = hasFrame
+        override var hasPublishedFrame = false
         override fun configure(codec: VideoCodec, codecData: ByteArray, requestKeyframe: () -> Unit) = error("Surface only")
         override fun frame(formatRevision: Long, frame: CompressedVideoFrame, ptsUs: Long) = false
         override fun framebuffer(snapshot: ProjectionFramebuffer.Snapshot) = false
@@ -65,9 +65,26 @@ class AndroidDesktopSourceTest {
     private fun ready(session: ProjectionSession) {
         assertTrue(started.await(3, TimeUnit.SECONDS))
         output.hasFrame = true
+        output.hasPublishedFrame = true
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
         while (!session.inputReady && System.nanoTime() < deadline) Thread.yield()
         assertTrue(session.inputReady)
+    }
+    @Test fun inputWaitsForBrowserImagePublicationButCancellationRemainsAvailable() {
+        val session = source().open().get()
+        try {
+            session.activate()
+            assertTrue(started.await(3, TimeUnit.SECONDS))
+            output.hasFrame = true
+            assertFalse(session.inputReady)
+            assertFalse(session.touch(listOf(ProjectionContact(0, .5, .5, true))))
+            assertFalse(session.input(ProjectionInput.Key("BrowserBack", true)))
+            assertTrue(session.cancelInput(ProjectionCancelReason.FOCUS_LOST))
+            ready(session)
+            assertTrue(session.touch(listOf(ProjectionContact(0, .5, .5, true))))
+            assertTrue(firstTouch.await(3, TimeUnit.SECONDS))
+            assertTrue(events.contains("cancel"))
+        } finally { session.stop().get(3, TimeUnit.SECONDS) }
     }
     @Test fun independentCancellationDoesNotSendAnUpSnapshotOrBack() {
         val session = source().open().get()
@@ -222,6 +239,18 @@ class AndroidDesktopSourceTest {
         assertTrue(provider.lastError!!.diagnostic.contains("permission revoked"))
         assertFalse(provider.lastFailure!!.contains("permission revoked"))
         assertEquals(listOf("release-display", "release-surface"), events.takeLast(2))
+    }
+
+    @Test fun revokedAuthorizationRetainsPermissionFailureCategory() {
+        val provider = source()
+        val session = provider.open().get()
+        session.activate(); ready(session)
+        available = SourceAvailability.Unavailable("permission revoked",
+            ProjectionFailure(ProjectionErrorCategory.PERMISSION, "permission revoked", "shizuku"))
+        assertTrue(finished.await(3, TimeUnit.SECONDS))
+        session.stop().get(3, TimeUnit.SECONDS)
+        assertEquals(DesktopErrorCode.PERMISSION_DENIED, provider.lastError!!.category)
+        assertEquals(ProjectionErrorCategory.PERMISSION, session.state.failure!!.category)
     }
 
     @Test fun failedVideoConstructorCleanupCannotReleaseRuntimeOwnership() {

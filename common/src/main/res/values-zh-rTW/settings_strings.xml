@@ -25,8 +25,8 @@
     <string name="settings_display_effect">晝夜模式、圖片格式與品質立即生效；其他畫面或串流引數修改後會重新連線。</string>
     <string name="settings_audio_effect">音訊輸出立即生效；修改麥克風來源會重新連線。</string>
     <string name="settings_next_connection">修改後在下次連線 iPhone 生效。</string>
-    <string name="settings_diplay_title">本專案基於 DiPlay 修改</string>
-    <string name="settings_diplay_description">如果車機可以直接安裝任意 Android 應用程式，可以嘗試直接使用 DiPlay 以獲得更佳的體驗。本專案旨在透過瀏覽器提供無侵入 CarPlay 支援。</string>
+    <string name="settings_upstream_title">本專案基於 DiPlay 修改</string>
+    <string name="settings_upstream_description">如果車機可以直接安裝任意 Android 應用程式，可以嘗試直接使用 DiPlay 以獲得更佳的體驗。本專案旨在透過瀏覽器提供無侵入 CarPlay 支援。</string>
     <string name="settings_auth_missing_summary">尚未配置有效資源 · 匯入後可啟動 CarPlay</string>
     <string name="settings_save">儲存</string>
     <string name="settings_cancel">取消</string>
@@ -83,7 +83,7 @@
     <string name="settings_right_hand">右舵佈局</string>
     <string name="settings_right_hand_description">將 CarPlay 控制項移到右側。</string>
     <string name="settings_safe_area_preview">畫面安全區域預覽</string>
-    <string name="settings_safe_area_hint" formatted="false">高亮區域為 CarPlay 佈局區域。每邊 0–40%，0 表示不留白。</string>
+    <string name="settings_safe_area_hint" formatted="false">拖曳邊界或輸入百分比。每邊 0–40%，0 表示不留白。儲存後生效，已連線的 CarPlay 將重新連線。</string>
     <string name="settings_margin_top">上邊留白</string>
     <string name="settings_margin_bottom">下邊留白</string>
     <string name="settings_margin_left">左邊留白</string>
@@ -152,8 +152,8 @@
     <string name="settings_auth_description">開源安裝包不包含認證資源。可選擇現有的兩份檔案，或下載 DiPlay 官網 APK 後在此匯入，無需安裝 DiPlay。</string>
     <string name="settings_import_apk">從 DiPlay APK 匯入</string>
     <string name="settings_import_files">手動選擇認證資源</string>
-    <string name="settings_diplay_download">DiPlay 官網下載</string>
-    <string name="settings_diplay_download_description">下載 APK 後返回匯入，或分享給 WheelPlay</string>
+    <string name="settings_upstream_download">DiPlay 官網下載</string>
+    <string name="settings_upstream_download_description">下載 APK 後返回匯入，或分享給 WheelPlay</string>
     <string name="settings_auth_storage">僅提取認證資源並儲存在此裝置的應用私有目錄，不上傳。匯入結束後刪除臨時 APK；解除安裝 WheelPlay 將刪除已匯入資源。</string>
     <string name="settings_import_files_title">選擇兩份匹配的資源</string>
     <string name="settings_import_files_message">先選擇 identity.pk8（PKCS#8 私密金鑰），再選擇 certificate.p7b（P-256 憑證）。兩份檔案必須來自同一套資源；取消或校驗失敗不會替換原有資源。</string>
@@ -200,4 +200,8 @@
     <string name="settings_image_quality">圖片品質（1–100）</string>
     <string name="settings_image_quality_description">預設 75。數值越高，細節越多，通常也更占頻寬；JPEG 與 WebP 的相同數值不代表相同畫質。儲存後靜態畫面也會重新整理，不影響 WebRTC 視訊品質。</string>
     <string name="settings_image_quality_invalid">請輸入 1 到 100 之間的整數。</string>
+    <string name="settings_safe_area_legacy_edit" formatted="false">此設定來自舊版像素配置。編輯並儲存後將依預覽轉換為整數百分比（每邊 0–40%）；取消會保留原設定。</string>
+    <string name="settings_safe_area_increase">%1$s增加 1%%</string>
+    <string name="settings_safe_area_decrease">%1$s減少 1%%</string>
+    <string name="settings_safe_area_slot">解析度：%1$d × %2$d · 獨立儲存</string>
 </resources>
