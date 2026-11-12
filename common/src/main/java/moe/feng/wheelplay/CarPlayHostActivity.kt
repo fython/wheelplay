@@ -1023,6 +1023,7 @@ class CarPlayHostActivity : ComponentActivity() {
             savePairRecord = { record -> AirPlayPersistence.saveLockdownRecord(this, record) },
             clearPairRecord = { AirPlayPersistence.clearLockdownRecord(this) },
             locationProvider = locationProvider,
+            requestHostUi = WebSession::requestSettings,
         )
         controller = next
         CarPlayBackgroundSession.store(next, renderer, size.width, size.height, this) { completion ->

@@ -10,14 +10,35 @@
 <script type="module" src="/app.js"></script>
 </head>
 <body>
-<header id="topbar"><a class="brand" href="/">WheelPlay</a><div id="status" role="status" aria-live="polite">{{ui_waiting_for_connection}}</div><nav><button id="fullscreen" type="button">{{web_full_screen}}</button><button id="disconnect" type="button" hidden>{{web_disconnect}}</button></nav></header>
-<main>
+<header id="topbar"><a class="brand" href="/">WheelPlay</a><div id="status" role="status" aria-live="polite">{{ui_waiting_for_connection}}</div><nav><button id="fullscreen" type="button">{{web_full_screen}}</button></nav></header>
+<main id="main-content">
 <section id="pairing" aria-labelledby="title">
 <div class="eyebrow">{{web_local_network_head_unit_display}}</div>
 <h1 id="title">{{web_connect_your_carplay_display}}</h1>
-<p id="pair-instructions">{{web_for_the_first_connection_tap_scan_qr_code_to}}<br class="wide">{{web_then_scan_the_qr_code_below_and_allow_the}}</p>
-<label class="launch-option" for="hide-toolbar"><input id="hide-toolbar" type="checkbox"><span><strong>{{web_hide_top_bar_after_connecting}}</strong><small>{{web_let_carplay_fill_the_page_refresh_to_return_to}}</small></span></label>
-<label class="launch-option" for="fullscreen-on-start"><input id="fullscreen-on-start" type="checkbox"><span><strong>{{web_hide_top_bar_enter_full_screen_on_start}}</strong><small>{{web_enter_full_screen_when_starting_and_hide_the_top}}</small></span></label>
+<div class="pairing-layout">
+<div class="pairing-panel">
+<div id="remembered-device" role="status" hidden><strong id="device-name"></strong><p id="device-status">{{web_pairing_restored_choose_the_options_above_then_tap_start}}</p></div>
+<div class="qr-pairing" id="qr-pairing">
+<div class="qr-image"><img id="pair-qr" width="240" height="240" alt="{{web_head_unit_pairing_qr_code}}" hidden></div>
+<h2>{{web_scan_to_connect_the_head_unit}}</h2>
+<p id="pair-instructions">{{web_for_the_first_connection_tap_scan_qr_code_to}} {{web_then_scan_the_qr_code_below_and_allow_the}}</p>
+<p id="qr-status" role="status" aria-live="polite">{{web_generating_qr_code}}</p><button id="refresh-qr" type="button">{{web_refresh_qr_code}}</button>
+</div>
+<form id="connect-form"><fieldset id="code-entry"><legend>{{web_six_digit_pairing_code_on_the_device}}</legend>
+<div class="pin-inputs" id="pin-inputs"><input id="code-digit-1" class="pin-digit" type="text" inputmode="none" readonly aria-controls="pairing-keypad" aria-expanded="false" pattern="[0-9]" maxlength="6" autocomplete="one-time-code" aria-label="{{web_six_digit_pairing_code_on_the_device}} · 1 / 6" required>
+<input id="code-digit-2" class="pin-digit" type="text" inputmode="none" readonly aria-controls="pairing-keypad" aria-expanded="false" pattern="[0-9]" maxlength="6" autocomplete="off" aria-label="{{web_six_digit_pairing_code_on_the_device}} · 2 / 6" required>
+<input id="code-digit-3" class="pin-digit" type="text" inputmode="none" readonly aria-controls="pairing-keypad" aria-expanded="false" pattern="[0-9]" maxlength="6" autocomplete="off" aria-label="{{web_six_digit_pairing_code_on_the_device}} · 3 / 6" required>
+<input id="code-digit-4" class="pin-digit" type="text" inputmode="none" readonly aria-controls="pairing-keypad" aria-expanded="false" pattern="[0-9]" maxlength="6" autocomplete="off" aria-label="{{web_six_digit_pairing_code_on_the_device}} · 4 / 6" required>
+<input id="code-digit-5" class="pin-digit" type="text" inputmode="none" readonly aria-controls="pairing-keypad" aria-expanded="false" pattern="[0-9]" maxlength="6" autocomplete="off" aria-label="{{web_six_digit_pairing_code_on_the_device}} · 5 / 6" required>
+<input id="code-digit-6" class="pin-digit" type="text" inputmode="none" readonly aria-controls="pairing-keypad" aria-expanded="false" pattern="[0-9]" maxlength="6" autocomplete="off" aria-label="{{web_six_digit_pairing_code_on_the_device}} · 6 / 6" required></div>
+<input id="code" name="code" type="hidden">
+</fieldset><button class="primary" id="connect" type="submit"><span id="connect-label">{{web_pair_start_display}}</span> <!-- Google Material Icons: arrow_forward, Apache-2.0; docs/UPSTREAM.md. --><svg class="material-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/></svg></button></form>
+<p id="message" role="alert"></p>
+<footer>{{web_connect_the_device_and_head_unit_to_the_same}}<br>{{web_audio_and_microphone_use_android_by_default_enable_browser}}</footer>
+</div>
+<section class="setup-panel" aria-labelledby="setup-title">
+<h2 id="setup-title">{{ui_settings}}</h2>
+<div class="settings-list">
 <fieldset class="renderer-options"><legend>{{web_video_renderer_title}}</legend><div class="renderer-cards">
 <label id="renderer-native-card" class="renderer-card" for="renderer-native"><input id="renderer-native" type="radio" name="video-renderer" value="native" checked><span><strong>{{web_video_renderer_native}}</strong><small>{{web_video_renderer_native_description}}</small></span></label>
 <label id="renderer-video-canvas-card" class="renderer-card" for="renderer-video-canvas"><input id="renderer-video-canvas" type="radio" name="video-renderer" value="video-canvas"><span><strong>{{web_video_renderer_compat}}</strong><em>{{web_video_renderer_experimental}}</em><small>{{web_video_renderer_compat_description}}</small></span></label>
@@ -27,13 +48,38 @@
 <label class="launch-option" for="browser-location"><input id="browser-location" type="checkbox" autocomplete="off" aria-describedby="location-status"><span><strong>{{web_location_title}}</strong><small>{{web_location_help}}</small></span></label>
 <p id="location-status" class="hint" role="status" aria-live="polite"></p>
 <details class="secure-setup" id="secure-setup"><summary>{{web_browser_microphone_requires_https}}</summary><p>{{web_local_http_pages_cannot_request_microphone_permission_in_the}}</p><code id="tls-fingerprint">{{web_loading}}</code><div class="secure-links"><a href="/certificate.crt" download="wheelplay-certificate.crt">{{web_download_local_certificate}}</a><a id="https-entry" href="#">{{web_open_https_page}}</a></div><p id="tls-error" role="status"></p></details>
-<div id="remembered-device" role="status" hidden><strong id="device-name"></strong><p id="device-status">{{web_pairing_restored_choose_the_options_above_then_tap_start}}</p></div>
-<div class="qr-pairing" id="qr-pairing"><img id="pair-qr" width="240" height="240" alt="{{web_head_unit_pairing_qr_code}}" hidden><div><h2>{{web_scan_to_connect_the_head_unit}}</h2><p id="qr-status" role="status" aria-live="polite">{{web_generating_qr_code}}</p><button id="refresh-qr" type="button">{{web_refresh_qr_code}}</button></div></div>
-<form id="connect-form"><div id="code-entry"><p class="hint">{{web_you_can_also_enter_the_pairing_code}}</p><label for="code">{{web_six_digit_pairing_code_on_the_device}}</label><input id="code" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="off" placeholder="{{web_enter_pairing_code}}" required></div><button class="primary" id="connect" type="submit"><span id="connect-label">{{web_pair_start_display}}</span> <!-- Google Material Icons: arrow_forward, Apache-2.0; docs/UPSTREAM.md. --><svg class="material-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/></svg></button></form>
-<p id="message" role="alert"></p>
-<footer>{{web_connect_the_device_and_head_unit_to_the_same}}<br>{{web_audio_and_microphone_use_android_by_default_enable_browser}}</footer>
+</div>
+</section>
+</div>
+<div id="keypad-scroll-space" hidden aria-hidden="true"></div>
 </section>
 <section id="display" hidden aria-label="{{web_carplay_display}}">
+<dialog id="settings-dialog" aria-labelledby="settings-title">
+<div class="settings-heading"><h2 id="settings-title">{{ui_settings}}</h2><button id="settings-close" type="button" autofocus>{{ui_close}}</button></div>
+<label class="launch-option" for="settings-debug"><input id="settings-debug" type="checkbox"><span><strong>{{web_debug_title}}</strong><small>{{web_debug_help}}</small></span></label>
+<label class="launch-option" for="settings-ignore-browser-zoom"><input id="settings-ignore-browser-zoom" type="checkbox"><span><strong>{{web_ignore_browser_zoom}}</strong><small>{{web_ignore_browser_zoom_help}}</small></span></label>
+<label class="launch-option" for="settings-browser-location"><input id="settings-browser-location" type="checkbox" autocomplete="off" aria-describedby="settings-location-status"><span><strong>{{web_location_title}}</strong><small>{{web_location_help}}</small></span></label>
+<p id="settings-location-status" class="hint" role="status" aria-live="polite"></p>
+<div class="settings-actions"><button id="settings-fullscreen" type="button">{{web_full_screen}}</button><button id="settings-disconnect" type="button">{{web_disconnect}}</button></div>
+</dialog>
+<aside id="debug-overlay" aria-labelledby="debug-title" hidden>
+<h2 id="debug-title" class="sr-only">{{web_debug_title}}</h2>
+<dl class="debug-summary">
+<div title="{{web_debug_image_fps}}"><dt><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m12 12 4-4M5 16h14"/></svg><span class="sr-only">{{web_debug_image_fps}}</span></dt><dd id="debug-fps-summary">—</dd></div>
+<div id="debug-summary-latency" title="{{web_debug_image_ack}}"><dt><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span id="debug-latency-label" class="sr-only">{{web_debug_image_ack}}</span></dt><dd id="debug-latency">—</dd></div>
+<div title="{{web_debug_format}}"><dt><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m6 16 4-4 3 3 2-2 3 3"/><circle cx="8" cy="9" r="1"/></svg><span class="sr-only">{{web_debug_format}}</span></dt><dd id="debug-format">—</dd></div>
+</dl>
+<dl>
+<div><dt>{{web_debug_connection}}</dt><dd id="debug-connection">—</dd></div>
+<div><dt>{{web_debug_endpoint}}</dt><dd id="debug-endpoint">—</dd></div>
+<div><dt>{{web_debug_video}}</dt><dd id="debug-video">—</dd></div>
+<div id="debug-fps-row" hidden><dt id="debug-fps-label">{{web_debug_rtc_fps}}</dt><dd id="debug-fps">—</dd></div>
+<div><dt>{{web_debug_frames}}</dt><dd id="debug-frames">—</dd></div>
+<div><dt id="debug-decode-label">{{web_debug_image_decode}}</dt><dd id="debug-decode">—</dd></div>
+<div id="debug-buffer-row" hidden><dt>{{web_debug_buffer}}</dt><dd id="debug-buffer">—</dd></div>
+</dl>
+<p>{{web_debug_note}}</p>
+</aside>
 <img id="screen" alt="{{web_live_carplay_display}}" draggable="false" hidden>
 <img id="screen-next" alt="{{web_live_carplay_display}}" draggable="false" hidden>
 <img id="screen-third" alt="{{web_live_carplay_display}}" draggable="false" hidden>
@@ -47,6 +93,22 @@
 <div id="waiting" role="status"><strong>{{web_head_unit_connected}}</strong><p id="stage">{{web_waiting_for_iphone_video}}</p><button id="phone-connect" class="primary" type="button">{{ui_connect_iphone}}</button><p id="phone-connect-message" class="hint" aria-live="polite">{{web_uses_android_s_current_usb_wireless_connection_settings_for}}</p></div>
 </section>
 </main>
+<div id="pairing-keypad" popover="manual" role="dialog" aria-modal="false" aria-labelledby="keypad-title" hidden>
+<div class="keypad-heading"><strong id="keypad-title">{{web_keypad_title}}</strong><output id="keypad-code" aria-label="{{web_six_digit_pairing_code_on_the_device}}">· · · · · ·</output><button id="keypad-done" type="button">{{web_keypad_done}}</button></div>
+<div class="keypad-keys">
+<button id="keypad-1" type="button">1</button>
+<button id="keypad-2" type="button">2</button>
+<button id="keypad-3" type="button">3</button>
+<button id="keypad-4" type="button">4</button>
+<button id="keypad-5" type="button">5</button>
+<button id="keypad-6" type="button">6</button>
+<button id="keypad-7" type="button">7</button>
+<button id="keypad-8" type="button">8</button>
+<button id="keypad-9" type="button">9</button>
+<button id="keypad-clear" type="button">{{web_keypad_clear}}</button><button id="keypad-0" type="button">0</button><button id="keypad-delete" type="button" aria-label="{{web_keypad_delete}}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5h12v14H9l-7-7 7-7Z"/><path d="m12 9 6 6m0-6-6 6"/></svg></button>
+</div>
+</div>
+
 <noscript>{{web_enable_javascript_in_your_browser_settings_then_reload}}</noscript>
 </body>
 </html>

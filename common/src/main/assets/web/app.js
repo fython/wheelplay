@@ -42,6 +42,100 @@ export function pairingCodeFromUrl(search) {
   return /^[0-9]{6}$/.test(code) ? code : null;
 }
 
+// Six visible digits share one canonical value for the existing pairing API.
+export function createPairingCodeInput(inputs, value, { onChange = () => {}, onFocus = () => {}, onDismiss = () => {} } = {}) {
+  let active = 0, enabled = true;
+  const numbers = text => String(text || '').replace(/[^0-9]/g, '');
+  const complete = () => inputs.every(input => /^[0-9]$/.test(input.value));
+  const sync = () => { value.value = inputs.map(input => input.value).join(''); onChange(!enabled || complete()); };
+  const focus = index => { active = index; inputs[index].focus({ preventScroll: true }); inputs[index].select?.(); };
+  function fill(text, index = 0, advance = false) {
+    const digits = numbers(text).slice(0, 6);
+    if (digits.length === 6) index = 0;
+    for (let offset = 0; offset < digits.length && index + offset < inputs.length; offset++) {
+      inputs[index + offset].value = digits[offset];
+    }
+    sync();
+    if (advance && digits.length) focus(Math.min(5, index + digits.length));
+  }
+  function digit(text) { if (enabled && /^[0-9]$/.test(text)) fill(text, active, true); }
+  function backspace() {
+    if (!enabled) return;
+    if (!inputs[active].value && active > 0) active--;
+    inputs[active].value = ''; sync(); focus(active);
+  }
+  inputs.forEach((input, index) => {
+    input.addEventListener('focus', () => { active = index; input.select?.(); onFocus(index); });
+    input.addEventListener('click', () => onFocus(index));
+    input.addEventListener('input', () => {
+      const text = numbers(input.value);
+      input.value = '';
+      fill(text, index, true);
+    });
+    input.addEventListener('paste', event => {
+      const text = numbers(event.clipboardData?.getData('text'));
+      event.preventDefault();
+      if (text) fill(text, index, true);
+    });
+    input.addEventListener('keydown', event => {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      active = index;
+      if (/^[0-9]$/.test(event.key)) { event.preventDefault(); digit(event.key); return; }
+      if (event.key === 'Backspace') { event.preventDefault(); backspace(); return; }
+      if (event.key === 'Delete') { event.preventDefault(); input.value = ''; sync(); return; }
+      if (event.key === 'Escape') { event.preventDefault(); onDismiss(); return; }
+      let next = index;
+      if (event.key === 'ArrowLeft') next = Math.max(0, index - 1);
+      else if (event.key === 'ArrowRight') next = Math.min(5, index + 1);
+      else if (event.key === 'Home') next = 0;
+      else if (event.key === 'End') next = 5;
+      else return;
+      event.preventDefault(); focus(next);
+    });
+  });
+  const set = text => { inputs.forEach(input => { input.value = ''; }); fill(text); };
+  set(value.value);
+  return { set, digit, backspace, clear() { if (enabled) { set(''); focus(0); } },
+    focus() { focus(Math.max(0, inputs.findIndex(input => !/^[0-9]$/.test(input.value)))); },
+    get activeIndex() { return active; }, get complete() { return complete(); }, enabled(value) {
+    enabled = value;
+    inputs.forEach(input => { input.disabled = !enabled; input.required = enabled; });
+    sync();
+  } };
+}
+
+// Positions are in visual-viewport CSS coordinates, including pinch-zoom offsets.
+export function placePairingKeypad(anchor, viewport, size) {
+  const margin = 12, gap = 8;
+  const left = viewport.left + margin, top = viewport.top + margin;
+  const right = viewport.left + viewport.width - margin, bottom = viewport.top + viewport.height - margin;
+  if (size.width > right - left || size.height > bottom - top || anchor.top < top || anchor.bottom > bottom) return null;
+  const x = Math.max(left, Math.min(anchor.left, right - size.width));
+  const y = Math.max(top, Math.min(anchor.top, bottom - size.height));
+  if (anchor.bottom + gap + size.height <= bottom) return { left: x, top: anchor.bottom + gap, placement: 'below' };
+  if (anchor.top - gap - size.height >= top) return { left: x, top: anchor.top - gap - size.height, placement: 'above' };
+  if (anchor.right + gap + size.width <= right) return { left: anchor.right + gap, top: y, placement: 'right' };
+  if (anchor.left - gap - size.width >= left) return { left: anchor.left - gap - size.width, top: y, placement: 'left' };
+  return null;
+}
+
+// Browser-local measurements: committed images per rolling second and receive-to-decode time.
+export function createImageDebugStats(now = () => performance.now()) {
+  let started = now(), frames = [], decodeMs = null, totalFrames = 0;
+  return {
+    reset() { started = now(); frames = []; decodeMs = null; totalFrames = 0; },
+    frame(receivedAt) {
+      const at = now(); frames.push(at); totalFrames++;
+      if (frames.length > 240) frames.shift();
+      decodeMs = Number.isFinite(receivedAt) ? Math.max(0, at - receivedAt) : null;
+    },
+    sample() {
+      const at = now(); frames = frames.filter(frame => frame > at - 1000);
+      return { fps: at - started >= 1000 ? frames.length : null, decodeMs, totalFrames };
+    },
+  };
+}
+
 // Source availability, a committed picture and input readiness are independent.
 // Silence is normal for a static screen; only an explicit gap starts this deadline.
 export function createPresentationController({
@@ -509,7 +603,7 @@ export function createRtcReceiver(createRenderer, {
     const caps = RTCRtpReceiver.getCapabilities('video');
     return !caps || caps.codecs.some(c => c.mimeType.toLowerCase() === `video/${codec.toLowerCase()}`);
   },
-  schedule = setTimeout, cancel = clearTimeout, now = () => Date.now(),
+  schedule = setTimeout, cancel = clearTimeout, now = () => performance.now(),
 } = {}) {
   let renderer = null, track = null, previousStats = null, renderStalledSince = null, lastRendered = 0;
   let codec = 'H264';
@@ -590,6 +684,7 @@ export function createRtcReceiver(createRenderer, {
               presentedFps: presented !== null && previous?.presented !== null && elapsed ? Math.max(0, presented - previous.presented) * 1000 / elapsed : null,
               renderedFps: rendered !== null && previous?.rendered !== null && elapsed ? Math.max(0, rendered - previous.rendered) * 1000 / elapsed : null,
               renderedFrames: rendered,
+              presentedFrames: presented,
               decodeMs: averageMs('totalDecodeTime', 'framesDecoded'),
               jitterBufferMs: averageMs('jitterBufferDelay', 'jitterBufferEmittedCount'),
               processingMs: averageMs('totalProcessingDelay', 'framesDecoded'),
@@ -680,16 +775,130 @@ import { createBrowserMediaSession } from './browser-media-session.js';
 
 if (typeof document !== 'undefined') {
   const $ = id => document.getElementById(id);
+  const pinDigits = Array.from({ length: 6 }, (_, index) => $(`code-digit-${index + 1}`));
+  const keypad = $('pairing-keypad');
+  keypad.hidden = true;
+  let keypadFrame = null, keypadNeedsReveal = false, suppressKeypadFocus = false;
+  const pairingCode = createPairingCodeInput(pinDigits, $('code'), {
+    onChange(valid) {
+      // Readonly fields suppress platform keyboards. Keep native form validation on
+      // the submit button, which cannot summon a platform keyboard when invalid.
+      $('connect').setCustomValidity?.(valid ? '' : t('web_pairing_code_incomplete'));
+      $('keypad-code').textContent = pinDigits.map(input => input.value || '·').join(' ');
+      if (valid && $('message').textContent === t('web_pairing_code_incomplete')) $('message').textContent = '';
+    },
+    onFocus(index) { if (!suppressKeypadFocus) openPinKeypad(index); },
+    onDismiss: closePinKeypad,
+  });
+  function clearPinKeypadSpace() {
+    $('keypad-scroll-space').hidden = true;
+    document.body?.classList.toggle('pin-keypad-open', false);
+  }
+  function closePinKeypad(keepScrollSpace = false) {
+    if (keypadFrame !== null) cancelAnimationFrame(keypadFrame);
+    keypadFrame = null; keypadNeedsReveal = false;
+    try { keypad.hidePopover?.(); } catch (_) {}
+    keypad.hidden = true;
+    if (!keepScrollSpace) clearPinKeypadSpace();
+    pinDigits.forEach(input => { input.setAttribute('aria-expanded', 'false'); input.classList?.toggle('keypad-active', false); });
+  }
+  function positionPinKeypad(reveal = false) {
+    if (keypad.hidden) return;
+    const visual = window.visualViewport;
+    const visible = { left: visual?.offsetLeft || 0, top: visual?.offsetTop || 0,
+      width: visual?.width || window.innerWidth, height: visual?.height || window.innerHeight };
+    const content = $('main-content').getBoundingClientRect();
+    const viewport = { left: Math.max(visible.left, content.left), top: Math.max(visible.top, content.top) };
+    viewport.width = Math.min(visible.left + visible.width, content.right) - viewport.left;
+    viewport.height = Math.min(visible.top + visible.height, content.bottom) - viewport.top;
+    const anchor = $('pin-inputs');
+    let rect = anchor.getBoundingClientRect();
+    keypad.style.width = `${Math.max(1, Math.min(304, viewport.width - 24))}px`;
+    keypad.style.maxHeight = `${Math.max(1, viewport.height - 24)}px`;
+    const keyHeight = Math.max(28, Math.min(48, Math.floor((viewport.height - rect.height - 24 - 8 - 98) / 4)));
+    keypad.style.setProperty('--keypad-key-height', `${keyHeight}px`);
+    const size = keypad.getBoundingClientRect();
+    let position = placePairingKeypad(rect, viewport, size);
+    if (!position) {
+      // Let users scroll away from the field without fighting their scroll gesture.
+      if (!reveal) { closePinKeypad(true); return; }
+      const spacer = $('keypad-scroll-space');
+      spacer.style.height = `${size.height + rect.height + 32}px`; spacer.hidden = false;
+      $('main-content').scrollTop += rect.top - viewport.top - 12;
+      rect = anchor.getBoundingClientRect();
+      position = placePairingKeypad(rect, viewport, size);
+    }
+    // Extremely short viewports retain a scrollable keypad and a visible copy of
+    // all six digits in its header, even when both full controls cannot fit.
+    position ||= { left: Math.max(viewport.left + 12, Math.min(rect.left, viewport.left + viewport.width - size.width - 12)),
+      top: viewport.top + viewport.height - size.height - 12, placement: 'compact' };
+    keypad.style.left = `${position.left}px`; keypad.style.top = `${position.top}px`;
+    keypad.dataset.placement = position.placement;
+  }
+  function schedulePinKeypad(event) {
+    keypadNeedsReveal ||= event?.type === 'resize';
+    if (keypad.hidden || keypadFrame !== null) return;
+    keypadFrame = requestAnimationFrame(() => {
+      keypadFrame = null; const reveal = keypadNeedsReveal; keypadNeedsReveal = false; positionPinKeypad(reveal);
+    });
+  }
+  function openPinKeypad(index) {
+    if ($('code-entry').hidden || pinDigits[index].disabled) return;
+    pinDigits.forEach((input, slot) => { input.setAttribute('aria-expanded', 'true'); input.classList?.toggle('keypad-active', slot === index); });
+    if (keypad.hidden) {
+      keypad.hidden = false;
+      document.body?.classList.toggle('pin-keypad-open', true);
+      try { keypad.showPopover?.(); } catch (_) {}
+    }
+    positionPinKeypad(true);
+  }
+  for (let digit = 0; digit <= 9; digit++) $('keypad-' + digit).addEventListener('click', () => pairingCode.digit(String(digit)));
+  $('keypad-delete').addEventListener('click', () => pairingCode.backspace());
+  $('keypad-clear').addEventListener('click', () => pairingCode.clear());
+  $('keypad-done').addEventListener('click', () => {
+    closePinKeypad(); suppressKeypadFocus = true;
+    pinDigits[pairingCode.activeIndex].focus({ preventScroll: true }); suppressKeypadFocus = false;
+  });
+  keypad.addEventListener('pointerdown', event => { if (event.target.closest('button')) event.preventDefault(); });
+  keypad.addEventListener('keydown', event => {
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    if (/^[0-9]$/.test(event.key)) { event.preventDefault(); pairingCode.digit(event.key); }
+    else if (event.key === 'Backspace') { event.preventDefault(); pairingCode.backspace(); }
+  });
+  document.addEventListener('pointerdown', event => {
+    if (!keypad.hidden && !keypad.contains(event.target) && !pinDigits.includes(event.target)) closePinKeypad(true);
+  });
+  document.addEventListener('click', () => { if (keypad.hidden) clearPinKeypadSpace(); });
+  document.addEventListener('keyup', () => { if (keypad.hidden) clearPinKeypadSpace(); });
+  document.addEventListener('focusin', event => {
+    if (!keypad.hidden && !keypad.contains(event.target) && !pinDigits.includes(event.target)) closePinKeypad(true);
+  });
+  document.addEventListener('keydown', event => { if (event.key === 'Escape' && !keypad.hidden) { event.preventDefault(); closePinKeypad(); } });
+  $('main-content').addEventListener('scroll', schedulePinKeypad, { passive: true });
+  window.addEventListener('resize', schedulePinKeypad);
+  for (const event of ['resize', 'scroll']) window.visualViewport?.addEventListener(event, schedulePinKeypad);
+  $('connect').addEventListener('invalid', event => {
+    event.preventDefault(); $('message').textContent = t('web_pairing_code_incomplete'); pairingCode.focus();
+  });
   const screen = $('screen');
   const screens = [screen, $('screen-next'), $('screen-third')];
   const heldFrame = $('held-frame');
   let video = null;
   const canvas = $('video-canvas');
   const display = $('display');
+  const settingsDialog = $('settings-dialog');
   const touchSurface = $('touch-surface');
   // Read-only diagnostic snapshots; counters never include pairing credentials or video payloads.
   const rendererStats = { selectedMode: 'native', activeMode: 'waiting', renderedFps: null, renderedFrames: null, fallbackReason: null };
   const performanceStats = { source: null, transport: null, receiver: null, image: null, presentation: rendererStats };
+  const imageDebugStats = createImageDebugStats();
+  let debugRevision = null;
+  const debugOption = $('settings-debug');
+  try { debugOption.checked = window.localStorage.getItem('wheelplay.debugOverlay') === 'true'; } catch (_) {}
+  debugOption.addEventListener('change', () => {
+    try { window.localStorage.setItem('wheelplay.debugOverlay', String(debugOption.checked)); } catch (_) {}
+    renderDebug();
+  });
   const webpSupport = probeWebp();
   Object.defineProperty(window, 'wheelplayStats', { configurable: true, get: () => JSON.parse(JSON.stringify(performanceStats)) });
   let rtc = null, rtcRequested = false, rtcFps = null;
@@ -700,13 +909,19 @@ if (typeof document !== 'undefined') {
   let launchPresentation = null;
   const locationOption = $('browser-location');
   locationOption.checked = false; // Never inherit form restoration or grant consent through storage.
+  $('settings-browser-location').checked = false;
   const browserLocation = createBrowserLocation({ send: data => send(data), onState(enabled, message, key) {
     locationOption.checked = enabled;
+    $('settings-browser-location').checked = enabled;
     $('location-status').textContent = message;
+    $('settings-location-status').textContent = message;
     $('location-message').textContent = message;
     $('location-message').hidden = !message || ['web_location_ready', 'web_location_active'].includes(key);
   } });
   locationOption.addEventListener('change', () => { void browserLocation.setEnabled(locationOption.checked); });
+  $('settings-browser-location').addEventListener('change', () => {
+    void browserLocation.setEnabled($('settings-browser-location').checked);
+  });
   const devicePreference = 'wheelplay.browserDevice';
   let pairingToken = null, qrGeneration = 0, qrTimer = null, qrRequest = null;
   let viewportReportTimer = null, lastViewportSignature = '';
@@ -728,9 +943,15 @@ if (typeof document !== 'undefined') {
       for (const name of ['left', 'top', 'width', 'height', 'transform']) display.style.removeProperty(name);
     }
   }
-  ignoreZoomOption.addEventListener('change', () => {
+  function updateIgnoreZoom() {
+    $('settings-ignore-browser-zoom').checked = ignoreZoomOption.checked;
     try { window.localStorage.setItem(ignoreZoomPreference, String(ignoreZoomOption.checked)); } catch (_) {}
     release(); syncDisplayZoom(); scheduleViewportReport();
+  }
+  ignoreZoomOption.addEventListener('change', updateIgnoreZoom);
+  $('settings-ignore-browser-zoom').addEventListener('change', () => {
+    ignoreZoomOption.checked = $('settings-ignore-browser-zoom').checked;
+    updateIgnoreZoom();
   });
   const presentation = createPresentationController({ onChange: renderPresentation });
   const jpeg = createJpegPresenter(screens, {
@@ -738,6 +959,8 @@ if (typeof document !== 'undefined') {
       if (meta.width && (meta.width !== frameWidth || meta.height !== frameHeight)) return false;
       if (!presentation.present(meta, frameWidth, frameHeight, 'jpeg', meta.revision)) return false;
       width = frameWidth; height = frameHeight;
+      imageDebugStats.frame(meta.receivedAt);
+      renderDebug();
       clearHeldFrame(); return true;
     },
     onError: meta => {
@@ -806,10 +1029,12 @@ if (typeof document !== 'undefined') {
     }
   } catch (_) {}
   function showPairingReady(name = t("web_browser_paired")) {
+    closePinKeypad();
     $('remembered-device').hidden = false;
     $('device-name').textContent = name;
     $('qr-pairing').hidden = true; $('pair-instructions').hidden = true;
     $('code-entry').hidden = true; $('code').required = false; $('code').disabled = true;
+    pairingCode.enabled(false);
     $('connect-label').textContent = t("web_start_display");
     $('connect').disabled = false;
     $('status').textContent = t("web_paired_ready_to_start"); $('message').textContent = '';
@@ -818,6 +1043,7 @@ if (typeof document !== 'undefined') {
     $('remembered-device').hidden = true;
     $('qr-pairing').hidden = false; $('pair-instructions').hidden = false;
     $('code-entry').hidden = false; $('code').required = true; $('code').disabled = false;
+    pairingCode.enabled(true);
     $('connect-label').textContent = t("web_pair_start_display");
     $('connect').disabled = false;
   }
@@ -867,7 +1093,7 @@ if (typeof document !== 'undefined') {
       }
     }
     if (linkedCode) {
-      $('code').value = linkedCode;
+      pairingCode.set(linkedCode);
       try {
         const result = await pairApi('code', { code: linkedCode });
         if (generation !== authGeneration) return;
@@ -1012,11 +1238,25 @@ if (typeof document !== 'undefined') {
       ? { type: 'touch', contacts: [] }
       : { type: 'input', kind: 'release' });
   }
+  function openSettings() {
+    if (display.hidden || settingsDialog.open) return;
+    release();
+    $('settings-ignore-browser-zoom').checked = ignoreZoomOption.checked;
+    settingsDialog.showModal();
+    presentation.refresh();
+  }
+  $('settings-close').addEventListener('click', () => settingsDialog.close());
+  settingsDialog.addEventListener('close', () => presentation.refresh());
+  $('settings-fullscreen').addEventListener('click', toggleFullscreen);
+  $('settings-disconnect').addEventListener('click', () => disconnect());
   function renderPresentation(value) {
+    if (debugRevision !== value.revision) {
+      debugRevision = value.revision; imageDebugStats.reset(); performanceStats.receiver = null;
+    }
     if (value.revision !== desktopRevision) {
       desktop.release(false); desktopRevision = value.revision;
     }
-    live = value.interactive;
+    live = value.interactive && !settingsDialog.open;
     for (const surface of [...screens, video, canvas, heldFrame].filter(Boolean)) surface.classList.toggle('stale', !value.visible);
     touchSurface.classList.toggle('stale', !live);
     $('waiting').hidden = value.visible;
@@ -1032,6 +1272,41 @@ if (typeof document !== 'undefined') {
         t('web_video_input_unavailable', transport) : t('web_connected_waiting_for_iphone_video');
     $('media-message').hidden = !value.visible || value.interactive;
     $('media-message').textContent = value.visible && !value.interactive ? $('status').textContent : '';
+    renderDebug();
+  }
+  function renderDebug() {
+    const enabled = debugOption.checked && !display.hidden;
+    $('debug-overlay').hidden = !enabled;
+    display.classList.toggle('debug-visible', enabled);
+    if (!enabled) return;
+    const current = presentation.current, showing = current.state === 'showing';
+    const isRtc = current.frame?.transport === 'rtc';
+    const receiver = showing && isRtc ? performanceStats.receiver : null;
+    const image = imageDebugStats.sample();
+    const number = (value, suffix = '') => Number.isFinite(value) && value >= 0 ? `${value.toFixed(1)}${suffix}` : '—';
+    $('debug-connection').textContent = $('status').textContent;
+    $('debug-endpoint').textContent = `${location.protocol === 'https:' ? 'WSS' : 'WS'} · ${location.host}`;
+    $('debug-video').textContent = current.frame
+      ? `${current.frame.width} × ${current.frame.height}${isRtc ? ` · WebRTC / ${rendererStats.activeMode}` : ''}` : '—';
+    $('debug-format').textContent = current.frame
+      ? isRtc ? rtc?.codec === 'H265' ? 'HEVC' : rtc?.codec === 'H264' ? 'H.264' : '—' : current.frame.mime === 'image/webp' ? 'WebP' : 'JPEG' : '—';
+    const presentedFps = launchMode === 'native' ? receiver?.presentedFps : receiver?.renderedFps;
+    $('debug-fps-summary').textContent = number(showing ? isRtc ? presentedFps : image.fps : null, ' fps');
+    $('debug-fps-row').hidden = !isRtc;
+    $('debug-fps-label').textContent = t(isRtc ? 'web_debug_rtc_fps' : 'web_debug_image_fps');
+    $('debug-fps').textContent = isRtc
+      ? `${number(receiver?.receivedFps)} / ${number(receiver?.decodedFps)} / ${number(launchMode === 'native' ? receiver?.presentedFps : receiver?.renderedFps)} fps`
+      : number(showing ? image.fps : null, ' fps');
+    const totalFrames = isRtc ? launchMode === 'native' ? receiver?.presentedFrames : receiver?.renderedFrames : showing ? image.totalFrames : null;
+    $('debug-frames').textContent = Number.isSafeInteger(totalFrames) && totalFrames >= 0 ? String(totalFrames) : '—';
+    $('debug-latency-label').textContent = t(isRtc ? 'web_debug_rtt' : 'web_debug_image_ack');
+    $('debug-summary-latency').title = $('debug-latency-label').textContent;
+    const ack = performanceStats.image?.lastAckMs;
+    $('debug-latency').textContent = number(isRtc ? receiver?.rttMs : showing && ack > 0 ? ack : null, ' ms');
+    $('debug-decode-label').textContent = t(isRtc ? 'web_debug_decode' : 'web_debug_image_decode');
+    $('debug-decode').textContent = number(isRtc ? receiver?.decodeMs : showing ? image.decodeMs : null, ' ms');
+    $('debug-buffer-row').hidden = !isRtc;
+    $('debug-buffer').textContent = number(receiver?.jitterBufferMs, ' ms');
   }
   function clearHeldFrame() {
     heldFrame.hidden = true; heldFrame.width = heldFrame.height = 0;
@@ -1053,13 +1328,14 @@ if (typeof document !== 'undefined') {
     if (rtc) rtc.close(); rtc = null; rtcRequested = false; rtcFps = null;
     video = null;
     performanceStats.source = performanceStats.transport = performanceStats.receiver = performanceStats.image = null;
+    imageDebugStats.reset();
     rendererStats.activeMode = 'waiting';
   }
   function exitLaunchFullscreen() {
     try { Promise.resolve(document.exitFullscreen()).catch(() => {}); } catch (_) {}
   }
   function prepareLaunchPresentation() {
-    const presentation = { immersive: $('fullscreen-on-start').checked, ownsFullscreen: false, cancelled: false };
+    const presentation = { immersive: true, ownsFullscreen: false, cancelled: false };
     launchPresentation = presentation;
     if (!presentation.immersive || document.fullscreenElement || !document.documentElement?.requestFullscreen) return;
     presentation.ownsFullscreen = true;
@@ -1077,6 +1353,8 @@ if (typeof document !== 'undefined') {
     if (launchPresentation.ownsFullscreen && document.fullscreenElement) exitLaunchFullscreen();
   }
   function disconnect(refreshQr = true) {
+    closePinKeypad();
+    if (settingsDialog.open) settingsDialog.close();
     stopQr();
     authGeneration++;
     restoreLaunchPresentation();
@@ -1089,8 +1367,9 @@ if (typeof document !== 'undefined') {
     browserLocation.close();
     $('topbar').hidden = false; $('pairing').hidden = false; $('display').hidden = true;
     syncDisplayZoom();
-    $('disconnect').hidden = true; $('connect').disabled = false;
+    $('connect').disabled = false;
     $('status').textContent = t("web_disconnected");
+    renderDebug();
     if (refreshQr) initializePairing();
   }
   function connect() {
@@ -1139,6 +1418,7 @@ if (typeof document !== 'undefined') {
         onStop: reason => {
           if (socket !== ws) return;
           video = null; rtcFps = null; rendererStats.fallbackReason = reason; rendererStats.renderedFps = null;
+          performanceStats.receiver = null;
           presentation.invalidate('rtc');
         },
         onStats: (fps, metrics) => {
@@ -1151,11 +1431,12 @@ if (typeof document !== 'undefined') {
       $('message').textContent = '';
       $('phone-connect').disabled = false;
       $('phone-connect-message').textContent = t("web_keep_wheelplay_in_the_foreground_on_android_tap_connect");
-      $('pairing').hidden = true; $('display').hidden = false; $('disconnect').hidden = false;
-      $('topbar').hidden = $('hide-toolbar').checked || Boolean(launchPresentation?.immersive);
+      $('pairing').hidden = true; $('display').hidden = false;
+      $('topbar').hidden = true;
       lastViewportSignature = '';
       scheduleViewportReport();
       $('status').textContent = t("web_connected_waiting_for_video");
+      renderDebug();
       send({ type: 'ping' });
       clearInterval(heartbeat);
       heartbeat = setInterval(() => {
@@ -1170,6 +1451,7 @@ if (typeof document !== 'undefined') {
       if (socket !== ws || ws.readyState !== WebSocket.OPEN) return;
       if (typeof event.data === 'string') {
         const data = JSON.parse(event.data);
+        if (data.type === 'open-settings') { openSettings(); return; }
         if (browserMedia.receive(data)) return;
         if (browserAudio.control(data)) return;
         if (data.type === 'rtc-offer' || data.type === 'rtc-stop') {
@@ -1235,6 +1517,7 @@ if (typeof document !== 'undefined') {
       if (previousRevision !== presentation.current.revision) { rtc.close(); rtcRequested = false; }
       if (rtc?.active) { acknowledge(); return; }
       meta.revision = presentation.current.revision;
+      meta.receivedAt = performance.now();
       const payload = packet ? packet.jpeg : event.data;
       jpeg.load(payload instanceof ArrayBuffer ? new Blob([payload], { type: packet?.mime || 'image/jpeg' }) : payload, meta,
         () => socket === ws && ws.readyState === WebSocket.OPEN && !rtc?.active && presentation.current.revision === meta.revision,
@@ -1243,6 +1526,7 @@ if (typeof document !== 'undefined') {
     ws.onclose = () => {
       clearTimeout(connectTimer);
       if (socket !== ws) return;
+      if (settingsDialog.open) settingsDialog.close();
       if (outbox) { outbox.close(); outbox = null; }
       cancelMove();
       socket = null; pointers.clear(); desktop.release(false); pointerInput = false; keyboardInput = false; backButton = false; $('desktop-back').hidden = true;
@@ -1257,6 +1541,7 @@ if (typeof document !== 'undefined') {
       }
       $('status').textContent = t("web_connection_interrupted_retrying");
       $('stage').textContent = t("web_check_that_the_server_and_head_unit_are_still");
+      renderDebug();
       const generation = authGeneration;
       retry = setTimeout(async () => {
         if (deviceCredential) {
@@ -1276,6 +1561,10 @@ if (typeof document !== 'undefined') {
   }
   $('connect-form').addEventListener('submit', event => {
     event.preventDefault();
+    if (!pairingToken && !deviceCredential && !pairingCode.complete) {
+      $('message').textContent = t('web_pairing_code_incomplete'); pairingCode.focus(); return;
+    }
+    closePinKeypad();
     launchMode = selectedMode;
     const generation = ++authGeneration;
     prepareLaunchPresentation();
@@ -1316,20 +1605,26 @@ if (typeof document !== 'undefined') {
     $('phone-connect').disabled = true;
     $('phone-connect-message').textContent = t("web_requesting_iphone_connection");
   });
-  $('disconnect').addEventListener('click', () => disconnect());
-  $('fullscreen').addEventListener('click', async () => {
+  async function toggleFullscreen() {
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
-      else if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();
+      else if (document.documentElement.requestFullscreen) {
+        const launch = launchPresentation;
+        await document.documentElement.requestFullscreen();
+        if (launch && !launch.cancelled && launch === launchPresentation) launch.ownsFullscreen = true;
+        else if (launch?.cancelled && !launchPresentation?.immersive) exitLaunchFullscreen();
+      }
       else $('status').textContent = t("web_this_browser_does_not_support_full_screen");
     } catch (_) { $('status').textContent = t("web_use_the_browser_menu_to_toggle_full_screen"); }
-  });
+  }
+  $('fullscreen').addEventListener('click', toggleFullscreen);
   document.addEventListener('fullscreenchange', () => {
     $('fullscreen').textContent = document.fullscreenElement ? t("web_exit_full_screen") : t("web_full_screen");
-    if (!document.fullscreenElement && launchPresentation?.immersive) {
-      launchPresentation.immersive = false;
-      launchPresentation.ownsFullscreen = false;
-      $('topbar').hidden = false;
+    $('settings-fullscreen').textContent = $('fullscreen').textContent;
+    if (launchPresentation && !launchPresentation.cancelled) {
+      launchPresentation.immersive = Boolean(document.fullscreenElement);
+      if (!document.fullscreenElement) launchPresentation.ownsFullscreen = false;
+      $('topbar').hidden = paired && !display.hidden;
     }
     scheduleViewportReport();
   });
@@ -1383,7 +1678,7 @@ if (typeof document !== 'undefined') {
   window.addEventListener('pageshow', event => { if (event.persisted) initializePairing(); });
   const linkedCode = pairingCodeFromUrl(window.location?.search || '');
   if (linkedCode) {
-    $('code').value = linkedCode;
+    pairingCode.set(linkedCode);
     // Keep the short-lived code out of copied URLs and browser history entries.
     window.history?.replaceState(null, '', `${window.location.pathname}${window.location.hash}`);
   }

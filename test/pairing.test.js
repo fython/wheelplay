@@ -34,7 +34,7 @@ function fixture({ status = () => ok({ state: 'pending' }), stored = null, resum
         setItem(key, value) { if (storageDisabled) throw new Error('denied'); preferences.set(key, value); },
         removeItem(key) { preferences.delete(key); },
       },
-    }, location: { host: 'server:8080', href }, URL, Date, WebSocket: Socket,
+    }, location: { host: 'server:8080', href }, URL, Date, performance: { now: () => 0 }, WebSocket: Socket,
     setTimeout(fn, delay) { const id = ++nextTimer; timers.set(id, { fn, delay }); return id; },
     clearTimeout(id) { timers.delete(id); }, clearInterval() {},
     fetch: async (url, options) => {
@@ -63,11 +63,10 @@ test('QR approval remembers the browser and waits for the explicit launch button
   assert.equal(f.element('code').required, false);
   assert.equal(f.element('connect-label').textContent, '启动显示');
   assert.deepEqual(JSON.parse(f.preferences.get('wheelplay.browserDevice')), savedDevice);
-  f.element('hide-toolbar').checked = true; f.element('renderer-video-canvas').checked = true;
+  f.element('renderer-video-canvas').checked = true;
   f.submit(); await flush();
   assert.equal(f.sockets.length, 1);
   assert.equal(f.sockets[0].url, 'ws://server:8080/stream?token=resumed-token&media=2&images=3&nowPlaying=1');
-  assert.equal(f.element('hide-toolbar').checked, true);
   assert.equal(f.element('renderer-video-canvas').checked, true);
   assert.equal(f.requests.some(r => r.url.endsWith('/cancel')), false);
 });

@@ -21,6 +21,42 @@ import javax.net.ssl.HttpsURLConnection
 @RunWith(org.robolectric.RobolectricTestRunner::class)
 @org.robolectric.annotation.Config(qualifiers = "zh-rCN", sdk = [29])
 class LanWebServerTest {
+    @Test fun settingsRequestUsesThePairedSocketWithoutReplayingOnReconnect() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        val server = LanWebServer(context, "123456", port = 0)
+        server.start()
+        val port = server.listeningPort
+        val host = "127.0.0.1:$port"
+        val token = server.pairing.issueToken()!!
+        fun awaitViewer(expected: Boolean) {
+            val until = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+            while (server.hasViewer != expected && System.nanoTime() < until) Thread.sleep(5)
+            assertEquals(expected, server.hasViewer)
+        }
+        try {
+            server.requestSettings() // No viewer: the event is not retained.
+            handshake("", "http://$host", token, host, port).use { client ->
+                assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                awaitViewer(true)
+                server.requestSettings()
+                var type: String
+                do { type = org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).getString("type") }
+                    while (type != "open-settings")
+            }
+            awaitViewer(false)
+            handshake("", "http://$host", token, host, port).use { client ->
+                assertTrue(readHeaders(client).startsWith("HTTP/1.1 101"))
+                awaitViewer(true)
+                text(client, "{\"type\":\"ping\"}")
+                var type: String
+                do {
+                    type = org.json.JSONObject(frame(client).toString(Charsets.UTF_8)).getString("type")
+                    assertNotEquals("open-settings", type)
+                } while (type != "status")
+            }
+        } finally { server.stop() }
+    }
+
     private fun startHttpsSession(context: android.content.Context) {
         // These tests exercise real TLS HTTP/WebSocket traffic, not async RSA startup latency.
         // The synchronous settings path returns only after the secure listener is bound.

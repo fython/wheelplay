@@ -179,6 +179,11 @@ internal object WebSession {
     val hasViewer
         get() = server?.hasViewer == true || secureServer?.hasViewer == true
 
+    fun requestSettings() {
+        server?.requestSettings()
+        secureServer?.requestSettings()
+    }
+
     val imageFormat: ImageFormat
         get() = if (server?.hasViewer == true) server?.imageFormat ?: ImageFormat.JPEG
             else secureServer?.imageFormat ?: ImageFormat.JPEG

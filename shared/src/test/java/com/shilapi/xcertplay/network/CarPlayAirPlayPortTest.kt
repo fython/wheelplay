@@ -17,6 +17,7 @@ import com.shilapi.xcertplay.transport.Iap2WirelessCarPlayEndpoint
 import com.shilapi.xcertplay.transport.Iap2WirelessControlClient
 import com.shilapi.xcertplay.transport.Iap2WirelessSecurity
 import java.io.IOException
+import java.net.BindException
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
@@ -80,8 +81,7 @@ class CarPlayAirPlayPortTest {
             service.detach()
             assertTrue(server.isClosed)
             assertReleased(service)
-            ServerSocket().use { replacement ->
-                replacement.bind(InetSocketAddress(loopback, port))
+            bindReleasedPort(port).use { replacement ->
                 assertEquals(port, replacement.localPort)
             }
         }
@@ -121,6 +121,10 @@ class CarPlayAirPlayPortTest {
             service.detach()
             assertTrue(first.isClosed)
 
+            // A closed Java socket can retain its native descriptor until the blocked
+            // accept call unwinds. Establish availability before testing port preference.
+            // This reservation never accepts, so its close has no pending reader.
+            bindReleasedPort(preferredPort).close()
             assertStarted(service, attach(service, preferredPort))
             assertEquals(preferredPort, listenerSocket(service).localPort)
         }
@@ -182,8 +186,7 @@ class CarPlayAirPlayPortTest {
             service.detach()
             assertTrue(firstServer.isClosed)
 
-            ServerSocket().use { occupied ->
-                occupied.bind(InetSocketAddress(loopback, firstPort))
+            bindReleasedPort(firstPort).use { occupied ->
                 val replacement = assertStarted(service, attach(service, firstPort))
                 assertNotEquals(firstPort, replacement.port)
                 assertEquals(firstPort, first.port)
@@ -195,6 +198,25 @@ class CarPlayAirPlayPortTest {
     private fun withService(check: (CarPlayVpnService) -> Unit) {
         val lifecycle = Robolectric.buildService(CarPlayVpnService::class.java).create()
         try { check(lifecycle.get()) } finally { lifecycle.destroy() }
+    }
+
+    /** Wait for kernel release and retain the successful binding for the caller. */
+    private fun bindReleasedPort(port: Int): ServerSocket {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        var lastFailure: BindException? = null
+        do {
+            val socket = ServerSocket()
+            try {
+                socket.bind(InetSocketAddress(loopback, port))
+                return socket
+            } catch (error: Exception) {
+                socket.close()
+                if (error !is BindException) throw error
+                lastFailure = error
+            }
+            Thread.sleep(10)
+        } while (System.nanoTime() < deadline)
+        throw AssertionError("Detached AirPlay port $port did not become bindable within 5s", lastFailure)
     }
 
     private fun attach(

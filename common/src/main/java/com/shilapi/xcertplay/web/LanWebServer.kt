@@ -46,6 +46,10 @@ internal class LanWebServer(
         viewer?.frameAvailable()
     }
 
+    fun requestSettings() {
+        viewer?.requestSettings()
+    }
+
     fun disconnectViewer() {
         viewer?.disconnect(context.getString(UiR.string.ui_device_removed))
     }
@@ -399,6 +403,11 @@ internal class LanWebServer(
         private var imageFallback = false
 
         fun authorized() = token == null || pairing.authorized(token)
+
+        fun requestSettings() {
+            if (ended.get() || closing.get() || viewer !== this || !authorized()) return
+            reply(WebStreamSender.Control.SETTINGS, JSONObject().put("type", "open-settings").toString())
+        }
 
         @Volatile var lastSeen = SystemClock.elapsedRealtime()
 

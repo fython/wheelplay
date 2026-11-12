@@ -1,7 +1,7 @@
 // Real Chromium + WebSocket + JPEG/WebP images. No phone or CarPlay hardware is simulated.
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { readFile, mkdtemp, rm } from 'node:fs/promises';
+import { readFile, mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
@@ -28,11 +28,16 @@ let media = { type: 'status', mediaProtocol: 3, sessionId: 7, videoEpoch: 1, wid
   sourceState: 'ready', inputReady: true, streaming: true, stage: 'Synthetic browser test' };
 const server = http.createServer(async (req, res) => {
   res.setHeader('Content-Security-Policy', csp);
+  if (req.url.startsWith('/pair/qr?')) {
+    res.setHeader('Content-Type', 'image/svg+xml');
+    res.end(await readFile(new URL('../test/fixtures/pairing-qr.svg', import.meta.url))); return;
+  }
   if (req.url === '/now-playing/artwork?id=test-cover') {
     res.setHeader('Content-Type', 'image/jpeg'); res.setHeader('Cache-Control', 'private, no-store');
     res.end(images.jpeg[0]); return;
   }
   if (req.url.startsWith('/pair/')) {
+    if (req.url === '/pair/code') assert.equal(req.headers['x-pair-code'], '123456');
     const result = req.url === '/pair/remember' ? { id: 'd'.repeat(32), secret: 's'.repeat(32), name: 'Test' } :
       req.url === '/pair/request' ? { id: 'qr', secret: 'poll', expiresIn: 120 } :
         req.url === '/pair/status' ? { state: 'pending' } : { token: 'session', name: 'Test' };
@@ -92,7 +97,7 @@ wss.on('connection', ws => {
   });
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-const browser = spawn(process.env.BROWSER_BIN || 'chromium', ['--headless', '--no-sandbox', '--disable-gpu',
+const browser = spawn(process.env.BROWSER_BIN || 'chromium', [...(process.env.WHEELPLAY_BROWSER_HEADFUL === '1' ? [] : ['--headless']), '--no-sandbox', '--disable-gpu',
   '--disable-background-networking', '--no-first-run', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'],
 { stdio: ['ignore', 'ignore', 'ignore'] });
 let devtools;
@@ -120,8 +125,8 @@ try {
   const command = (method, params = {}) => new Promise((resolve, reject) => {
     pending.set(++id, { resolve, reject }); devtools.send(JSON.stringify({ id, method, params }));
   });
-  const evaluate = async expression => {
-    const result = await command('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
+  const evaluate = async (expression, { userGesture = false } = {}) => {
+    const result = await command('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true, userGesture });
     if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails));
     return result.result.value;
   };
@@ -131,7 +136,10 @@ try {
       await pause(50);
     }
     const diagnostics = await evaluate(`({status:document.getElementById('status')?.textContent,
-      waiting:document.getElementById('waiting')?.hidden,exceptions:${JSON.stringify(errors)}})`);
+      waiting:document.getElementById('waiting')?.hidden,fullscreen:!!document.fullscreenElement,
+      fullscreenEnabled:document.fullscreenEnabled,topbarHidden:document.getElementById('topbar')?.hidden,
+      fullscreenTrace:window.fullscreenTrace,
+      exceptions:${JSON.stringify(errors)}})`);
     throw new Error(`Browser condition timed out: ${expression}\n${JSON.stringify(diagnostics)}`);
   };
   const showing = `!!document.getElementById('waiting') && document.getElementById('waiting').hidden && !document.getElementById('touch-surface').classList.contains('stale')`;
@@ -142,8 +150,109 @@ try {
   await command('Runtime.enable');
   await command('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/` });
   await wait(`!!window.wheelplayStats && !!document.getElementById('connect') && !document.getElementById('connect').disabled`);
-  await evaluate(`document.getElementById('code').value='123456';document.getElementById('connect-form').requestSubmit()`);
+  await wait(`!document.getElementById('pair-qr').hidden && document.getElementById('pair-qr').naturalWidth > 0`);
+  assert.equal(await evaluate(`document.getElementById('hide-toolbar') === null && document.getElementById('fullscreen-on-start') === null`), true);
+  const screenshot = async name => {
+    if (!process.env.WHEELPLAY_BROWSER_REPORT_DIR) return;
+    await mkdir(process.env.WHEELPLAY_BROWSER_REPORT_DIR, { recursive: true });
+    const { data } = await command('Page.captureScreenshot', { format: 'png' });
+    await writeFile(join(process.env.WHEELPLAY_BROWSER_REPORT_DIR, name), Buffer.from(data, 'base64'));
+  };
+  assert.equal(await evaluate(`document.getElementById('connect-form').checkValidity()`), false, 'Incomplete PIN cannot submit');
+  await evaluate(`
+    const digit=document.getElementById('code-digit-3');
+    digit.dispatchEvent(new ClipboardEvent('paste', {clipboardData:(()=>{const data=new DataTransfer();data.setData('text','123456');return data})(),cancelable:true}));`);
+  assert.equal(await evaluate(`document.getElementById('code').value`), '123456');
+  assert.equal(await evaluate(`document.activeElement.id`), 'code-digit-6');
+  assert.equal(await evaluate(`document.getElementById('connect-form').checkValidity()`), true);
+  await evaluate(`
+    window.fullscreenTrace=[];
+    const originalFullscreen=Element.prototype.requestFullscreen;
+    Element.prototype.requestFullscreen=function(...args){
+      const entry={active:navigator.userActivation.isActive,focused:document.hasFocus()};fullscreenTrace.push(entry);
+      const result=originalFullscreen.apply(this,args);
+      result.then(()=>{entry.resolved=true},error=>{entry.error=error.message});return result;
+    };
+    document.addEventListener('fullscreenchange',()=>fullscreenTrace.push({event:!!document.fullscreenElement}));
+    document.addEventListener('fullscreenerror',()=>fullscreenTrace.push({event:'error'}));`);
+  await command('Page.bringToFront');
+  const startButton = await evaluate(`(() => {
+    const button=document.getElementById('connect');button.scrollIntoView({block:'center'});
+    const rect=button.getBoundingClientRect();return {x:rect.left+rect.width/2,y:rect.top+rect.height/2};
+  })()`);
+  await command('Input.dispatchMouseEvent', { type: 'mousePressed', ...startButton, button: 'left', clickCount: 1 });
+  await command('Input.dispatchMouseEvent', { type: 'mouseReleased', ...startButton, button: 'left', clickCount: 1 });
   await wait(showing);
+  await wait(`document.getElementById('topbar').hidden`);
+  assert.equal(await evaluate(`document.getElementById('debug-overlay').hidden`), true);
+  assert.equal(await evaluate(`fullscreenTrace[0]?.active`), true, 'Default fullscreen is requested in the launch gesture');
+  for (let attempt = 0; attempt < 40 && !await evaluate(`!!document.fullscreenElement`); attempt++) await pause(50);
+  const nativeFullscreenEntered = await evaluate(`!!document.fullscreenElement`);
+  // The OEM signal opens a modal above the stream, including immersive/zoomed layouts.
+  await touch('pointerdown');
+  viewer.send(JSON.stringify({ type: 'open-settings' }));
+  await wait(`document.getElementById('settings-dialog').open`);
+  await touch('pointerup');
+  const centeredSettings = await evaluate(`(() => {
+    const dialog=document.getElementById('settings-dialog'), rect=dialog.getBoundingClientRect();
+    return { x:Math.abs(rect.left+rect.width/2-innerWidth/2), y:Math.abs(rect.top+rect.height/2-innerHeight/2),
+      modal:dialog.matches(':modal'), focus:dialog.contains(document.activeElement) };
+  })()`);
+  assert.ok(centeredSettings.x < 2 && centeredSettings.y < 2, 'Settings must be centered in the viewport');
+  assert.equal(centeredSettings.modal, true);
+  assert.equal(centeredSettings.focus, true);
+  viewer.send(JSON.stringify({ type: 'open-settings' })); status();
+  await pause(100);
+  const settingsInputCount = touches.length + desktopInputs.length;
+  await touch('pointerdown'); await touch('pointerup'); await pause(100);
+  assert.equal(touches.length + desktopInputs.length, settingsInputCount, 'Dialog backdrop cannot forward input');
+  assert.equal(await evaluate(`document.getElementById('waiting').hidden`), true, 'Modal preserves video');
+  await evaluate(`document.getElementById('settings-debug').click()`);
+  assert.equal(await evaluate(`document.getElementById('debug-overlay').hidden`), false);
+  if (nativeFullscreenEntered) {
+    await evaluate(`document.getElementById('settings-fullscreen').click()`, { userGesture: true });
+    await wait(`!document.fullscreenElement && document.getElementById('topbar').hidden`);
+    assert.equal(await evaluate(`document.getElementById('settings-dialog').open`), true, 'OEM settings remain available after leaving fullscreen');
+    await evaluate(`document.getElementById('settings-fullscreen').click()`, { userGesture: true });
+    await wait(`!!document.fullscreenElement && document.getElementById('topbar').hidden`);
+    await evaluate(`document.getElementById('settings-fullscreen').click()`, { userGesture: true });
+    await wait(`!document.fullscreenElement && document.getElementById('topbar').hidden`);
+  } else {
+    assert.equal(await evaluate(`document.getElementById('settings-fullscreen').textContent`), messages.web_full_screen);
+  }
+  await command('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+  await command('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+  await wait(`!document.getElementById('settings-dialog').open && (${showing})`);
+  assert.equal(await evaluate(`document.getElementById('topbar').hidden`), true, 'The display never restores the homepage toolbar');
+  const debugGeometry = await evaluate(`(() => {
+    const panel=document.getElementById('debug-overlay'), rect=panel.getBoundingClientRect(), display=document.getElementById('display').getBoundingClientRect();
+    const style=getComputedStyle(panel);
+    return {top:rect.top-display.top,right:display.right-rect.right,pointerEvents:style.pointerEvents,
+      foreground:style.color,background:style.backgroundColor,opacity:style.opacity,
+      target:document.elementFromPoint(rect.left+40,rect.top+60)?.id,x:rect.left+40,y:rect.top+60};
+  })()`);
+  assert.ok(debugGeometry.top >= 8 && debugGeometry.top <= 24 && debugGeometry.right >= 8 && debugGeometry.right <= 24);
+  assert.equal(debugGeometry.pointerEvents, 'none');
+  assert.equal(debugGeometry.target, 'touch-surface');
+  assert.equal(debugGeometry.opacity, '1', 'Text remains opaque');
+  const foreground = debugGeometry.foreground.match(/[\d.]+/g).map(Number);
+  const background = debugGeometry.background.match(/[\d.]+/g).map(Number);
+  assert.ok(background[3] >= .8 && background[3] < 1, 'Background is translucent with enough contrast');
+  const luminance = rgb => rgb.slice(0, 3).map(v => v / 255).map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4)
+    .reduce((sum, v, index) => sum + v * [.2126, .7152, .0722][index], 0);
+  const brightestBackdrop = background.slice(0, 3).map(v => v * background[3] + 255 * (1 - background[3]));
+  assert.ok((luminance(foreground) + .05) / (luminance(brightestBackdrop) + .05) >= 4.5, 'Debug text stays readable over white video');
+  const debugTouches = touches.length;
+  await command('Input.dispatchTouchEvent', {type:'touchStart',touchPoints:[{x:debugGeometry.x,y:debugGeometry.y,id:1}]});
+  await command('Input.dispatchTouchEvent', {type:'touchEnd',touchPoints:[]});
+  for (let attempt = 0; touches.length < debugTouches + 2 && attempt < 100; attempt++) await pause(10);
+  assert.equal(touches.length, debugTouches + 2, 'Debug overlay passes touches to the video');
+  await wait(`document.getElementById('debug-decode').textContent.includes('ms')`);
+  await screenshot('display-debug.png');
+  viewer.send(JSON.stringify({type:'open-settings'}));
+  await wait(`document.getElementById('settings-dialog').open`);
+  await evaluate(`document.getElementById('settings-debug').click();document.getElementById('settings-close').click()`);
+  assert.equal(await evaluate(`document.getElementById('debug-overlay').hidden`), true);
   await evaluate(`
     window.mediaHandlers = {};
     const originalActionHandler = MediaSession.prototype.setActionHandler;
@@ -244,14 +353,16 @@ try {
   await wait(`document.getElementById('status').textContent.includes('JPEG')`);
   assert.equal(jpegFallbacks, 1, 'A WebP decode failure must request JPEG and recover');
   assert.equal(await evaluate('overlayFlashes'), 0, 'A failed WebP must preserve the last displayed picture');
+  const releasesBeforeGap = desktopInputs.filter(input => input.kind === 'release').length;
   await touch('pointerdown'); paused = true;
   status({ sourceState: 'recovering', streaming: false, inputReady: false });
   await wait(`!document.getElementById('media-message').hidden`);
-  for (let attempt = 0; touches.at(-1)?.contacts.length !== 0 && attempt < 100; attempt++) await pause(10);
-  assert.deepEqual(touches.at(-1).contacts, []);
+  for (let attempt = 0; desktopInputs.filter(input => input.kind === 'release').length === releasesBeforeGap && attempt < 100; attempt++) await pause(10);
+  assert.equal(desktopInputs.at(-1).kind, 'release', 'Versioned input releases the touch lease on a gap');
   await touch('pointerup');
   const count = touches.length; await touch('pointerdown'); await pause(50);
   assert.equal(touches.length, count, 'Gap must block new touch');
+  await touch('pointerup');
   await pause(2100);
   assert.equal(await evaluate(`document.getElementById('waiting').hidden`), false, 'Deadline expires without status');
   assert.equal(viewer.readyState, WebSocket.OPEN);
@@ -261,9 +372,10 @@ try {
   assert.equal(await evaluate(showing), true, 'Cancelled deadline must not hide recovered picture');
   status({ pointerInput: true, keyboardInput: true, maxTouchContacts: 1 });
   await pause(100);
+  const beforeDesktopDrag = desktopInputs.length;
   await command('Input.dispatchMouseEvent', { type: 'mousePressed', x: 100, y: 100, button: 'left', buttons: 1, clickCount: 1 });
-  await pause(100);
-  assert.equal(desktopInputs.at(-1).buttons, 1);
+  for (let attempt = 0; !desktopInputs.slice(beforeDesktopDrag).some(input => input.kind === 'pointer' && input.buttons === 1) && attempt < 100; attempt++) await pause(10);
+  assert.ok(desktopInputs.slice(beforeDesktopDrag).some(input => input.kind === 'pointer' && input.buttons === 1), 'Mouse press arrives even if a keepalive follows it');
   status({ videoEpoch: 2 });
   await wait(`document.getElementById('touch-surface').classList.contains('stale')`);
   frame(1); await pause(100);
@@ -290,9 +402,91 @@ try {
   assert.equal(mediaCommands.length, 2, 'Retired system controls cannot reach the replacement socket');
   assert.equal(await evaluate(`document.getElementById('waiting').hidden`), false, 'Reconnect must wait for its own frame');
   frame(); await wait(showing);
+  // Capture the home layout after returning from the display session.
+  await evaluate(`document.getElementById('settings-disconnect').click();localStorage.clear()`);
+  await command('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/` });
+  await wait(`!document.getElementById('pair-qr')?.hidden && document.getElementById('pair-qr')?.naturalWidth > 0`);
+  const homeGeometry = `(() => {
+    const left=document.querySelector('.pairing-panel').getBoundingClientRect(), right=document.querySelector('.setup-panel').getBoundingClientRect();
+    return {left:left.x,right:right.x,leftBottom:left.bottom,rightTop:right.top,overflow:document.querySelector('main').scrollWidth>innerWidth};
+  })()`;
+  await command('Emulation.setDeviceMetricsOverride', { width: 1360, height: 1000, deviceScaleFactor: 1, mobile: false });
+  let home = await evaluate(homeGeometry);
+  assert.ok(home.right > home.left + 300, 'Wide home separates pairing and settings into two columns');
+  assert.equal(home.overflow, false);
+  await screenshot('home-wide.png');
+  await command('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: false });
+  home = await evaluate(homeGeometry);
+  assert.ok(home.rightTop >= home.leftBottom, 'Narrow home places settings below pairing');
+  assert.equal(home.overflow, false);
+  await screenshot('home-mobile.png');
+  const keypadGeometry = `(() => {
+    const panel=document.getElementById('pairing-keypad'), anchor=document.getElementById('pin-inputs'), visual=visualViewport;
+    return {hidden:panel.hidden,panel:panel.getBoundingClientRect().toJSON(),anchor:anchor.getBoundingClientRect().toJSON(),content:document.getElementById('main-content').getBoundingClientRect().toJSON(),
+      viewport:{left:visual?.offsetLeft||0,top:visual?.offsetTop||0,width:visual?.width||innerWidth,height:visual?.height||innerHeight},
+      placement:panel.dataset.placement,readonly:[...anchor.querySelectorAll('input')].every(input=>input.readOnly&&input.inputMode==='none')};
+  })()`;
+  const tapKey = async id => {
+    const point=await evaluate(`(()=>{const r=document.getElementById('${id}').getBoundingClientRect();return{x:r.left+r.width/2,y:r.top+r.height/2}})()`);
+    await command('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{...point,id:1}]});
+    await command('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+    await pause(30);
+  };
+  for (const [width,height,name] of [[1360,1000,'wide'],[390,844,'mobile'],[800,360,'landscape'],[320,320,'short']]) {
+    await evaluate(`document.getElementById('keypad-done').click()`);
+    await command('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});
+    await evaluate(`{document.getElementById('main-content').scrollTop=0;const field=document.getElementById('code-digit-1');field.focus({preventScroll:true});field.click()}`);
+    await wait(`!document.getElementById('pairing-keypad').hidden`);
+    await pause(80);
+    const geometry=await evaluate(keypadGeometry), {panel,anchor,viewport}=geometry;
+    assert.equal(geometry.hidden,false,`${name}: keypad remains open after bringing the field into view`);
+    assert.equal(geometry.readonly,true,'PIN fields cannot summon the system keyboard');
+    assert.ok(panel.left>=viewport.left+10&&panel.top>=viewport.top+10&&panel.right<=viewport.left+viewport.width-10&&panel.bottom<=viewport.top+viewport.height-10,`${name}: keypad fits the visual viewport`);
+    assert.ok(panel.right<=anchor.left||panel.left>=anchor.right||panel.bottom<=anchor.top||panel.top>=anchor.bottom,`${name}: keypad does not cover the six-digit input`);
+    assert.ok(anchor.top>=Math.max(viewport.top,geometry.content.top)+10&&anchor.bottom<=Math.min(viewport.top+viewport.height,geometry.content.bottom)-10,`${name}: input remains visible below the header`);
+    await tapKey('keypad-clear');
+    for (const digit of '012') await tapKey('keypad-'+digit);
+    assert.equal(await evaluate(`document.getElementById('code').value`),'012');
+    assert.equal(await evaluate(`document.getElementById('keypad-code').textContent`),'0 1 2 · · ·');
+    await screenshot('keypad-'+name+'.png');
+    if (name === 'wide') {
+      await command('Browser.grantPermissions',{origin:`http://127.0.0.1:${server.address().port}`,permissions:['clipboardReadWrite','clipboardSanitizedWrite']});
+      await evaluate(`navigator.clipboard.writeText('098765')`,{userGesture:true});
+      await evaluate(`document.getElementById('code-digit-1').focus({preventScroll:true})`);
+      await command('Input.dispatchKeyEvent',{type:'keyDown',key:'v',code:'KeyV',modifiers:2,windowsVirtualKeyCode:86});
+      await command('Input.dispatchKeyEvent',{type:'keyUp',key:'v',code:'KeyV',modifiers:2,windowsVirtualKeyCode:86});
+      await wait(`document.getElementById('code').value==='098765'`);
+      await tapKey('keypad-clear');
+      for (const digit of '012') await tapKey('keypad-'+digit);
+    }
+    for (const digit of '345') await tapKey('keypad-'+digit);
+    assert.equal(await evaluate(`document.getElementById('code').value`),'012345');
+    assert.equal(await evaluate(`document.getElementById('connect-form').checkValidity()`),true);
+    await tapKey('keypad-delete');
+    assert.equal(await evaluate(`document.getElementById('code').value`),'01234');
+    await tapKey('keypad-done');
+    assert.equal(await evaluate(`document.getElementById('pairing-keypad').hidden`),true);
+  }
+  await command('Emulation.setPageScaleFactor',{pageScaleFactor:1.5});
+  await evaluate(`document.getElementById('code-digit-1').click()`);
+  await pause(100);
+  const zoomKeypad=await evaluate(keypadGeometry);
+  assert.equal(zoomKeypad.hidden,false);
+  assert.ok(zoomKeypad.panel.left>=zoomKeypad.viewport.left&&zoomKeypad.panel.right<=zoomKeypad.viewport.left+zoomKeypad.viewport.width);
+  assert.ok(zoomKeypad.panel.top>=zoomKeypad.viewport.top&&zoomKeypad.panel.bottom<=zoomKeypad.viewport.top+zoomKeypad.viewport.height);
+  await evaluate(`document.getElementById('setup-title').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));document.getElementById('setup-title').click()`);
+  assert.equal(await evaluate(`document.getElementById('pairing-keypad').hidden`),true,'Outside tap dismisses the keypad');
+  await command('Emulation.setPageScaleFactor',{pageScaleFactor:1});
+  await command('Emulation.clearDeviceMetricsOverride');
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ passed: true, connections, imageAcks: acks, webpProbes, jpegFallbacks,
-    checks: ['five-touch source', 'read-only source', 'WebP capability probe', 'WebP touch with zoom compensation', 'JPEG fallback after corrupt WebP', 'two-image pipeline with exact ACKs',
+    nativeFullscreenEntered,
+    blockedChecks: nativeFullscreenEntered ? [] : ['Native fullscreen did not enter in this browser environment; OEM fullscreen transitions were not exercised.'],
+    checks: ['responsive home columns and stacking', 'six-digit PIN validation and paste', 'floating keypad on wide, narrow, short and zoomed viewports',
+      'trusted keypad touches, deletion, leading zeroes and outside dismissal', 'default fullscreen request and hidden toolbar',
+      ...(nativeFullscreenEntered ? ['OEM native fullscreen toggle'] : []),
+      'OEM debug toggle, top-right position, contrast over white video and touch passthrough',
+      'OEM settings centered modal, focus, input isolation and Escape', 'five-touch source', 'read-only source', 'WebP capability probe', 'WebP touch with zoom compensation', 'JPEG fallback after corrupt WebP', 'two-image pipeline with exact ACKs',
       'decode without overlay flashes', 'gap releases touch', 'deadline without status', 'cancelled deadline',
       'same-size rebuild', 'cancelled mouse drag cannot cross video epochs', 'old frame rejection', 'rotation', 'real socket reconnect', 'native browser Media Session metadata and cover',
       'media action roundtrip', 'desktop right drag, scroll and versioned keyboard', 'desktop blur releases modifiers', 'phone-authoritative pause', 'capability-gated seek and final drag position', 'media cleanup and retired callback isolation'] }, null, 2));
