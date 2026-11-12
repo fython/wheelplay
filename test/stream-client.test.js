@@ -9,11 +9,12 @@ const source = ['text.js', 'desktop-input.js', 'browser-audio.js', 'browser-loca
   .map(name => readFileSync(new URL(`../common/src/main/assets/web/${name}`, import.meta.url), 'utf8')
     .replace(/^import .*;$/gm, '').replaceAll('export function', 'function')).join('\n');
 function fixture({ storedCanvas = null, storedMode = null, processorAvailable = true, storedIgnoreZoom = null, storageDisabled = false, canvasAvailable = true, supportsWebp = false,
-  geometry = null, visual = null, mediaSession = null, locationBrowser = null,
+  geometry = null, visual = null, mediaSession = null, locationBrowser = null, storedDebug = null, rtcStats = null,
   fullscreen = 'supported', codeDenied = false, resume = () => ({ token: 'session-token', name: 'Chrome' }) } = {}) {
   const elements = new Map(), timers = new Map(), raf = new Map(), sockets = [], peers = [], draws = [];
   const preferences = new Map(storedCanvas === null ? [] : [['wheelplay.canvasVideo', storedCanvas]]);
   if (storedIgnoreZoom !== null) preferences.set('wheelplay.ignoreBrowserZoom', storedIgnoreZoom);
+  if (storedDebug !== null) preferences.set('wheelplay.debugOverlay', storedDebug);
   const videoCallbacks = new Map(), createdVideos = [], processors = [];
   if (storedMode !== null) preferences.set('wheelplay.videoRenderer', storedMode);
   const documentEvents = {}, fullscreenCalls = [];
@@ -36,6 +37,10 @@ function fixture({ storedCanvas = null, storedMode = null, processorAvailable = 
       remove() { this.hidden = true; this.removed = true; },
       insertBefore(child) { child.removed = false; },
       removeAttribute() {}, setAttribute() {}, setPointerCapture() {}, focus() {},
+      open: false, modalCalls: 0,
+      showModal() { this.open = true; this.modalCalls++; },
+      close() { this.open = false; this.handlers.close?.(); },
+      click() { return this.handlers.click?.(); },
       getBoundingClientRect() {
         if (id !== 'display' || !classes.has('ignore-browser-zoom')) return mainRect;
         const scale = Number(this.style.transform.match(/scale\((.*)\)/)[1]);
@@ -52,7 +57,7 @@ function fixture({ storedCanvas = null, storedMode = null, processorAvailable = 
     close() { this.readyState = 3; this.onclose(); }
   }
   class Peer {
-    constructor() { this.iceGatheringState = 'complete'; this.localDescription = { sdp: 'answer' }; peers.push(this); }
+    constructor() { this.iceGatheringState = 'complete'; this.localDescription = { sdp: 'answer' }; if (rtcStats) this.getStats = rtcStats; peers.push(this); }
     async setRemoteDescription() {}
     async createAnswer() { return { type: 'answer', sdp: 'a=setup:active\r\n' }; }
     async setLocalDescription() {}
@@ -161,24 +166,132 @@ test('the overlay forwards a complete drag independently of the native video ele
   assert.deepEqual(ws.sent.filter(m => m.type === 'touch').map(m => m.contacts[0].down), [true, true, false]);
 });
 
-test('the optional top bar is hidden only after connecting and restored on disconnect', async () => {
+test('OEM settings releases touch, blocks input across status updates, and restores it on close', async () => {
+  const f = fixture(), ws = await f.connect(); f.frame(ws);
+  f.pointer('pointerdown', 100, 'touch-surface');
+  const open = () => ws.onmessage({ data: JSON.stringify({ type: 'open-settings' }) });
+  open();
+  const dialog = f.element('settings-dialog');
+  assert.equal(dialog.open, true);
+  assert.equal(ws.sent.at(-1).contacts.length, 0);
+  open(); assert.equal(dialog.modalCalls, 1);
+  ws.onmessage({ data: JSON.stringify({ type: 'status', width: 1280, height: 720, streaming: true }) });
+  const count = ws.sent.length;
+  f.pointer('pointerdown', 200, 'touch-surface');
+  assert.equal(ws.sent.length, count);
+  assert.equal(f.element('waiting').hidden, true, 'Video remains visible under the dialog');
+  f.element('settings-close').click();
+  assert.equal(dialog.open, false);
+  f.pointer('pointerdown', 200, 'touch-surface');
+  assert.equal(ws.sent.at(-1).contacts[0].down, true);
+  open(); ws.close();
+  assert.equal(dialog.open, false, 'Connection loss dismisses settings');
+});
+
+test('settings options share browser preferences and can disconnect an immersive session', async () => {
+  const f = fixture({ storedIgnoreZoom: 'true' });
+  const ws = await f.connect();
+  ws.onmessage({ data: JSON.stringify({ type: 'open-settings' }) });
+  assert.equal(f.element('settings-ignore-browser-zoom').checked, true);
+  assert.equal(f.element('settings-fullscreen').textContent, messages.web_exit_full_screen);
+  f.element('settings-ignore-browser-zoom').checked = false;
+  f.element('settings-ignore-browser-zoom').handlers.change();
+  assert.equal(f.element('ignore-browser-zoom').checked, false);
+  assert.equal(f.preferences.get('wheelplay.ignoreBrowserZoom'), 'false');
+  await f.element('settings-fullscreen').click();
+  assert.equal(f.document.fullscreenElement, null);
+  assert.equal(f.element('topbar').hidden, true);
+  assert.equal(f.element('settings-dialog').open, true);
+  assert.equal(f.element('settings-fullscreen').textContent, messages.web_full_screen);
+  await f.element('settings-fullscreen').click();
+  assert.equal(f.document.fullscreenElement, f.document.documentElement);
+  assert.equal(f.element('topbar').hidden, true);
+  assert.equal(f.element('settings-fullscreen').textContent, messages.web_exit_full_screen);
+  f.element('settings-disconnect').click();
+  assert.equal(f.document.fullscreenElement, null, 'Settings-entered fullscreen is released on disconnect');
+  assert.equal(f.element('settings-dialog').open, false);
+  assert.equal(f.element('pairing').hidden, false);
+  assert.equal(ws.readyState, 3);
+  ws.onmessage({ data: JSON.stringify({ type: 'open-settings' }) });
+  assert.equal(f.element('settings-dialog').open, false, 'Retired sockets cannot reopen settings');
+});
+
+test('the homepage toolbar stays hidden in the display, even after fullscreen exit', async () => {
   const f = fixture();
-  f.element('hide-toolbar').checked = true;
   const ws = await f.connect();
   assert.equal(f.element('topbar').hidden, true);
-  f.element('disconnect').handlers.click();
+  f.element('settings-disconnect').handlers.click();
   assert.equal(f.element('topbar').hidden, false);
 });
 
-test('normal launch leaves fullscreen and the top bar unchanged', async () => {
-  const f = fixture(); await f.connect();
-  assert.deepEqual(f.fullscreenCalls, []);
-  assert.equal(f.document.fullscreenElement, null);
+test('OEM debug toggle shows live image telemetry and clears stale values across source epochs and disconnect', async () => {
+  const f = fixture(), ws = await f.connect(); f.frame(ws);
+  assert.equal(f.element('debug-overlay').hidden, true);
+  ws.onmessage({ data: JSON.stringify({ type: 'open-settings' }) });
+  f.element('settings-debug').checked = true; f.element('settings-debug').handlers.change();
+  assert.equal(f.preferences.get('wheelplay.debugOverlay'), 'true');
+  f.element('settings-close').click();
+  assert.equal(f.element('debug-overlay').hidden, false);
+  assert.equal(f.element('debug-frames').textContent, '1');
+  assert.equal(f.element('debug-decode').textContent, '0.0 ms');
+  assert.equal(f.element('debug-latency').textContent, '—');
+  assert.equal(f.element('debug-video').textContent, '1280 × 720');
+  assert.equal(f.element('debug-format').textContent, 'JPEG');
+  assert.equal(f.element('debug-endpoint').textContent, 'WS · server:8080');
+  ws.onmessage({ data: JSON.stringify({ type: 'status', width: 1280, height: 720, streaming: true,
+    performance: { image: { lastAckMs: 18 } } }) });
+  assert.equal(f.element('debug-latency').textContent, '18.0 ms');
+  f.advance(1000);
+  ws.onmessage({ data: JSON.stringify({ type: 'status', width: 1280, height: 720, streaming: true }) });
+  assert.equal(f.element('debug-fps').textContent, '0.0 fps');
+  ws.onmessage({ data: JSON.stringify({ type: 'status', sessionId: 7, videoEpoch: 2,
+    width: 1280, height: 720, sourceState: 'ready', inputReady: true }) });
+  assert.equal(f.element('debug-fps').textContent, '—');
+  assert.equal(f.element('debug-frames').textContent, '—');
+  assert.equal(f.element('debug-decode').textContent, '—');
+  f.element('settings-disconnect').click();
+  assert.equal(f.element('debug-overlay').hidden, true);
   assert.equal(f.element('topbar').hidden, false);
 });
 
-test('immersive launch requests fullscreen in the submit gesture and hides the bar after connecting', async () => {
-  const f = fixture(); f.element('fullscreen-on-start').checked = true;
+test('debug preference restores on a later load and works without browser storage', async () => {
+  const restored = fixture({ storedDebug: 'true' }); await restored.connect();
+  assert.equal(restored.element('settings-debug').checked, true);
+  assert.equal(restored.element('debug-overlay').hidden, false);
+  const f = fixture({ storageDisabled: true }), ws = await f.connect();
+  f.element('settings-debug').checked = true;
+  f.element('settings-debug').handlers.change();
+  assert.equal(f.element('debug-overlay').hidden, false);
+  ws.close();
+  assert.match(f.element('debug-connection').textContent, /重试/);
+  assert.equal(f.element('debug-decode').textContent, '—');
+  f.element('settings-debug').checked = false; f.element('settings-debug').handlers.change();
+  assert.equal(f.element('debug-overlay').hidden, true);
+});
+
+test('WebRTC debug separates receive, decode and presentation rates from RTT and buffer time', async () => {
+  let sample = 0;
+  const f = fixture({ storedDebug: 'true', rtcStats: async () => {
+    sample++;
+    return new Map([['video', { type: 'inbound-rtp', kind: 'video', framesReceived: sample * 10,
+      framesDecoded: sample * 10, totalDecodeTime: sample * .02,
+      jitterBufferDelay: sample * .01, jitterBufferEmittedCount: sample * 10 }],
+      ['pair', { type: 'candidate-pair', state: 'succeeded', nominated: true, currentRoundTripTime: .015 }]]);
+  } });
+  const ws = await f.connect(); await f.offer(ws);
+  f.advance(1000); await new Promise(resolve => setImmediate(resolve));
+  f.advance(1000); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.element('debug-fps').textContent, '10.0 / 10.0 / 0.0 fps');
+  assert.equal(f.element('debug-fps-summary').textContent, '0.0 fps');
+  assert.equal(f.element('debug-format').textContent, 'H.264');
+  assert.equal(f.element('debug-latency').textContent, '15.0 ms');
+  assert.equal(f.element('debug-decode').textContent, '2.0 ms');
+  assert.equal(f.element('debug-buffer').textContent, '1.0 ms');
+  assert.equal(f.element('debug-buffer-row').hidden, false);
+});
+
+test('default launch requests fullscreen in the submit gesture and hides the bar after connecting', async () => {
+  const f = fixture();
   const connecting = f.connect();
   assert.deepEqual(f.fullscreenCalls, ['request']);
   assert.equal(f.sockets.length, 0, 'Fullscreen must be requested before asynchronous pairing finishes');
@@ -187,13 +300,13 @@ test('immersive launch requests fullscreen in the submit gesture and hides the b
   assert.equal(f.document.fullscreenElement, f.document.documentElement);
   assert.equal(f.element('topbar').hidden, true);
   await f.document.exitFullscreen();
-  assert.equal(f.element('topbar').hidden, false);
-  assert.equal(f.element('display').hidden, false, 'Leaving fullscreen keeps the stream connected');
+  assert.equal(f.element('topbar').hidden, true);
+  assert.equal(f.element('display').hidden, false, 'Leaving fullscreen keeps the stream connected without a toolbar');
 });
 
 test('disconnect exits launch-owned fullscreen and restores the pairing interface', async () => {
-  const f = fixture(); f.element('fullscreen-on-start').checked = true;
-  await f.connect(); f.element('disconnect').handlers.click();
+  const f = fixture();
+  await f.connect(); f.element('settings-disconnect').handlers.click();
   assert.deepEqual(f.fullscreenCalls, ['request', 'exit']);
   assert.equal(f.document.fullscreenElement, null);
   assert.equal(f.element('topbar').hidden, false);
@@ -202,19 +315,19 @@ test('disconnect exits launch-owned fullscreen and restores the pairing interfac
 
 test('unavailable or rejected fullscreen falls back to hiding the bar without preventing launch', async () => {
   for (const fullscreen of ['unsupported', 'denied']) {
-    const f = fixture({ fullscreen }); f.element('fullscreen-on-start').checked = true;
+    const f = fixture({ fullscreen });
     await f.connect();
     assert.equal(f.document.fullscreenElement, null);
     assert.equal(f.element('topbar').hidden, true);
     assert.equal(f.element('display').hidden, false);
-    f.element('disconnect').handlers.click();
+    f.element('settings-disconnect').handlers.click();
     assert.equal(f.element('topbar').hidden, false);
     assert.equal(f.fullscreenCalls.includes('exit'), false);
   }
 });
 
 test('pairing failure exits launch-owned fullscreen without hiding the pairing interface', async () => {
-  const f = fixture({ codeDenied: true }); f.element('fullscreen-on-start').checked = true;
+  const f = fixture({ codeDenied: true });
   f.element('connect-form').handlers.submit({ preventDefault() {} });
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(f.sockets.length, 0);
@@ -228,8 +341,7 @@ test('pairing failure exits launch-owned fullscreen without hiding the pairing i
 test('a fullscreen request that completes after disconnect is released', async () => {
   let complete;
   const f = fixture({ fullscreen: enter => new Promise(resolve => { complete = () => { enter(); resolve(); }; }) });
-  f.element('fullscreen-on-start').checked = true;
-  await f.connect(); f.element('disconnect').handlers.click();
+  await f.connect(); f.element('settings-disconnect').handlers.click();
   complete(); await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(f.fullscreenCalls, ['request', 'exit']);
   assert.equal(f.document.fullscreenElement, null);
@@ -238,10 +350,21 @@ test('a fullscreen request that completes after disconnect is released', async (
 
 test('disconnect leaves fullscreen that was already active before launch intact', async () => {
   const f = fixture(); f.document.fullscreenElement = f.document.documentElement;
-  f.element('fullscreen-on-start').checked = true;
-  await f.connect(); f.element('disconnect').handlers.click();
+  await f.connect(); f.element('settings-disconnect').handlers.click();
   assert.deepEqual(f.fullscreenCalls, []);
   assert.equal(f.document.fullscreenElement, f.document.documentElement);
+});
+
+test('automatic reconnect preserves the decision to leave fullscreen through OEM settings', async () => {
+  const f = fixture(), ws = await f.connect();
+  ws.onmessage({ data: JSON.stringify({ type: 'open-settings' }) });
+  await f.element('settings-fullscreen').click();
+  ws.close();
+  await [...f.timers.values()].find(t => t.delay === 1000).fn();
+  const replacement = f.sockets.at(-1); replacement.readyState = 1; replacement.onopen();
+  assert.equal(f.document.fullscreenElement, null);
+  assert.equal(f.element('topbar').hidden, true);
+  assert.deepEqual(f.fullscreenCalls, ['request', 'exit']);
 });
 
 test('actual image onload retries ACK and preserves down/up during browser congestion', async () => {
@@ -818,7 +941,7 @@ test('an automatic retry keeps the launch mode until the user starts a new displ
   assert.equal(f.stats().presentation.selectedMode, 'track-canvas');
   await f.offer(replacement); await f.decoded();
   assert.equal(f.createdVideos.length, 0);
-  f.element('disconnect').handlers.click();
+  f.element('settings-disconnect').handlers.click();
   const next = await f.connect(); await f.offer(next);
   assert.equal(f.stats().presentation.selectedMode, 'native');
   assert.equal(f.createdVideos.length, 1);
@@ -893,11 +1016,22 @@ test('browser GPS option forwards through the authenticated stream and stops on 
   option.checked = true; option.handlers.change(); await new Promise(resolve => setImmediate(resolve));
   assert.equal(option.checked, true); assert.equal(deliver, undefined);
   const ws = await f.connect(); await new Promise(resolve => setImmediate(resolve));
+  ws.onmessage({ data: JSON.stringify({ type: 'open-settings' }) });
+  assert.equal(f.element('settings-browser-location').checked, true);
   deliver({ timestamp: Date.now(), coords: { latitude: 25, longitude: 121, accuracy: 5 } });
   const packet = ws.sent.find(m => m.type === 'location');
   assert.equal(packet.latitude, 25); assert.equal(packet.longitude, 121);
   assert.ok(ws.sent.findIndex(m => m.type === 'location-start') < ws.sent.indexOf(packet));
-  ws.close(); assert.equal(clears, 1);
+  f.element('settings-browser-location').checked = false;
+  f.element('settings-browser-location').handlers.change();
+  assert.equal(option.checked, false);
+  assert.equal(ws.sent.at(-1).type, 'location-stop');
+  f.element('settings-browser-location').checked = true;
+  f.element('settings-browser-location').handlers.change();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(option.checked, true);
+  ws.close(); assert.equal(clears, 2);
+  assert.equal(f.element('settings-browser-location').checked, true, 'Page consent is retained for reconnect');
   const count = ws.sent.length;
   deliver({ timestamp: Date.now(), coords: { latitude: 26, longitude: 121, accuracy: 5 } });
   assert.equal(ws.sent.length, count);
