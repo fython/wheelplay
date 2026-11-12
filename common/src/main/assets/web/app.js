@@ -43,10 +43,12 @@ export function pairingCodeFromUrl(search) {
 }
 
 // Six visible digits share one canonical value for the existing pairing API.
-export function createPairingCodeInput(inputs, value) {
+export function createPairingCodeInput(inputs, value, { onChange = () => {}, onFocus = () => {}, onDismiss = () => {} } = {}) {
+  let active = 0, enabled = true;
   const numbers = text => String(text || '').replace(/[^0-9]/g, '');
-  const sync = () => { value.value = inputs.map(input => input.value).join(''); };
-  const focus = index => { inputs[index].focus(); inputs[index].select?.(); };
+  const complete = () => inputs.every(input => /^[0-9]$/.test(input.value));
+  const sync = () => { value.value = inputs.map(input => input.value).join(''); onChange(!enabled || complete()); };
+  const focus = index => { active = index; inputs[index].focus({ preventScroll: true }); inputs[index].select?.(); };
   function fill(text, index = 0, advance = false) {
     const digits = numbers(text).slice(0, 6);
     if (digits.length === 6) index = 0;
@@ -56,8 +58,15 @@ export function createPairingCodeInput(inputs, value) {
     sync();
     if (advance && digits.length) focus(Math.min(5, index + digits.length));
   }
+  function digit(text) { if (enabled && /^[0-9]$/.test(text)) fill(text, active, true); }
+  function backspace() {
+    if (!enabled) return;
+    if (!inputs[active].value && active > 0) active--;
+    inputs[active].value = ''; sync(); focus(active);
+  }
   inputs.forEach((input, index) => {
-    input.addEventListener('focus', () => input.select?.());
+    input.addEventListener('focus', () => { active = index; input.select?.(); onFocus(index); });
+    input.addEventListener('click', () => onFocus(index));
     input.addEventListener('input', () => {
       const text = numbers(input.value);
       input.value = '';
@@ -69,10 +78,14 @@ export function createPairingCodeInput(inputs, value) {
       if (text) fill(text, index, true);
     });
     input.addEventListener('keydown', event => {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      active = index;
+      if (/^[0-9]$/.test(event.key)) { event.preventDefault(); digit(event.key); return; }
+      if (event.key === 'Backspace') { event.preventDefault(); backspace(); return; }
+      if (event.key === 'Delete') { event.preventDefault(); input.value = ''; sync(); return; }
+      if (event.key === 'Escape') { event.preventDefault(); onDismiss(); return; }
       let next = index;
-      if (event.key === 'Backspace' && !input.value && index > 0) {
-        next--; inputs[next].value = ''; sync();
-      } else if (event.key === 'ArrowLeft') next = Math.max(0, index - 1);
+      if (event.key === 'ArrowLeft') next = Math.max(0, index - 1);
       else if (event.key === 'ArrowRight') next = Math.min(5, index + 1);
       else if (event.key === 'Home') next = 0;
       else if (event.key === 'End') next = 5;
@@ -82,9 +95,28 @@ export function createPairingCodeInput(inputs, value) {
   });
   const set = text => { inputs.forEach(input => { input.value = ''; }); fill(text); };
   set(value.value);
-  return { set, enabled(enabled) {
+  return { set, digit, backspace, clear() { if (enabled) { set(''); focus(0); } },
+    focus() { focus(Math.max(0, inputs.findIndex(input => !/^[0-9]$/.test(input.value)))); },
+    get activeIndex() { return active; }, get complete() { return complete(); }, enabled(value) {
+    enabled = value;
     inputs.forEach(input => { input.disabled = !enabled; input.required = enabled; });
+    sync();
   } };
+}
+
+// Positions are in visual-viewport CSS coordinates, including pinch-zoom offsets.
+export function placePairingKeypad(anchor, viewport, size) {
+  const margin = 12, gap = 8;
+  const left = viewport.left + margin, top = viewport.top + margin;
+  const right = viewport.left + viewport.width - margin, bottom = viewport.top + viewport.height - margin;
+  if (size.width > right - left || size.height > bottom - top || anchor.top < top || anchor.bottom > bottom) return null;
+  const x = Math.max(left, Math.min(anchor.left, right - size.width));
+  const y = Math.max(top, Math.min(anchor.top, bottom - size.height));
+  if (anchor.bottom + gap + size.height <= bottom) return { left: x, top: anchor.bottom + gap, placement: 'below' };
+  if (anchor.top - gap - size.height >= top) return { left: x, top: anchor.top - gap - size.height, placement: 'above' };
+  if (anchor.right + gap + size.width <= right) return { left: anchor.right + gap, top: y, placement: 'right' };
+  if (anchor.left - gap - size.width >= left) return { left: anchor.left - gap - size.width, top: y, placement: 'left' };
+  return null;
 }
 
 // Browser-local measurements: committed images per rolling second and receive-to-decode time.
@@ -743,7 +775,111 @@ import { createBrowserMediaSession } from './browser-media-session.js';
 
 if (typeof document !== 'undefined') {
   const $ = id => document.getElementById(id);
-  const pairingCode = createPairingCodeInput(Array.from({ length: 6 }, (_, index) => $(`code-digit-${index + 1}`)), $('code'));
+  const pinDigits = Array.from({ length: 6 }, (_, index) => $(`code-digit-${index + 1}`));
+  const keypad = $('pairing-keypad');
+  keypad.hidden = true;
+  let keypadFrame = null, keypadNeedsReveal = false, suppressKeypadFocus = false;
+  const pairingCode = createPairingCodeInput(pinDigits, $('code'), {
+    onChange(valid) {
+      // Readonly fields suppress platform keyboards. Keep native form validation on
+      // the submit button, which cannot summon a platform keyboard when invalid.
+      $('connect').setCustomValidity?.(valid ? '' : t('web_pairing_code_incomplete'));
+      $('keypad-code').textContent = pinDigits.map(input => input.value || '·').join(' ');
+      if (valid && $('message').textContent === t('web_pairing_code_incomplete')) $('message').textContent = '';
+    },
+    onFocus(index) { if (!suppressKeypadFocus) openPinKeypad(index); },
+    onDismiss: closePinKeypad,
+  });
+  function clearPinKeypadSpace() {
+    $('keypad-scroll-space').hidden = true;
+    document.body?.classList.toggle('pin-keypad-open', false);
+  }
+  function closePinKeypad(keepScrollSpace = false) {
+    if (keypadFrame !== null) cancelAnimationFrame(keypadFrame);
+    keypadFrame = null; keypadNeedsReveal = false;
+    try { keypad.hidePopover?.(); } catch (_) {}
+    keypad.hidden = true;
+    if (!keepScrollSpace) clearPinKeypadSpace();
+    pinDigits.forEach(input => { input.setAttribute('aria-expanded', 'false'); input.classList?.toggle('keypad-active', false); });
+  }
+  function positionPinKeypad(reveal = false) {
+    if (keypad.hidden) return;
+    const visual = window.visualViewport;
+    const visible = { left: visual?.offsetLeft || 0, top: visual?.offsetTop || 0,
+      width: visual?.width || window.innerWidth, height: visual?.height || window.innerHeight };
+    const content = $('main-content').getBoundingClientRect();
+    const viewport = { left: Math.max(visible.left, content.left), top: Math.max(visible.top, content.top) };
+    viewport.width = Math.min(visible.left + visible.width, content.right) - viewport.left;
+    viewport.height = Math.min(visible.top + visible.height, content.bottom) - viewport.top;
+    const anchor = $('pin-inputs');
+    let rect = anchor.getBoundingClientRect();
+    keypad.style.width = `${Math.max(1, Math.min(304, viewport.width - 24))}px`;
+    keypad.style.maxHeight = `${Math.max(1, viewport.height - 24)}px`;
+    const keyHeight = Math.max(28, Math.min(48, Math.floor((viewport.height - rect.height - 24 - 8 - 98) / 4)));
+    keypad.style.setProperty('--keypad-key-height', `${keyHeight}px`);
+    const size = keypad.getBoundingClientRect();
+    let position = placePairingKeypad(rect, viewport, size);
+    if (!position) {
+      // Let users scroll away from the field without fighting their scroll gesture.
+      if (!reveal) { closePinKeypad(true); return; }
+      const spacer = $('keypad-scroll-space');
+      spacer.style.height = `${size.height + rect.height + 32}px`; spacer.hidden = false;
+      $('main-content').scrollTop += rect.top - viewport.top - 12;
+      rect = anchor.getBoundingClientRect();
+      position = placePairingKeypad(rect, viewport, size);
+    }
+    // Extremely short viewports retain a scrollable keypad and a visible copy of
+    // all six digits in its header, even when both full controls cannot fit.
+    position ||= { left: Math.max(viewport.left + 12, Math.min(rect.left, viewport.left + viewport.width - size.width - 12)),
+      top: viewport.top + viewport.height - size.height - 12, placement: 'compact' };
+    keypad.style.left = `${position.left}px`; keypad.style.top = `${position.top}px`;
+    keypad.dataset.placement = position.placement;
+  }
+  function schedulePinKeypad(event) {
+    keypadNeedsReveal ||= event?.type === 'resize';
+    if (keypad.hidden || keypadFrame !== null) return;
+    keypadFrame = requestAnimationFrame(() => {
+      keypadFrame = null; const reveal = keypadNeedsReveal; keypadNeedsReveal = false; positionPinKeypad(reveal);
+    });
+  }
+  function openPinKeypad(index) {
+    if ($('code-entry').hidden || pinDigits[index].disabled) return;
+    pinDigits.forEach((input, slot) => { input.setAttribute('aria-expanded', 'true'); input.classList?.toggle('keypad-active', slot === index); });
+    if (keypad.hidden) {
+      keypad.hidden = false;
+      document.body?.classList.toggle('pin-keypad-open', true);
+      try { keypad.showPopover?.(); } catch (_) {}
+    }
+    positionPinKeypad(true);
+  }
+  for (let digit = 0; digit <= 9; digit++) $('keypad-' + digit).addEventListener('click', () => pairingCode.digit(String(digit)));
+  $('keypad-delete').addEventListener('click', () => pairingCode.backspace());
+  $('keypad-clear').addEventListener('click', () => pairingCode.clear());
+  $('keypad-done').addEventListener('click', () => {
+    closePinKeypad(); suppressKeypadFocus = true;
+    pinDigits[pairingCode.activeIndex].focus({ preventScroll: true }); suppressKeypadFocus = false;
+  });
+  keypad.addEventListener('pointerdown', event => { if (event.target.closest('button')) event.preventDefault(); });
+  keypad.addEventListener('keydown', event => {
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    if (/^[0-9]$/.test(event.key)) { event.preventDefault(); pairingCode.digit(event.key); }
+    else if (event.key === 'Backspace') { event.preventDefault(); pairingCode.backspace(); }
+  });
+  document.addEventListener('pointerdown', event => {
+    if (!keypad.hidden && !keypad.contains(event.target) && !pinDigits.includes(event.target)) closePinKeypad(true);
+  });
+  document.addEventListener('click', () => { if (keypad.hidden) clearPinKeypadSpace(); });
+  document.addEventListener('keyup', () => { if (keypad.hidden) clearPinKeypadSpace(); });
+  document.addEventListener('focusin', event => {
+    if (!keypad.hidden && !keypad.contains(event.target) && !pinDigits.includes(event.target)) closePinKeypad(true);
+  });
+  document.addEventListener('keydown', event => { if (event.key === 'Escape' && !keypad.hidden) { event.preventDefault(); closePinKeypad(); } });
+  $('main-content').addEventListener('scroll', schedulePinKeypad, { passive: true });
+  window.addEventListener('resize', schedulePinKeypad);
+  for (const event of ['resize', 'scroll']) window.visualViewport?.addEventListener(event, schedulePinKeypad);
+  $('connect').addEventListener('invalid', event => {
+    event.preventDefault(); $('message').textContent = t('web_pairing_code_incomplete'); pairingCode.focus();
+  });
   const screen = $('screen');
   const screens = [screen, $('screen-next'), $('screen-third')];
   const heldFrame = $('held-frame');
@@ -893,6 +1029,7 @@ if (typeof document !== 'undefined') {
     }
   } catch (_) {}
   function showPairingReady(name = t("web_browser_paired")) {
+    closePinKeypad();
     $('remembered-device').hidden = false;
     $('device-name').textContent = name;
     $('qr-pairing').hidden = true; $('pair-instructions').hidden = true;
@@ -1216,6 +1353,7 @@ if (typeof document !== 'undefined') {
     if (launchPresentation.ownsFullscreen && document.fullscreenElement) exitLaunchFullscreen();
   }
   function disconnect(refreshQr = true) {
+    closePinKeypad();
     if (settingsDialog.open) settingsDialog.close();
     stopQr();
     authGeneration++;
@@ -1423,6 +1561,10 @@ if (typeof document !== 'undefined') {
   }
   $('connect-form').addEventListener('submit', event => {
     event.preventDefault();
+    if (!pairingToken && !deviceCredential && !pairingCode.complete) {
+      $('message').textContent = t('web_pairing_code_incomplete'); pairingCode.focus(); return;
+    }
+    closePinKeypad();
     launchMode = selectedMode;
     const generation = ++authGeneration;
     prepareLaunchPresentation();

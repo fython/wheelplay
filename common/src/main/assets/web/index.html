@@ -11,7 +11,7 @@
 </head>
 <body>
 <header id="topbar"><a class="brand" href="/">WheelPlay</a><div id="status" role="status" aria-live="polite">{{ui_waiting_for_connection}}</div><nav><button id="fullscreen" type="button">{{web_full_screen}}</button></nav></header>
-<main>
+<main id="main-content">
 <section id="pairing" aria-labelledby="title">
 <div class="eyebrow">{{web_local_network_head_unit_display}}</div>
 <h1 id="title">{{web_connect_your_carplay_display}}</h1>
@@ -25,12 +25,12 @@
 <p id="qr-status" role="status" aria-live="polite">{{web_generating_qr_code}}</p><button id="refresh-qr" type="button">{{web_refresh_qr_code}}</button>
 </div>
 <form id="connect-form"><fieldset id="code-entry"><legend>{{web_six_digit_pairing_code_on_the_device}}</legend>
-<div class="pin-inputs"><input id="code-digit-1" class="pin-digit" type="text" inputmode="numeric" pattern="[0-9]" maxlength="6" autocomplete="one-time-code" aria-label="{{web_six_digit_pairing_code_on_the_device}} · 1 / 6" required>
-<input id="code-digit-2" class="pin-digit" type="text" inputmode="numeric" pattern="[0-9]" maxlength="6" autocomplete="off" aria-label="{{web_six_digit_pairing_code_on_the_device}} · 2 / 6" required>
-<input id="code-digit-3" class="pin-digit" type="text" inputmode="numeric" pattern="[0-9]" maxlength="6" autocomplete="off" aria-label="{{web_six_digit_pairing_code_on_the_device}} · 3 / 6" required>
-<input id="code-digit-4" class="pin-digit" type="text" inputmode="numeric" pattern="[0-9]" maxlength="6" autocomplete="off" aria-label="{{web_six_digit_pairing_code_on_the_device}} · 4 / 6" required>
-<input id="code-digit-5" class="pin-digit" type="text" inputmode="numeric" pattern="[0-9]" maxlength="6" autocomplete="off" aria-label="{{web_six_digit_pairing_code_on_the_device}} · 5 / 6" required>
-<input id="code-digit-6" class="pin-digit" type="text" inputmode="numeric" pattern="[0-9]" maxlength="6" autocomplete="off" aria-label="{{web_six_digit_pairing_code_on_the_device}} · 6 / 6" required></div>
+<div class="pin-inputs" id="pin-inputs"><input id="code-digit-1" class="pin-digit" type="text" inputmode="none" readonly aria-controls="pairing-keypad" aria-expanded="false" pattern="[0-9]" maxlength="6" autocomplete="one-time-code" aria-label="{{web_six_digit_pairing_code_on_the_device}} · 1 / 6" required>
+<input id="code-digit-2" class="pin-digit" type="text" inputmode="none" readonly aria-controls="pairing-keypad" aria-expanded="false" pattern="[0-9]" maxlength="6" autocomplete="off" aria-label="{{web_six_digit_pairing_code_on_the_device}} · 2 / 6" required>
+<input id="code-digit-3" class="pin-digit" type="text" inputmode="none" readonly aria-controls="pairing-keypad" aria-expanded="false" pattern="[0-9]" maxlength="6" autocomplete="off" aria-label="{{web_six_digit_pairing_code_on_the_device}} · 3 / 6" required>
+<input id="code-digit-4" class="pin-digit" type="text" inputmode="none" readonly aria-controls="pairing-keypad" aria-expanded="false" pattern="[0-9]" maxlength="6" autocomplete="off" aria-label="{{web_six_digit_pairing_code_on_the_device}} · 4 / 6" required>
+<input id="code-digit-5" class="pin-digit" type="text" inputmode="none" readonly aria-controls="pairing-keypad" aria-expanded="false" pattern="[0-9]" maxlength="6" autocomplete="off" aria-label="{{web_six_digit_pairing_code_on_the_device}} · 5 / 6" required>
+<input id="code-digit-6" class="pin-digit" type="text" inputmode="none" readonly aria-controls="pairing-keypad" aria-expanded="false" pattern="[0-9]" maxlength="6" autocomplete="off" aria-label="{{web_six_digit_pairing_code_on_the_device}} · 6 / 6" required></div>
 <input id="code" name="code" type="hidden">
 </fieldset><button class="primary" id="connect" type="submit"><span id="connect-label">{{web_pair_start_display}}</span> <!-- Google Material Icons: arrow_forward, Apache-2.0; docs/UPSTREAM.md. --><svg class="material-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/></svg></button></form>
 <p id="message" role="alert"></p>
@@ -51,6 +51,7 @@
 </div>
 </section>
 </div>
+<div id="keypad-scroll-space" hidden aria-hidden="true"></div>
 </section>
 <section id="display" hidden aria-label="{{web_carplay_display}}">
 <dialog id="settings-dialog" aria-labelledby="settings-title">
@@ -92,6 +93,22 @@
 <div id="waiting" role="status"><strong>{{web_head_unit_connected}}</strong><p id="stage">{{web_waiting_for_iphone_video}}</p><button id="phone-connect" class="primary" type="button">{{ui_connect_iphone}}</button><p id="phone-connect-message" class="hint" aria-live="polite">{{web_uses_android_s_current_usb_wireless_connection_settings_for}}</p></div>
 </section>
 </main>
+<div id="pairing-keypad" popover="manual" role="dialog" aria-modal="false" aria-labelledby="keypad-title" hidden>
+<div class="keypad-heading"><strong id="keypad-title">{{web_keypad_title}}</strong><output id="keypad-code" aria-label="{{web_six_digit_pairing_code_on_the_device}}">· · · · · ·</output><button id="keypad-done" type="button">{{web_keypad_done}}</button></div>
+<div class="keypad-keys">
+<button id="keypad-1" type="button">1</button>
+<button id="keypad-2" type="button">2</button>
+<button id="keypad-3" type="button">3</button>
+<button id="keypad-4" type="button">4</button>
+<button id="keypad-5" type="button">5</button>
+<button id="keypad-6" type="button">6</button>
+<button id="keypad-7" type="button">7</button>
+<button id="keypad-8" type="button">8</button>
+<button id="keypad-9" type="button">9</button>
+<button id="keypad-clear" type="button">{{web_keypad_clear}}</button><button id="keypad-0" type="button">0</button><button id="keypad-delete" type="button" aria-label="{{web_keypad_delete}}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5h12v14H9l-7-7 7-7Z"/><path d="m12 9 6 6m0-6-6 6"/></svg></button>
+</div>
+</div>
+
 <noscript>{{web_enable_javascript_in_your_browser_settings_then_reload}}</noscript>
 </body>
 </html>

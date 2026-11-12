@@ -96,3 +96,16 @@
 #debug-overlay .debug-summary svg{display:block;width:16px;height:16px;fill:none;stroke:#b4d9b1;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 #debug-overlay .debug-summary dd{text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px;font-weight:600}
 @media(max-width:480px),(max-height:480px){#debug-overlay .debug-summary{gap:8px;padding-bottom:10px}#debug-overlay .debug-summary>div{gap:4px}#debug-overlay .debug-summary dd{font-size:12px}}
+
+#code-entry .pin-digit.keypad-active{border-color:#b4d9b1;box-shadow:0 0 0 2px #b4d9b1;background:#24352c}
+#pairing-keypad{position:fixed;inset:auto;margin:0;padding:12px;width:304px;max-width:calc(100% - 24px);overflow:auto;overscroll-behavior:contain;z-index:10;border:1px solid #58645e;border-radius:16px;background:#19221f;color:#eef2ef;box-shadow:0 12px 48px #0009;--keypad-key-height:48px}
+.keypad-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:40px;margin-bottom:10px}
+#keypad-title{font-size:12px;font-weight:500;color:#b5beb9}
+#keypad-code{font:18px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:nowrap;color:#b4d9b1}
+#keypad-done{min-width:44px;min-height:40px;padding:0 8px;border:0;color:#b4d9b1;font-size:13px}
+.keypad-keys{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+#pairing-keypad .keypad-keys button{min-width:0;height:var(--keypad-key-height);min-height:var(--keypad-key-height);padding:0 8px;border:1px solid #46514e;border-radius:8px;background:#25312c;font-size:22px;line-height:1;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+#pairing-keypad .keypad-keys button:active{background:#b4d9b1;color:#17251b}
+#pairing-keypad #keypad-clear{font-size:13px;background:transparent;color:#cbd5cf}
+#keypad-delete svg{display:block;width:24px;height:24px;margin:auto;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+@media(max-height:480px){body.pin-keypad-open #topbar{display:none}}

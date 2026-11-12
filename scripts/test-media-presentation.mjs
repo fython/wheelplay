@@ -420,12 +420,70 @@ try {
   assert.ok(home.rightTop >= home.leftBottom, 'Narrow home places settings below pairing');
   assert.equal(home.overflow, false);
   await screenshot('home-mobile.png');
+  const keypadGeometry = `(() => {
+    const panel=document.getElementById('pairing-keypad'), anchor=document.getElementById('pin-inputs'), visual=visualViewport;
+    return {hidden:panel.hidden,panel:panel.getBoundingClientRect().toJSON(),anchor:anchor.getBoundingClientRect().toJSON(),content:document.getElementById('main-content').getBoundingClientRect().toJSON(),
+      viewport:{left:visual?.offsetLeft||0,top:visual?.offsetTop||0,width:visual?.width||innerWidth,height:visual?.height||innerHeight},
+      placement:panel.dataset.placement,readonly:[...anchor.querySelectorAll('input')].every(input=>input.readOnly&&input.inputMode==='none')};
+  })()`;
+  const tapKey = async id => {
+    const point=await evaluate(`(()=>{const r=document.getElementById('${id}').getBoundingClientRect();return{x:r.left+r.width/2,y:r.top+r.height/2}})()`);
+    await command('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{...point,id:1}]});
+    await command('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+    await pause(30);
+  };
+  for (const [width,height,name] of [[1360,1000,'wide'],[390,844,'mobile'],[800,360,'landscape'],[320,320,'short']]) {
+    await evaluate(`document.getElementById('keypad-done').click()`);
+    await command('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});
+    await evaluate(`{document.getElementById('main-content').scrollTop=0;const field=document.getElementById('code-digit-1');field.focus({preventScroll:true});field.click()}`);
+    await wait(`!document.getElementById('pairing-keypad').hidden`);
+    await pause(80);
+    const geometry=await evaluate(keypadGeometry), {panel,anchor,viewport}=geometry;
+    assert.equal(geometry.hidden,false,`${name}: keypad remains open after bringing the field into view`);
+    assert.equal(geometry.readonly,true,'PIN fields cannot summon the system keyboard');
+    assert.ok(panel.left>=viewport.left+10&&panel.top>=viewport.top+10&&panel.right<=viewport.left+viewport.width-10&&panel.bottom<=viewport.top+viewport.height-10,`${name}: keypad fits the visual viewport`);
+    assert.ok(panel.right<=anchor.left||panel.left>=anchor.right||panel.bottom<=anchor.top||panel.top>=anchor.bottom,`${name}: keypad does not cover the six-digit input`);
+    assert.ok(anchor.top>=Math.max(viewport.top,geometry.content.top)+10&&anchor.bottom<=Math.min(viewport.top+viewport.height,geometry.content.bottom)-10,`${name}: input remains visible below the header`);
+    await tapKey('keypad-clear');
+    for (const digit of '012') await tapKey('keypad-'+digit);
+    assert.equal(await evaluate(`document.getElementById('code').value`),'012');
+    assert.equal(await evaluate(`document.getElementById('keypad-code').textContent`),'0 1 2 · · ·');
+    await screenshot('keypad-'+name+'.png');
+    if (name === 'wide') {
+      await command('Browser.grantPermissions',{origin:`http://127.0.0.1:${server.address().port}`,permissions:['clipboardReadWrite','clipboardSanitizedWrite']});
+      await evaluate(`navigator.clipboard.writeText('098765')`,{userGesture:true});
+      await evaluate(`document.getElementById('code-digit-1').focus({preventScroll:true})`);
+      await command('Input.dispatchKeyEvent',{type:'keyDown',key:'v',code:'KeyV',modifiers:2,windowsVirtualKeyCode:86});
+      await command('Input.dispatchKeyEvent',{type:'keyUp',key:'v',code:'KeyV',modifiers:2,windowsVirtualKeyCode:86});
+      await wait(`document.getElementById('code').value==='098765'`);
+      await tapKey('keypad-clear');
+      for (const digit of '012') await tapKey('keypad-'+digit);
+    }
+    for (const digit of '345') await tapKey('keypad-'+digit);
+    assert.equal(await evaluate(`document.getElementById('code').value`),'012345');
+    assert.equal(await evaluate(`document.getElementById('connect-form').checkValidity()`),true);
+    await tapKey('keypad-delete');
+    assert.equal(await evaluate(`document.getElementById('code').value`),'01234');
+    await tapKey('keypad-done');
+    assert.equal(await evaluate(`document.getElementById('pairing-keypad').hidden`),true);
+  }
+  await command('Emulation.setPageScaleFactor',{pageScaleFactor:1.5});
+  await evaluate(`document.getElementById('code-digit-1').click()`);
+  await pause(100);
+  const zoomKeypad=await evaluate(keypadGeometry);
+  assert.equal(zoomKeypad.hidden,false);
+  assert.ok(zoomKeypad.panel.left>=zoomKeypad.viewport.left&&zoomKeypad.panel.right<=zoomKeypad.viewport.left+zoomKeypad.viewport.width);
+  assert.ok(zoomKeypad.panel.top>=zoomKeypad.viewport.top&&zoomKeypad.panel.bottom<=zoomKeypad.viewport.top+zoomKeypad.viewport.height);
+  await evaluate(`document.getElementById('setup-title').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));document.getElementById('setup-title').click()`);
+  assert.equal(await evaluate(`document.getElementById('pairing-keypad').hidden`),true,'Outside tap dismisses the keypad');
+  await command('Emulation.setPageScaleFactor',{pageScaleFactor:1});
   await command('Emulation.clearDeviceMetricsOverride');
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ passed: true, connections, imageAcks: acks, webpProbes, jpegFallbacks,
     nativeFullscreenEntered,
     blockedChecks: nativeFullscreenEntered ? [] : ['Native fullscreen did not enter in this browser environment; OEM fullscreen transitions were not exercised.'],
-    checks: ['responsive home columns and stacking', 'six-digit PIN validation and paste', 'default fullscreen request and hidden toolbar',
+    checks: ['responsive home columns and stacking', 'six-digit PIN validation and paste', 'floating keypad on wide, narrow, short and zoomed viewports',
+      'trusted keypad touches, deletion, leading zeroes and outside dismissal', 'default fullscreen request and hidden toolbar',
       ...(nativeFullscreenEntered ? ['OEM native fullscreen toggle'] : []),
       'OEM debug toggle, top-right position, contrast over white video and touch passthrough',
       'OEM settings centered modal, focus, input isolation and Escape', 'five-touch source', 'read-only source', 'WebP capability probe', 'WebP touch with zoom compensation', 'JPEG fallback after corrupt WebP', 'two-image pipeline with exact ACKs',

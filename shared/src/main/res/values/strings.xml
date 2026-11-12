@@ -718,4 +718,9 @@
     <string name="web_debug_frames">Presented frames</string>
     <string name="web_debug_image_decode">Image receive-to-present time</string>
     <string name="web_debug_format">Video format</string>
+    <string name="web_keypad_title">Number pad</string>
+    <string name="web_keypad_done">Done</string>
+    <string name="web_keypad_clear">Clear</string>
+    <string name="web_keypad_delete">Delete last digit</string>
+    <string name="web_pairing_code_incomplete">Enter all six digits of the pairing code.</string>
 </resources>

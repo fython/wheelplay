@@ -718,4 +718,9 @@
     <string name="web_debug_frames">已呈現影格數</string>
     <string name="web_debug_image_decode">影像收幀至呈現</string>
     <string name="web_debug_format">畫面格式</string>
+    <string name="web_keypad_title">數字鍵盤</string>
+    <string name="web_keypad_done">收起</string>
+    <string name="web_keypad_clear">清空</string>
+    <string name="web_keypad_delete">刪除上一位</string>
+    <string name="web_pairing_code_incomplete">請完整輸入六位配對碼。</string>
 </resources>

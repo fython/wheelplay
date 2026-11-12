@@ -9,6 +9,11 @@ import org.json.JSONObject
 internal object BrowserStrings {
     private val resources =
         mapOf(
+            "web_keypad_title" to UiR.string.web_keypad_title,
+            "web_keypad_done" to UiR.string.web_keypad_done,
+            "web_keypad_clear" to UiR.string.web_keypad_clear,
+            "web_keypad_delete" to UiR.string.web_keypad_delete,
+            "web_pairing_code_incomplete" to UiR.string.web_pairing_code_incomplete,
             "web_debug_format" to UiR.string.web_debug_format,
             "web_debug_image_decode" to UiR.string.web_debug_image_decode,
             "web_debug_frames" to UiR.string.web_debug_frames,
