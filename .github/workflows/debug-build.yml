@@ -80,11 +80,14 @@ jobs:
             "cmake;$ANDROID_CMAKE_VERSION"
 
       - name: Build and lint Debug artifacts
-        run: ./gradlew --no-daemon --build-cache :projection-plugin-api:assembleRelease :projection-plugin-sample:lintDebug :projection-plugin-sample:assembleDebug :common:assembleDebugAndroidTest :mobile:lintDebug :mobile:assembleDebug :mobile:assembleDebugAndroidTest
+        run: ./gradlew --no-daemon --build-cache :projection-plugin-api:assembleRelease :projection-plugin-carlink:lintDebug :projection-plugin-sample:lintDebug :projection-plugin-sample:assembleDebug :common:assembleDebugAndroidTest :mobile:lintDebug :mobile:assembleDebug :mobile:assembleDebugAndroidTest
 
       # Native compilation and time-sensitive socket tests must not compete for runner CPU.
       - name: Run unit tests
-        run: ./gradlew --no-daemon --build-cache :projection-plugin-api:testDebugUnitTest :shared:testDebugUnitTest :common:testDebugUnitTest
+        run: ./gradlew --no-daemon --build-cache :projection-plugin-api:testDebugUnitTest :projection-plugin-carlink:testDebugUnitTest :shared:testDebugUnitTest :common:testDebugUnitTest
+
+      - name: Verify offline CarLink dependency tooling
+        run: python3 -m unittest discover -s test -p 'carlink_sdk_test.py'
 
       - name: Upload plugin SDK and independent sample APK
         uses: actions/upload-artifact@v4
@@ -103,6 +106,8 @@ jobs:
           path: |
             projection-plugin-api/build/reports/tests/
             projection-plugin-api/build/test-results/
+            projection-plugin-carlink/build/reports/tests/
+            projection-plugin-carlink/build/test-results/
             shared/build/reports/tests/
             shared/build/test-results/
             common/build/reports/tests/
@@ -138,6 +143,57 @@ jobs:
           name: wheelplay-lint-results
           path: mobile/build/reports/lint-results-debug.*
           if-no-files-found: warn
+
+  carlink-apk:
+    name: CarLink plugin APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: temurin
+
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v5
+        with:
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
+
+      - name: Locate preinstalled Android SDK
+        run: |
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+
+      - name: Install missing Android packages
+        run: |
+          bash .github/scripts/install-android-packages.sh \
+            "platforms;android-$ANDROID_API_LEVEL" \
+            "build-tools;$ANDROID_BUILD_TOOLS"
+
+      - name: Provision pinned CarLink runtime
+        run: |
+          sdk_apk="$RUNNER_TEMP/carlink-reference.apk"
+          sdk_url="$(python3 -c 'import json; print(json.load(open("projection-plugin-carlink/sdk-lock.json"))["apkUrl"])')"
+          curl --fail --location --retry 3 --proto '=https' --proto-redir '=https' "$sdk_url" --output "$sdk_apk"
+          python3 scripts/carlink_sdk.py prepare --apk "$sdk_apk" --sdk .local/carlink-sdk
+          python3 scripts/carlink_sdk.py verify --sdk .local/carlink-sdk
+
+      - name: Build and verify CarLink Debug APK
+        run: ./gradlew --no-daemon --build-cache :projection-plugin-carlink:assembleDebug
+
+      - name: Upload CarLink Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheelplay-carlink-debug-apk
+          path: |
+            projection-plugin-carlink/build/outputs/apk/debug/projection-plugin-carlink-debug.apk
+            projection-plugin-carlink/build/outputs/apk/debug/carlink-build.json
+          if-no-files-found: error
 
   browser-runtime:
     name: Browser HTTP on Android ${{ matrix.api-level }}
