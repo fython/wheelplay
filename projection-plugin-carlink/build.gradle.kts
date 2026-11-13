@@ -110,15 +110,18 @@ androidComponents {
         val stableIds = if (variant.buildType == "debug") "stable-ids-debug.txt" else "stable-ids.txt"
         variant.androidResources.aaptAdditionalParameters.addAll("--stable-ids", file(stableIds).absolutePath)
         val suffix = variant.name.replaceFirstChar { it.uppercase() }
+        // Reuse AGP's signing location, including its debug-key creation and CI defaults.
+        val signingConfig = android.buildTypes.getByName(variant.buildType!!).signingConfig
+        val signingStore = requireNotNull(signingConfig?.storeFile) {
+            "CarLink ${variant.name} requires an APK signing configuration"
+        }
         val packageTask = tasks.register<PackageCarLink>("packageCarLink$suffix") {
             variantName.set(variant.name)
             sdkPath.set(providers.gradleProperty("carlinkSdkDir").orElse(rootProject.file(".local/carlink-sdk").absolutePath))
             script.set(rootProject.layout.projectDirectory.file("scripts/carlink_sdk.py"))
             lockFile.set(layout.projectDirectory.file("sdk-lock.json"))
             buildTools.set(androidComponents.sdkComponents.sdkDirectory.map { it.dir("build-tools/${android.buildToolsVersion}") })
-            keyFile.set(if (variant.buildType == "release")
-                file(providers.environmentVariable("ANDROID_KEYSTORE_PATH").getOrElse("missing-release-keystore.jks"))
-            else file(System.getProperty("user.home") + "/.android/debug.keystore"))
+            keyFile.set(signingStore)
         }
         val request = variant.artifacts.use(packageTask).wiredWithDirectories(PackageCarLink::inputApks, PackageCarLink::outputApks)
             .toTransformMany(SingleArtifact.APK)
