@@ -16,6 +16,11 @@ object ProjectionPlugin {
     const val INTERACTION_VERSION = 1
     const val EXTRA_HOST_UI_VERSION = "moe.feng.wheelplay.plugin.HOST_UI_VERSION"
     const val HOST_UI_VERSION = 1
+    const val EXTRA_AUDIO_VERSION = "moe.feng.wheelplay.plugin.AUDIO_VERSION"
+    const val AUDIO_VERSION = 1
+    const val EXTRA_MEDIA_VERSION = "moe.feng.wheelplay.plugin.MEDIA_VERSION"
+    const val MEDIA_VERSION = 1
+    const val META_MICROPHONE = "moe.feng.wheelplay.plugin.MICROPHONE"
     const val META_SETTINGS_ACTIVITY = "moe.feng.wheelplay.plugin.SETTINGS_ACTIVITY"
     /** Optional bind-time pixel size; plugins may constrain it and return their actual size in onInfo. */
     const val EXTRA_DISPLAY_WIDTH = "moe.feng.wheelplay.plugin.DISPLAY_WIDTH"
@@ -44,6 +49,9 @@ data class PluginVideoInfo(
     val displaySizeVersion: Int = 0,
     val interactionVersion: Int = 0,
     val hostUiVersion: Int = 0,
+    val audioVersion: Int = 0,
+    val microphone: Boolean = false,
+    val mediaVersion: Int = 0,
 ) {
     init {
         require(width in 1..4096 && height in 1..4096 && width.toLong() * height <= 8_388_608)
@@ -52,6 +60,9 @@ data class PluginVideoInfo(
         require(displaySizeVersion in 0..ProjectionPlugin.DISPLAY_SIZE_VERSION)
         require(interactionVersion in 0..ProjectionPlugin.INTERACTION_VERSION)
         require(hostUiVersion in 0..ProjectionPlugin.HOST_UI_VERSION)
+        require(audioVersion in 0..ProjectionPlugin.AUDIO_VERSION)
+        require(!microphone || audioVersion != 0)
+        require(mediaVersion in 0..ProjectionPlugin.MEDIA_VERSION)
     }
     fun toBundle() = Bundle().apply {
         putInt("apiVersion", ProjectionPlugin.API_VERSION)
@@ -62,12 +73,14 @@ data class PluginVideoInfo(
         putInt("displaySizeVersion", displaySizeVersion)
         putInt("interactionVersion", interactionVersion)
         putInt("hostUiVersion", hostUiVersion)
+        putInt("audioVersion", audioVersion); putBoolean("microphone", microphone)
+        putInt("mediaVersion", mediaVersion)
     }
     companion object {
         fun fromBundle(bundle: Bundle): PluginVideoInfo {
             require(bundle.getInt("apiVersion") == ProjectionPlugin.API_VERSION) { "Unsupported plugin API" }
             return PluginVideoInfo(bundle.getInt("width"), bundle.getInt("height"),
-                bundle.getInt("maxTouchContacts"), bundle.getBoolean("nightMode"), bundle.getBoolean("processExitRequired"), bundle.getBoolean("nativeCancelInput"), bundle.getInt("encodedVideoVersion"), bundle.getInt("displaySizeVersion"), bundle.getInt("interactionVersion"), bundle.getInt("hostUiVersion"))
+                bundle.getInt("maxTouchContacts"), bundle.getBoolean("nightMode"), bundle.getBoolean("processExitRequired"), bundle.getBoolean("nativeCancelInput"), bundle.getInt("encodedVideoVersion"), bundle.getInt("displaySizeVersion"), bundle.getInt("interactionVersion"), bundle.getInt("hostUiVersion"), bundle.getInt("audioVersion"), bundle.getBoolean("microphone"), bundle.getInt("mediaVersion"))
         }
     }
 }

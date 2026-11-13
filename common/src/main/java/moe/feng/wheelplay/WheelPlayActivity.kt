@@ -76,6 +76,21 @@ class WheelPlayActivity : AppCompatActivity() {
     private var webBusy = false
     private var awaitingTeslaVpnConsent = false
     private var pendingPluginPreparation: PluginPreparation? = null
+    private var pendingPluginMicrophone: PluginPreparation? = null
+    private val pluginMicrophonePermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val pending = pendingPluginMicrophone
+        pendingPluginMicrophone = null
+        if (pending != null) {
+            val registry = projectionPlugins(this).also { it.refresh() }
+            val plugin = registry.entries().find { it.id == pending.sourceId }
+            val snapshot = projectionSessions.controlSnapshot()
+            if (pending.accepts(plugin, selectedHomeSource().id, snapshot.generation, snapshot.occupied,
+                    plugin?.let { registry.available(it) } == true, pending.request)) {
+                if (!granted) toast(getString(UiR.string.ui_android_microphone_permission_is_missing_voice_input_is_unavailable))
+                startProjectionSource(pending.sourceId, microphoneChecked = true)
+            }
+        }
+    }
     private val pluginPreparation = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val pending = pendingPluginPreparation
         pendingPluginPreparation = null
@@ -245,6 +260,7 @@ class WheelPlayActivity : AppCompatActivity() {
         refreshAuthentication()
         selectedPrivateKey = savedInstanceState?.getString("selectedPrivateKey")?.let(Uri::parse)
         pendingPluginPreparation = PluginPreparation.fromBundle(savedInstanceState?.getBundle("pluginPreparation"))
+        pendingPluginMicrophone = PluginPreparation.fromBundle(savedInstanceState?.getBundle("pluginMicrophone"))
         pendingAndroidAutoSourceId = savedInstanceState?.getString("pendingAndroidAutoSourceId")
         aaConnection = AaConnection.entries.firstOrNull { it.name == savedInstanceState?.getString("aaConnection") } ?: AaConnection.LOCAL
         awaitingTeslaVpnConsent = savedInstanceState?.getBoolean("awaitingTeslaVpnConsent") ?: false
@@ -288,6 +304,7 @@ class WheelPlayActivity : AppCompatActivity() {
         outState.putString("pendingAndroidAutoSourceId", pendingAndroidAutoSourceId)
         outState.putString("aaConnection", aaConnection.name)
         outState.putBundle("pluginPreparation", pendingPluginPreparation?.toBundle())
+        outState.putBundle("pluginMicrophone", pendingPluginMicrophone?.toBundle())
         outState.putBoolean("awaitingTeslaVpnConsent", awaitingTeslaVpnConsent)
         super.onSaveInstanceState(outState)
     }
@@ -366,6 +383,7 @@ class WheelPlayActivity : AppCompatActivity() {
             }
             UiAction.STOP_SERVICE -> {
                 pendingPluginPreparation = null
+                pendingPluginMicrophone = null
                 startService(Intent(this, WheelPlaySessionService::class.java).setAction(WheelPlaySessionService.ACTION_STOP))
                 finishAndRemoveTask()
             }
@@ -836,8 +854,8 @@ class WheelPlayActivity : AppCompatActivity() {
         toast(getString(UiR.string.aa_local_settings_unavailable))
     }
 
-    private fun startProjectionSource(id: String) {
-        if (pendingPluginPreparation != null) return
+    private fun startProjectionSource(id: String, microphoneChecked: Boolean = false) {
+        if (pendingPluginPreparation != null || pendingPluginMicrophone != null) return
         homeFallbackMessage = null
         val homeId = when {
             belongsToSource(id, ProjectionSourceIds.ANDROID_AUTO) -> ProjectionSourceIds.ANDROID_AUTO
@@ -854,6 +872,15 @@ class WheelPlayActivity : AppCompatActivity() {
         }
         val registry = projectionPlugins(this)
         val plugin = registry.entries().find { it.id == id }
+        if (plugin?.microphone == true && registry.available(plugin) && !microphoneChecked &&
+            AirPlayPersistence.loadMicrophoneSource(this) != CarPlayMicrophoneSource.DISABLED &&
+            checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            val snapshot = projectionSessions.controlSnapshot()
+            if (snapshot.occupied) { toast(getString(UiR.string.projection_busy)); return }
+            pendingPluginMicrophone = PluginPreparation.create(plugin, snapshot.generation)
+            pluginMicrophonePermission.launch(Manifest.permission.RECORD_AUDIO)
+            return
+        }
         if (plugin?.preparation != null && registry.available(plugin)) {
             val snapshot = projectionSessions.controlSnapshot()
             if (snapshot.occupied) { toast(getString(UiR.string.projection_busy)); return }

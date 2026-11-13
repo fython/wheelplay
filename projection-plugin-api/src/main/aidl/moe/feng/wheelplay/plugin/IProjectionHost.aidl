@@ -13,4 +13,7 @@ oneway interface IProjectionHost {
     void onInteraction(String token, in Bundle interaction);
     // Optional host-UI v1; opens host controls without stopping projection.
     void onHostUiRequested(String token);
+    // Media v1; full snapshots and transport receipts, scoped to this session.
+    void onMediaState(String token, in Bundle state);
+    void onMediaCommandResult(String token, long requestId, boolean sent);
 }

@@ -23,6 +23,7 @@ internal data class InstalledProjectionPlugin(
     val installedAt: Long = 0,
     val sourceId: String? = null,
     val preparation: ComponentName? = null,
+    val microphone: Boolean = false,
 ) {
     val id get() = PREFIX + component.flattenToString()
     val consentKey get() = "$signer@$installedAt"
@@ -120,7 +121,7 @@ internal class ProjectionPluginRegistry(private val context: Context, private va
                 }
                 InstalledProjectionPlugin(component, service.loadLabel(pm).toString().take(120),
                     service.applicationInfo.uid, signer, pkg.lastUpdateTime, pkg.longVersionCode, activityFor(ProjectionPlugin.META_SETTINGS_ACTIVITY), problem, pkg.firstInstallTime,
-                    service.metaData?.getString(ProjectionPlugin.META_SOURCE_ID), activityFor(ProjectionPlugin.META_PREPARE_ACTIVITY))
+                    service.metaData?.getString(ProjectionPlugin.META_SOURCE_ID), activityFor(ProjectionPlugin.META_PREPARE_ACTIVITY), service.metaData?.getBoolean(ProjectionPlugin.META_MICROPHONE) == true)
             }.getOrNull()
         }.distinctBy { it.id }.sortedBy { it.name }
         failures.entries.removeAll { it.value.plugin !in installed }

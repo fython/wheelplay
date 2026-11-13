@@ -16,6 +16,10 @@ class CarLinkService : ProjectionPluginService() {
     private var worker: HandlerThread? = null
     private var handler: Handler? = null
     private var encoded = false
+    private var audio: CarLinkAudio? = null
+    @Volatile private var mediaEngine: SdkCarLinkEngine? = null
+    @Volatile private var sessionEvents: Events? = null
+    @Volatile private var audioFailure: String? = null
     private var connection = CarLinkConnection.P2P
     private var hotspotCredentials: CarLinkSoftAp.Credentials? = null
     private var config = CarLinkConfig()
@@ -42,7 +46,12 @@ class CarLinkService : ProjectionPluginService() {
         return PluginVideoInfo(config.width, config.height, maxTouchContacts = 1,
             encodedVideoVersion = if (encoded) ProjectionPlugin.ENCODED_VIDEO_VERSION else 0,
             displaySizeVersion = ProjectionPlugin.DISPLAY_SIZE_VERSION, interactionVersion = ProjectionPlugin.INTERACTION_VERSION,
-            hostUiVersion = ProjectionPlugin.HOST_UI_VERSION)
+            hostUiVersion = ProjectionPlugin.HOST_UI_VERSION,
+            audioVersion = hostAudioVersion, microphone = hostAudioVersion != 0, mediaVersion = hostMediaVersion)
+    }
+    override fun onMediaCommand(command: Int) = mediaEngine?.mediaCommand(command) ?: CompletableFuture.completedFuture(false)
+    override fun onAudioTransport(playback: ParcelFileDescriptor, microphone: ParcelFileDescriptor) {
+        audio = CarLinkAudio(playback, microphone) { reason -> audioFailure = reason; sessionEvents?.ended(reason) }
     }
     override fun onDisplaySizeChanged(width: Int, height: Int): Boolean {
         val prefs = settingsCall("config")
@@ -57,6 +66,8 @@ class CarLinkService : ProjectionPluginService() {
     override fun onStartProjection(surface: Surface, events: Events) = startSession(surface, null, events)
     override fun onStartEncodedProjection(output: ParcelFileDescriptor, events: Events) = startSession(null, output, events)
     private fun startSession(surface: Surface?, output: ParcelFileDescriptor?, events: Events) {
+        sessionEvents = events
+        check(audioFailure == null) { audioFailure.orEmpty() }
         val problems = CarLinkEnvironment.problems(this, connection)
         check(problems.isEmpty()) { problems.joinToString("; ") }
         val manager = getSystemService(NotificationManager::class.java)
@@ -76,7 +87,9 @@ class CarLinkService : ProjectionPluginService() {
                 return Cancellation { queue.removeCallbacks(task) }
             }
         }
-        val engine = SdkCarLinkEngine(this, surface, output, connection, hotspotCredentials)
+        val engine = SdkCarLinkEngine(this, surface, output, connection, hotspotCredentials, audio,
+            if (hostMediaVersion == ProjectionPlugin.MEDIA_VERSION) events::media else null)
+        mediaEngine = engine
         session = CarLinkSession(engine, scheduler, config, { message, pin, ready ->
             settingsCall("update", Bundle().apply {
                 putString("message", message); putString("pin", pin)
@@ -100,14 +113,19 @@ class CarLinkService : ProjectionPluginService() {
     }
     override fun onTouch(contacts: List<PluginContact>) { handler?.post { session?.contacts(contacts) } }
     override fun onStopProjection(): CompletableFuture<Unit> {
+        mediaEngine = null
         val result = CompletableFuture<Unit>()
         val queue = handler
-        if (queue == null) return CompletableFuture.completedFuture(Unit)
+        if (queue == null) {
+            audio?.close(); audio?.awaitStopped(); audio = null
+            return CompletableFuture.completedFuture(Unit)
+        }
         queue.post {
             val current = session
             session = null
             (current?.stop() ?: CompletableFuture.completedFuture(Unit)).whenComplete { _, failure ->
-                runCatching {
+                val cleanupFailure = runCatching {
+                    audio?.close(); audio?.awaitStopped(); audio = null; sessionEvents = null
                     settingsCall("update", Bundle().apply {
                         if (failure == null && current?.phase == CarLinkPhase.FAILED) {
                             putAll(settingsCall("status"))
@@ -117,8 +135,9 @@ class CarLinkService : ProjectionPluginService() {
                         putBoolean("active", false)
                     })
                     stopForeground(STOP_FOREGROUND_REMOVE)
-                }
-                if (failure == null) result.complete(Unit) else result.completeExceptionally(failure)
+                }.exceptionOrNull()
+                val stoppedFailure = failure ?: cleanupFailure
+                if (stoppedFailure == null) result.complete(Unit) else result.completeExceptionally(stoppedFailure)
                 worker?.quitSafely()
             }
         }

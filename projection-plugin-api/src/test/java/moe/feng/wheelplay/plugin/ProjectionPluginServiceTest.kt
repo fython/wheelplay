@@ -24,6 +24,15 @@ class ProjectionPluginServiceTest {
         var displaySizeVersion = 0
         var interactionVersion = 0
         var hostUiVersion = 0
+        var audioVersion = 0
+        var mediaVersion = 0
+        val mediaCommands = LinkedBlockingQueue<Int>()
+        override fun onMediaCommand(command: Int): CompletableFuture<Boolean> { mediaCommands.add(command); return CompletableFuture.completedFuture(true) }
+        val audioAttached = CountDownLatch(1)
+        var audioDescriptors: Pair<ParcelFileDescriptor, ParcelFileDescriptor>? = null
+        override fun onAudioTransport(playback: ParcelFileDescriptor, microphone: ParcelFileDescriptor) {
+            audioDescriptors = playback to microphone; audioAttached.countDown()
+        }
         lateinit var sessionEvents: Events
         val displayRequests = LinkedBlockingQueue<Pair<Int, Int>>()
         override fun onDisplaySizeChanged(width: Int, height: Int): Boolean { displayRequests.add(width to height); return true }
@@ -35,7 +44,7 @@ class ProjectionPluginServiceTest {
         val touches = LinkedBlockingQueue<List<PluginContact>>()
         var beforeInfo: (() -> Unit)? = null
         override fun isHostAllowed(uid: Int) = allowHost
-        override fun videoInfo(): PluginVideoInfo { beforeInfo?.invoke(); return PluginVideoInfo(640, 360, 2, true, nativeCancelInput = nativeCancel, encodedVideoVersion = if (encoded) 1 else 0, displaySizeVersion = displaySizeVersion, interactionVersion = interactionVersion, hostUiVersion = hostUiVersion) }
+        override fun videoInfo(): PluginVideoInfo { beforeInfo?.invoke(); return PluginVideoInfo(640, 360, 2, true, nativeCancelInput = nativeCancel, encodedVideoVersion = if (encoded) 1 else 0, displaySizeVersion = displaySizeVersion, interactionVersion = interactionVersion, hostUiVersion = hostUiVersion, audioVersion = audioVersion, mediaVersion = mediaVersion) }
         override fun onStartProjection(surface: Surface, events: Events) {
             sessionEvents = events; started.countDown(); events.state(ProjectionPlugin.READY)
         }
@@ -54,6 +63,10 @@ class ProjectionPluginServiceTest {
         override fun exitProjectionProcess() { exits.add(true) }
     }
     private class Host : IProjectionHost.Stub() {
+        val mediaStates = LinkedBlockingQueue<Bundle>()
+        val mediaResults = LinkedBlockingQueue<Pair<Long, Boolean>>()
+        override fun onMediaState(token: String, state: android.os.Bundle) { mediaStates.add(state) }
+        override fun onMediaCommandResult(token: String, requestId: Long, sent: Boolean) { mediaResults.add(requestId to sent) }
         val info = LinkedBlockingQueue<Bundle>()
         val displayResults = LinkedBlockingQueue<Pair<Long, Boolean>>()
         override fun onDisplaySizeResult(token: String, requestId: Long, restartRequired: Boolean) { displayResults.add(requestId to restartRequired) }
@@ -67,6 +80,98 @@ class ProjectionPluginServiceTest {
         override fun onState(token: String, state: Int, message: String) { if (state == ProjectionPlugin.READY) ready.countDown() }
         override fun onStopped(token: String, clean: Boolean, message: String) { stopped.add(clean) }
     }
+    @Test fun mediaNegotiationScopesSnapshotsAndCommandsToActiveClient() {
+        for (version in listOf(0, 1)) {
+            val controller = Robolectric.buildService(Service::class.java).create()
+            val service = controller.get().apply { mediaVersion = version }
+            val host = Host(); val texture = SurfaceTexture(0); val surface = Surface(texture)
+            try {
+                val binder = IProjectionPlugin.Stub.asInterface(service.onBind(Intent(ProjectionPlugin.ACTION)
+                    .putExtra(ProjectionPlugin.EXTRA_MEDIA_VERSION, 1)))
+                binder.connect("media", 2, host); assertNotNull(host.info.poll(3, TimeUnit.SECONDS))
+                binder.start("media", surface); assertTrue(host.ready.await(3, TimeUnit.SECONDS))
+                val snapshot = PluginMediaState(true, true, "Song")
+                service.sessionEvents.media(snapshot)
+                binder.mediaCommand("wrong", 1, PluginMediaState.PLAY)
+                binder.mediaCommand("media", 1, PluginMediaState.PAUSE)
+                if (version == 1) {
+                    assertEquals(snapshot, PluginMediaState.fromBundle(host.mediaStates.poll(3, TimeUnit.SECONDS)!!))
+                    assertEquals(PluginMediaState.PAUSE, service.mediaCommands.poll(3, TimeUnit.SECONDS))
+                    assertEquals(1L to true, host.mediaResults.poll(3, TimeUnit.SECONDS))
+                } else {
+                    assertNull(host.mediaStates.poll(100, TimeUnit.MILLISECONDS))
+                    assertNull(service.mediaCommands.poll(100, TimeUnit.MILLISECONDS))
+                }
+                binder.mediaCommand("media", 1, PluginMediaState.NEXT) // replay
+                binder.mediaCommand("media", 2, 99) // invalid
+                binder.stop("media"); assertTrue(service.stopRequested.await(3, TimeUnit.SECONDS))
+                service.sessionEvents.media(snapshot)
+                binder.mediaCommand("media", 3, PluginMediaState.PLAY)
+                assertNull(service.mediaCommands.poll(100, TimeUnit.MILLISECONDS))
+                assertTrue(host.mediaStates.isEmpty())
+            } finally { service.stopped.complete(Unit); surface.release(); texture.release(); controller.destroy() }
+        }
+    }
+
+    @Test fun mediaStateRejectsUnboundedTextAndInvalidTimes() {
+        assertThrows(IllegalArgumentException::class.java) { PluginMediaState(title = "x".repeat(1025)) }
+        assertThrows(IllegalArgumentException::class.java) { PluginMediaState(durationMs = Long.MAX_VALUE) }
+        assertThrows(IllegalArgumentException::class.java) { PluginMediaState(positionMs = -2) }
+        val state = PluginMediaState(true, false, "Song", "Artist", "Album", "42", 100000, 2000)
+        assertEquals(state, PluginMediaState.fromBundle(state.toBundle()))
+    }
+
+    @Test fun audioNegotiationRequiresHostAndAttachmentBeforeStart() {
+        for (host in listOf(0, 1)) {
+            val controller = Robolectric.buildService(Service::class.java).create()
+            val service = controller.get().apply { audioVersion = 1 }
+            val callbacks = Host(); val texture = SurfaceTexture(0); val surface = Surface(texture)
+            try {
+                val binder = IProjectionPlugin.Stub.asInterface(service.onBind(Intent(ProjectionPlugin.ACTION)
+                    .putExtra(ProjectionPlugin.EXTRA_AUDIO_VERSION, host)))
+                binder.connect("audio", 2, callbacks)
+                if (host == 0) {
+                    assertEquals(true, callbacks.stopped.poll(3, TimeUnit.SECONDS))
+                    assertTrue(callbacks.info.isEmpty())
+                } else {
+                    assertNotNull(callbacks.info.poll(3, TimeUnit.SECONDS))
+                    binder.start("audio", surface)
+                    assertEquals(true, callbacks.stopped.poll(3, TimeUnit.SECONDS))
+                    assertEquals(1L, service.started.count)
+                }
+            } finally { service.stopped.complete(Unit); surface.release(); texture.release(); controller.destroy() }
+        }
+    }
+
+    @Test fun audioDescriptorsAreAcceptedOnceForMatchingTokenAndClosedAfterCleanup() {
+        val controller = Robolectric.buildService(Service::class.java).create()
+        val service = controller.get().apply { audioVersion = 1 }; val host = Host()
+        val down = ParcelFileDescriptor.createPipe(); val up = ParcelFileDescriptor.createPipe()
+        val foreign = ParcelFileDescriptor.createPipe(); val duplicate = ParcelFileDescriptor.createPipe()
+        val texture = SurfaceTexture(0); val surface = Surface(texture)
+        try {
+            val binder = IProjectionPlugin.Stub.asInterface(service.onBind(Intent(ProjectionPlugin.ACTION)
+                .putExtra(ProjectionPlugin.EXTRA_AUDIO_VERSION, 1)))
+            binder.connect("audio", 2, host); assertNotNull(host.info.poll(3, TimeUnit.SECONDS))
+            binder.attachAudio("foreign", foreign[0], foreign[1])
+            binder.attachAudio("audio", down[1], up[0]); assertTrue(service.audioAttached.await(3, TimeUnit.SECONDS))
+            binder.attachAudio("audio", duplicate[0], duplicate[1])
+            binder.start("audio", surface); assertTrue(host.ready.await(3, TimeUnit.SECONDS))
+            assertSame(down[1], service.audioDescriptors!!.first)
+            assertThrows(IllegalStateException::class.java) { foreign[0].fd }
+            assertThrows(IllegalStateException::class.java) { duplicate[0].fd }
+            binder.stop("audio"); assertTrue(service.stopRequested.await(3, TimeUnit.SECONDS))
+            assertTrue(down[1].fd >= 0) // Stop acknowledgement is still the resource barrier.
+            service.stopped.complete(Unit); assertEquals(true, host.stopped.poll(3, TimeUnit.SECONDS))
+            assertThrows(IllegalStateException::class.java) { down[1].fd }
+            assertThrows(IllegalStateException::class.java) { up[0].fd }
+        } finally {
+            service.stopped.complete(Unit)
+            (down + up + foreign + duplicate).forEach { runCatching { it.close() } }
+            surface.release(); texture.release(); controller.destroy()
+        }
+    }
+
     @Test fun hostUiRequiresBothPeersAndReadySession() {
         for ((hostVersion, pluginVersion) in listOf(0 to 1, 1 to 0, 1 to 1)) {
             val controller = Robolectric.buildService(Service::class.java).create()

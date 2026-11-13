@@ -57,10 +57,13 @@ internal class RemotePluginSession(
     private var processExitRequired = false
     private var awaitingProcessExit = false
     private var output: CompletableFuture<AutoCloseable>? = null
+    @Volatile private var audio: RemotePluginAudio? = null
     private var viewportSubscription: AutoCloseable? = null
     private var displaySizeSupported = false
     private var interactionSupported = false
     private var hostUiSupported = false
+    private var pluginMedia: RemotePluginMedia? = null
+    override val media get() = pluginMedia
     private var localInteraction: moe.feng.wheelplay.plugin.PluginInteraction? = null
     private var interactionAt = 0L
     val interaction: moe.feng.wheelplay.plugin.PluginInteraction?
@@ -117,6 +120,10 @@ internal class RemotePluginSession(
                 check(stillAllowed()) { context.getString(UiR.string.plugin_disabled) }
                 val video = PluginVideoInfo.fromBundle(info)
                 infoReceived = true
+                if (video.mediaVersion == ProjectionPlugin.MEDIA_VERSION) pluginMedia = RemotePluginMedia(
+                    { !stopping && ready && stillAllowed() && runtime.snapshot() === this@RemotePluginSession },
+                    { request, command -> enqueue { it.mediaCommand(this@RemotePluginSession.token, request, command) } })
+
                 hostUiSupported = video.hostUiVersion == ProjectionPlugin.HOST_UI_VERSION
                 interactionSupported = video.interactionVersion == ProjectionPlugin.INTERACTION_VERSION
                 processExitRequired = video.processExitRequired
@@ -125,9 +132,14 @@ internal class RemotePluginSession(
                 main.removeCallbacks(deadline)
                 main.postDelayed(deadline, startupTimeoutMs)
                 capabilities = ProjectionCapabilities(setOf(if (video.encodedVideoVersion != 0) VideoIngressKind.ENCODED else VideoIngressKind.SURFACE), video.maxTouchContacts, video.nightMode,
+                    audioPlayback = video.audioVersion != 0, microphone = video.microphone,
                     cancellation = if (video.nativeCancelInput) ProjectionCancellation.NATIVE else ProjectionCancellation.RELEASE_ONLY)
                 runtime.changed(this@RemotePluginSession)
                 output = CompletableFuture.supplyAsync<AutoCloseable>({
+                    if (video.audioVersion != 0) audio = RemotePluginAudio(context.applicationContext, video.microphone,
+                        { !stopping && runtime.snapshot() === this@RemotePluginSession },
+                        { !stopping && ready && runtime.snapshot() === this@RemotePluginSession },
+                        { reason -> main.post { fail(reason) } })
                     if (video.encodedVideoVersion != 0) EncodedPluginVideo { reason -> main.post { fail(reason) } }
                     else outputFactory(video.width, video.height)
                 }, mediaWorker).also { pending ->
@@ -140,6 +152,7 @@ internal class RemotePluginSession(
                         main.removeCallbacks(displayUpdate)
                         main.postDelayed(displayUpdate, 800)
                         enqueue {
+                            audio?.sendTo(it, this@RemotePluginSession.token)
                             if (port is EncodedPluginVideo) port.sendTo(it, this@RemotePluginSession.token)
                             else it.start(this@RemotePluginSession.token, (port as ProjectionVideoOutput).surface)
                         }
@@ -155,6 +168,13 @@ internal class RemotePluginSession(
                     main.post { onFailure(failure.message ?: "Cannot restart plugin for display size") }
                 }
             }
+        }
+        override fun onMediaState(token: String, state: Bundle) = callback(token) {
+            if (stopping || !startSent || !stillAllowed() || runtime.snapshot() !== this@RemotePluginSession) return@callback
+            runCatching { PluginMediaState.fromBundle(state) }.getOrNull()?.let { pluginMedia?.update(it) }
+        }
+        override fun onMediaCommandResult(token: String, requestId: Long, sent: Boolean) = callback(token) {
+            if (!stopping) pluginMedia?.result(requestId, sent)
         }
         override fun onHostUiRequested(token: String) = callback(token) {
             if (stopping || !ready || !startSent || !hostUiSupported || !stillAllowed() ||
@@ -190,6 +210,7 @@ internal class RemotePluginSession(
             }
         }
         override fun onStopped(token: String, clean: Boolean, message: String) = callback(token) {
+            pluginMedia?.close()
             if (awaitingProcessExit) return@callback
             // Older v2 plugins can reject connect or end a session using onStopped alone.
             if (!stopping) rememberFailure(message.ifBlank { context.getString(UiR.string.plugin_disconnected) })
@@ -241,6 +262,8 @@ internal class RemotePluginSession(
                     .takeIf { WebSession.adaptiveBrowserSize } ?: (1280 to 720)
                 sentDisplaySize = viewport; desiredDisplaySize = viewport
                 val intent = Intent(ProjectionPlugin.ACTION).setComponent(plugin.component)
+                    .putExtra(ProjectionPlugin.EXTRA_MEDIA_VERSION, ProjectionPlugin.MEDIA_VERSION)
+                    .putExtra(ProjectionPlugin.EXTRA_AUDIO_VERSION, ProjectionPlugin.AUDIO_VERSION)
                     .putExtra(ProjectionPlugin.EXTRA_HOST_UI_VERSION, ProjectionPlugin.HOST_UI_VERSION)
                     .putExtra(ProjectionPlugin.EXTRA_INTERACTION_VERSION, ProjectionPlugin.INTERACTION_VERSION)
                 .putExtra(ProjectionPlugin.EXTRA_DISPLAY_SIZE_VERSION, ProjectionPlugin.DISPLAY_SIZE_VERSION)
@@ -294,6 +317,8 @@ internal class RemotePluginSession(
         notifyStatus(reason)
     }
     private fun beginStop() {
+        pluginMedia?.close()
+        audio?.close()
         localInteraction = null
         stopObservingDisplaySize()
         if (closing || completion.isDone || stopSent) return
@@ -315,6 +340,7 @@ internal class RemotePluginSession(
         }
     }
     private fun finish(clean: Boolean, message: String) {
+        pluginMedia?.close()
         stopObservingDisplaySize()
         if (closing) return
         closing = true
@@ -331,6 +357,7 @@ internal class RemotePluginSession(
             var failure: Throwable? = if (clean) null else ProjectionCleanupException(message.ifBlank { context.getString(UiR.string.plugin_cleanup_failed) })
             if (allocationFailure != null && generateSequence(allocationFailure) { it.cause }.any { it is ProjectionCleanupException }) failure = allocationFailure
             try { port?.close() } catch (closeFailure: Throwable) { failure = closeFailure }
+            try { audio?.close(); audio?.awaitStopped(); audio = null } catch (closeFailure: Throwable) { failure = closeFailure }
             failure
         }, mediaWorker).whenComplete { cleanupFailure, unexpected -> main.post {
             mediaWorker.shutdown()

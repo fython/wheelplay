@@ -16,7 +16,9 @@ import java.util.concurrent.TimeUnit
 internal class SdkCarLinkEngine(private val context: Context, private val surface: Surface?,
     private val encodedOutput: android.os.ParcelFileDescriptor? = null,
     private val connection: CarLinkConnection = CarLinkConnection.P2P,
-    private val hotspotCredentials: CarLinkSoftAp.Credentials? = null) : CarLinkEngine {
+    private val hotspotCredentials: CarLinkSoftAp.Credentials? = null,
+    private val audio: CarLinkAudio? = null,
+    private val media: ((moe.feng.wheelplay.plugin.PluginMediaState) -> Unit)? = null) : CarLinkEngine {
     private val encodedLock = Any()
     private var encodedVideo: EncodedCarLinkVideo? = null
     private val main = Handler(Looper.getMainLooper())
@@ -33,6 +35,30 @@ internal class SdkCarLinkEngine(private val context: Context, private val surfac
     private var usbScanner: SdkUsbScanner? = null
     private var stopFuture: CompletableFuture<Unit>? = null
     private val mode get() = UCarCommon.WorkMode.Builder().setSupportNormalCast(true).build()
+    private val phoneData = object : IPhoneDataListener {
+        override fun getAudioAttributesByType(type: UCarCommon.AudioType?): UCarCommon.AudioAttributes? = null
+        override fun onMusicInfoReceived(deviceId: String?, info: UCarCommon.MusicInfo?) {
+            if (!stopping && info != null) media?.invoke(CarLinkMedia.snapshot(info))
+        }
+        override fun onAppListStateChanged(deviceId: String?, apps: List<Int>?, state: UCarCommon.AppListState?) = Unit
+        override fun onAppStateChanged(deviceId: String?, appId: Int, show: Boolean, mode: Int, rotation: Int, state: UCarCommon.AppState?) = Unit
+        override fun onAudioFocusChanged(type: UCarCommon.AudioType?, change: Int) = Unit
+        override fun onCallInfoReceived(deviceId: String?, info: UCarCommon.CallInfo?) = Unit
+        override fun onNavigationInfoReceived(deviceId: String?, info: UCarCommon.NavigationInfo?) = Unit
+        override fun onPOIReceived(deviceId: String?, info: UCarCommon.POIAddress?) = Unit
+        override fun onPhoneStateInfoReceived(deviceId: String?, info: UCarCommon.PhoneStateInfo?) = Unit
+    }
+    fun mediaCommand(command: Int): CompletableFuture<Boolean> {
+        val result = CompletableFuture<Boolean>()
+        try { worker.execute {
+            try {
+                val key = CarLinkMedia.key(command)
+                result.complete(!stopping && key != null &&
+                    adapter?.sendKeyEvent(UCarCommon.KeyEventActionType.KEY_EVENT_ACTION_PRESS, key, 0) == true)
+            } catch (failure: Exception) { result.completeExceptionally(failure) }
+        } } catch (_: java.util.concurrent.RejectedExecutionException) { result.complete(false) }
+        return result
+    }
     private val listener = object : ICarConnectListener {
         override fun onConnectStateChanged(deviceId: String?, state: Int, parameter: Int) {
             if (!stopping) {
@@ -79,8 +105,8 @@ internal class SdkCarLinkEngine(private val context: Context, private val surfac
                     .setDpi(config.dpi).setFps(30).setSupportedWorkModes(mode)
                     .setSupportP2P(connection == CarLinkConnection.P2P).setSupportSoftAP(connection == CarLinkConnection.SOFT_AP)
                     .setSupportRealWifiAddress(connection != CarLinkConnection.SOFT_AP)
-                    .setSupportCamera(false).setSupportHevc(false).setSupportMic(false)
-                    .setSupportVoiceWaken(false).setUseCustomAudioRecord(false)
+                    .setSupportCamera(false).setSupportHevc(false).setSupportMic(audio != null)
+                    .setSupportVoiceWaken(false).setUseCustomAudioRecord(audio != null)
                     .setSupportStereoRecord(false).setSupportLowLatencyDecodingMode(false)
                     .setSupportPOINav(false).setCcdFilePath("ccd.data").build()
                 val sdk = UCarAdapter.getInstance()
@@ -90,11 +116,14 @@ internal class SdkCarLinkEngine(private val context: Context, private val surfac
                     Class.forName("com.easy.logger.EasyLog").getMethod("setLevel", Int::class.javaPrimitiveType).invoke(null, 5)
                 }
                 sdk.registerCarConnectListener(this.listener)
+                if (media != null) sdk.registerPhoneDataListener(phoneData)
                 // From here even a partial/failed init owns resources and must be torn down.
                 SdkResources.connection = connection
                 initialized = true
                 check(sdk.init(sdkContext, sdkConfig, object : ICarInitCallback {
                     override fun onInitSuccess() {
+                        if (!stopping) try { audio?.install(context, sdk) }
+                        catch (error: Exception) { listener.failed("CarLink 音频初始化失败：${error.message}"); return }
                         if (encodedOutput != null && !stopping) {
                             try {
                                 synchronized(encodedLock) {
@@ -173,6 +202,7 @@ internal class SdkCarLinkEngine(private val context: Context, private val surfac
         stopFuture?.let { return it }
         stopping = true
         callback = null
+        audio?.close()
         synchronized(encodedLock) { encodedVideo?.close() }
         val result = CompletableFuture<Unit>()
         stopFuture = result
@@ -190,6 +220,7 @@ internal class SdkCarLinkEngine(private val context: Context, private val surfac
                 if (initialized) {
                     attempt { usbScanner?.setEnabled(false) }
                     attempt { adapter?.enableUsbDeviceDetection(false) }
+                    attempt { if (media != null) adapter?.unregisterPhoneDataListener(phoneData) }
                     attempt { adapter?.pauseCast() }
                     attempt { adapter?.stopAdvertise() }
                     attempt { adapter?.disconnect() }

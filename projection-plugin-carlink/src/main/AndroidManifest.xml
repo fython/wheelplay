@@ -31,6 +31,7 @@
             android:foregroundServiceType="connectedDevice" android:label="ICCOA CarLink">
             <intent-filter><action android:name="moe.feng.wheelplay.action.PROJECTION_SOURCE" /></intent-filter>
             <meta-data android:name="moe.feng.wheelplay.plugin.API_VERSION" android:value="2" />
+            <meta-data android:name="moe.feng.wheelplay.plugin.MICROPHONE" android:value="true" />
             <meta-data android:name="moe.feng.wheelplay.plugin.SOURCE_ID" android:value="iccoa-carlink" />
             <meta-data android:name="moe.feng.wheelplay.plugin.PREPARE_ACTIVITY" android:value="moe.feng.wheelplay.plugin.carlink.CarLinkPrepareActivity" />
             <meta-data android:name="moe.feng.wheelplay.plugin.SETTINGS_ACTIVITY" android:value=".CarLinkSettingsActivity" />

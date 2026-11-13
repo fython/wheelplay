@@ -17,6 +17,22 @@ import java.util.concurrent.CompletableFuture
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29], shadows = [RecordingMediaSession::class, LinkedMediaController::class, LinkedTransportControls::class])
 class CarPlayMediaSessionBridgeTest {
+    @Test fun sourceOwnedPlaybackFocusIsNotRequestedAgainByMediaSession() {
+        val context = RuntimeEnvironment.getApplication()
+        val source = Source().apply { managesAudioFocus = true }
+        val audio = shadowOf(context.getSystemService(android.media.AudioManager::class.java))
+        val bridge = CarPlayMediaSessionBridge(context) { _, _, _ -> }
+        try {
+            bridge.bind(source, null); source.update(playing()); idle()
+            assertNull(audio.lastAudioFocusRequest)
+            assertEquals(MediaCommandResult.SENT, bridge.browserCommand(source, 0, MediaCommand.PLAY).get())
+            assertNull(audio.lastAudioFocusRequest)
+            assertEquals(listOf(MediaCommand.PLAY), source.sent)
+            val controller = MediaController(context, bridge.session.sessionToken)
+            assertEquals("Song", controller.metadata!!.getString(MediaMetadata.METADATA_KEY_TITLE))
+        } finally { bridge.close() }
+    }
+
     @Test fun browserControlsShareNativePauseGatingAndRejectRetiredSources() {
         val source = Source(); val output = Output()
         val bridge = CarPlayMediaSessionBridge(RuntimeEnvironment.getApplication()) { _, _, _ -> }
@@ -111,6 +127,7 @@ class CarPlayMediaSessionBridgeTest {
     }
 
     private class Source : CarPlayMediaSource {
+        override var managesAudioFocus = false
         var state = NowPlayingState()
         val listeners = mutableListOf<(NowPlayingState) -> Unit>()
         val sent = mutableListOf<MediaCommand>()

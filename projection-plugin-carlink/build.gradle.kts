@@ -18,6 +18,7 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += "arm64-v8a" }
     }
     signingConfigs {
@@ -75,6 +76,8 @@ dependencies {
     }
     implementation("androidx.collection:collection:1.5.0")
     compileOnly(files(sdkStubsJar))
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
     testImplementation(libs.junit)
     testImplementation(files(sdkStubsJar)) // Binder signatures for local adapter tests only.
     testImplementation("org.robolectric:robolectric:4.17")

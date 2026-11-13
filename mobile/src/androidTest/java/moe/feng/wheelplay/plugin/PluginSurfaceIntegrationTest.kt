@@ -40,6 +40,8 @@ class PluginSurfaceIntegrationTest {
         val exited = CountDownLatch(1)
         val token = UUID.randomUUID().toString()
         val host = object : IProjectionHost.Stub() {
+        override fun onMediaState(token: String, state: android.os.Bundle) = Unit
+        override fun onMediaCommandResult(token: String, requestId: Long, sent: Boolean) = Unit
             override fun onDisplaySizeResult(token: String, requestId: Long, restartRequired: Boolean) = Unit
             override fun onHostUiRequested(token: String) = Unit
             override fun onInteraction(token: String, interaction: android.os.Bundle) = Unit

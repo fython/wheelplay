@@ -185,9 +185,14 @@ reclaims native/thread residue; it does not turn a failed cleanup into a clean o
 itself can exit its process when native shutdown times out, which the host must also treat as
 unconfirmed cleanup. Follow the host's recovery instructions after quarantine.
 
-Microphone/camera/voice wake capabilities are disabled and RECORD_AUDIO/CAMERA permissions are
-not requested. Downstream audio may still be played by the SDK on Android; there is no plugin
-browser audio, microphone or media metadata. Encoded-video IPC is opt-in as described below.
+Audio v1 negotiates host-owned playback and on-demand microphone capture. The pinned SDK player
+sink is replaced before advertising; PCM16 and AAC-LC ADTS travel over a dedicated pipe and
+reuse host browser routing with Android playback fallback. A separate pipe returns PCM16 to
+the SDK custom recorder API. The host owns RECORD_AUDIO permission and the existing microphone
+source/disabled policy. Old hosts retain SDK-local playback. Camera and voice wake remain unsupported. Optional media v1 forwards SDK music metadata and
+phone-reported playback state to Web/native Media Session; play/pause/previous/next use SDK
+media keys. Seeking and artwork forwarding are not yet supported. Actual sender music/call/voice compatibility requires device
+validation. Encoded-video IPC is opt-in as described below.
 
 ## WebRTC implementation and recovery
 

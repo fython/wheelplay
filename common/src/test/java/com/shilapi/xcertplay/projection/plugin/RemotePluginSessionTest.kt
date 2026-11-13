@@ -32,6 +32,10 @@ class RemotePluginSessionTest {
         override fun close() { closed = true; surface.release(); texture.release() }
     }
     private class Peer : IProjectionPlugin.Stub() {
+        val mediaCommands = LinkedBlockingQueue<Pair<Long, Int>>()
+        override fun mediaCommand(token: String, requestId: Long, command: Int) {
+            mediaCommands.add(requestId to command); host.onMediaCommandResult(token, requestId, true)
+        }
         lateinit var host: IProjectionHost
         lateinit var token: String
         var info = PluginVideoInfo(640, 360, 5, true).toBundle()
@@ -47,6 +51,7 @@ class RemotePluginSessionTest {
         val cancellations = LinkedBlockingQueue<String>()
         override fun cancelInput(token: String) { cancellations.offer(token) }
         override fun start(token: String, surface: Surface) { starts++; host.onState(token, ProjectionPlugin.READY, "Ready") }
+        override fun attachAudio(token: String, playback: ParcelFileDescriptor, microphone: ParcelFileDescriptor) { playback.close(); microphone.close() }
         override fun startEncoded(token: String, output: ParcelFileDescriptor) { starts++; output.close(); host.onState(token, ProjectionPlugin.READY, "Ready") }
         override fun touch(token: String, ids: IntArray, xs: DoubleArray, ys: DoubleArray, down: BooleanArray) { touches.offer(ids) }
         val displayRequests = LinkedBlockingQueue<Triple<Long, Int, Int>>()
@@ -76,6 +81,37 @@ class RemotePluginSessionTest {
         while (!predicate() && System.nanoTime() < deadline) { shadowOf(Looper.getMainLooper()).idle(); Thread.sleep(5) }
         assertTrue("Timed out", predicate())
     }
+    @Test fun mediaCallbacksAndCommandsRequireNegotiationAndActiveToken() {
+        for (version in listOf(0, 1)) {
+            val peer = Peer().apply { info = PluginVideoInfo(640, 360, mediaVersion = version).toBundle() }
+            val binding = Binding(peer); val runtime = ProjectionRuntime()
+            val session = RemotePluginSession(binding, plugin, runtime, { true }, { _, _ -> Output() })
+            session.activate(); until { session.inputReady }
+            assertEquals(1, binding.bindIntent!!.getIntExtra(ProjectionPlugin.EXTRA_MEDIA_VERSION, 0))
+            fun update(token: String = peer.token) {
+                peer.host.onMediaState(token, PluginMediaState(true, true, "Song").toBundle())
+                shadowOf(Looper.getMainLooper()).idle()
+            }
+            update(); assertFalse(session.media?.mediaSnapshot()?.available == true)
+            runtime.adopt(session, setOf(ProjectionResource.DISPLAY))
+            update("foreign"); assertFalse(session.media?.mediaSnapshot()?.available == true)
+            update()
+            if (version == 1) {
+                val media = session.media!!
+                assertEquals("Song", media.mediaSnapshot().title)
+                val result = media.sendMediaCommand(MediaCommand.PAUSE, 1)
+                until { result.isDone }
+                assertEquals(MediaCommandResult.SENT, result.get())
+                assertEquals(PluginMediaState.PAUSE, peer.mediaCommands.poll().second)
+                assertTrue(media.mediaSnapshot().playing)
+            } else assertNull(session.media)
+            val stopped = session.stop(); until { peer.stops == 1 }
+            update(); assertFalse(session.media?.mediaSnapshot()?.available == true)
+            peer.acknowledge(); until { stopped.isDone }
+            assertFalse(stopped.isCompletedExceptionally)
+        }
+    }
+
     @Test fun hostUiRequestsRequireNegotiationCurrentSessionAndValidToken() {
         for (version in listOf(0, 1)) {
             val peer = Peer().apply { info = PluginVideoInfo(640, 360, hostUiVersion = version).toBundle() }
