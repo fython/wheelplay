@@ -1,0 +1,1 @@
+package com.share.connect.ble; public class BluetoothLeService extends android.app.Service { public android.os.IBinder onBind(android.content.Intent intent) { throw new UnsupportedOperationException(); } }

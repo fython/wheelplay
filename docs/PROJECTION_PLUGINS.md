@@ -22,14 +22,17 @@ WheelPlay 可以发现独立安装的第三方插件 APK，通过显式绑定的
 
 | 能力 | API v2 |
 | --- | --- |
-| 视频 | 宿主创建 Surface，通过 Binder 传递给插件；插件绘制或交给 SDK/MediaCodec |
-| 输出 | 现有 JPEG/WebP 浏览器链路；没有 Surface→WebRTC 重编码 |
+| 视频 | 默认 Surface；协商压缩视频扩展 v1 后可传递 H.264 access unit |
+| 输出 | Surface 使用 JPEG/WebP；压缩视频扩展直通 WebRTC，不进行 Surface→WebRTC 重编码 |
 | 分辨率 | 握手声明，单边 1–4096 像素，总像素不超过 8,388,608；变更需重连 |
 | 触控 | 0–10 点，稳定 ID 0–31，内容区域归一化坐标；空快照释放全部触点 |
 | 夜间模式 | 可选，必须实际实现后声明 |
 | 设置 | 同一 APK 内可导出的设置 Activity |
-| 音频/麦克风、媒体信息、桌面键盘/鼠标 | 暂未开放插件端口；不能声明浏览器音频能力 |
-| 编码帧/framebuffer IPC、多显示器 | 暂不支持；需要后续版本协商及有界媒体通道 |
+| 音频/麦克风 | 可选 audio v1，独立双向管道，宿主管理播放与录音路由 |
+| 媒体信息与播放控制 | 可选 media v1；有界完整快照，播放/暂停/上一首/下一首 |
+| 桌面键盘/鼠标 | 暂未开放插件端口 |
+| 编码帧 IPC | 可选压缩视频扩展 v1；独立可靠管道、大小与队列边界检查 |
+| framebuffer IPC、多显示器 | 暂不支持 |
 
 API v2 对插件保守预留现有全部资源类型（USB、无线、麦克风、显示）。这是合作组件间的协调，不是 Android 权限授予，也不能阻止其他 APK 自行改网络。不要在发现、绑定或握手阶段启动 SDK、广播、抢占网络或申请设备资源。
 
@@ -101,9 +104,9 @@ API v2 使用精确版本匹配。宿主与插件须一起更新；v1 插件须�
 
 ## ICCOA CarLink 接入边界
 
-CarLink 运行库、固定名称的服务、native 库、初始化代码及权限配置放在未来的 **CarLink 插件 APK**。WheelPlay 不包含、下载或加载 `icar-sdk.dex`，也不接受只替换 dex 的注入流程。插件可用本协议将宿主 Surface 交给 SDK，并回传状态、接收触控。
+实验性 `projection-plugin-carlink` 模块将 CarLink 运行库、固定名称的服务、native 库、初始化代码及权限配置放在独立插件 APK 中，详见[本地构建与验收记录](CARLINK.md)。WheelPlay 宿主不包含、下载或加载 `icar-sdk.dex`，也不接受只替换 dex 的注入流程。插件需本地提供完整且校验通过的依赖，可用本协议将宿主 Surface 交给 SDK，并回传状态、接收触控；不代表真实协议闭环已验收。
 
-仍必须在持有适用 SDK 的设备上确认：离屏 Surface 是否被 SDK 接受；能否停止生产者和网络服务；授权及后台/前台服务限制；设备是否需要系统签名；宿主浏览器 LAN 与 SDK 的无线链路是否共存。需要麦克风和音频时，必须先明确插件本机处理与宿主路由的责任，再扩展 SDK；v2 不承诺完整 CarLink 音频闭环。
+仍必须在持有适用 SDK 的设备上确认：离屏 Surface 是否被 SDK 接受；能否停止生产者和网络服务；授权及后台/前台服务限制；设备是否需要系统签名；宿主浏览器 LAN 与 SDK 的无线链路是否共存。音频通过下述可选 audio v1 扩展协商；具体发送手机的播放、通话和语音行为仍需实机验证。
 
 ## 验收
 
@@ -124,3 +127,133 @@ adb shell am instrument -w -r -e class moe.feng.wheelplay.plugin.PluginSurfaceIn
 ### 可选原生取消扩展
 
 API v2 的 `PluginVideoInfo` 新增可选 `nativeCancelInput`（缺省 false）。明确声明 true 的插件可以实现 `ProjectionPluginService.onCancelInput()`，宿主才会调用追加在 AIDL 末尾的 `cancelInput(token)`；该调用与触控在同一 oneway Binder/SDK 队列中排序，并沿用 UID/token 检查。只有确实取消手势而非正常抬手的实现才应声明此能力。旧插件未携带此字段，继续收到空触控快照，旧事务号保持不变。新插件也可被旧宿主使用，旧宿主忽略此可选字段。SDK 状态消息在宿主映射到公共生命周期/错误模型，停止确认与专属进程退出要求保持不变。
+
+### Optional browser display hint
+
+API v2 hosts may include `ProjectionPlugin.EXTRA_DISPLAY_WIDTH` and `EXTRA_DISPLAY_HEIGHT`
+in the explicit service bind Intent. These are a snapshot of the browser pixel canvas (1280×720
+when adaptation is disabled or unavailable). `ProjectionPluginService.requestedDisplaySize`
+exposes a validated optional hint to `videoInfo()`. Plugins constrain it to their protocol limits
+and return the actual size through the existing `onInfo` handshake. Older hosts/plugins remain
+compatible; the base API version is unchanged. The hint alone does not resize an active Surface.
+
+### Optional display-size updates v1
+
+The host advertises `EXTRA_DISPLAY_SIZE_VERSION=1` at bind time. Plugins opt in with
+`PluginVideoInfo.displaySizeVersion=1`. Only after both sides negotiate and startup has been sent,
+the host calls the appended `updateDisplaySize(token, requestId, width, height)` transaction.
+`ProjectionPluginService.onDisplaySizeChanged()` returns whether a clean restart is required;
+the base service replies through the appended `onDisplaySizeResult(token, requestId, restartRequired)`.
+Do not advertise this extension unless the hook handles it. Old transaction numbers remain stable;
+old hosts/plugins keep the bind-time-only behavior and receive no new transactions.
+
+The service validates UID/token, positive monotonic request IDs, dimensions and lifecycle state.
+The host coalesces changes for 800 ms, ignores stale replies, and honors the adaptive-size setting
+(disabled means 1280×720). Plugins compare their constrained effective size, so a viewport change
+that does not alter output need not restart. A restart releases input and awaits the existing
+cleanup acknowledgement, dedicated-process death when required, and output teardown before
+binding a fresh session with the latest viewport. A user stop or source switch cancels automatic
+reopening; a cleanup failure retains quarantine. Surface and encoded outputs are recreated together
+with touch mapping rather than changing dimensions underneath an active producer.
+
+## 编码视频扩展调研
+
+ICCOA 的独立实验已验证压缩 H.264 可经现有 WebRTC 在浏览器出画，且无需本机解码即可完成普通触控。CarLink 设置现已提供可选 WebRTC 模式，默认仍为 Surface；关键帧请求与重连恢复仍有实验性限制。实测记录、失败边界和能力协商／有界媒体管道／关键帧控制设计见 [ICCOA WebRTC 验证与协议草案](ICCOA_WEBRTC_PROBE.md)。
+
+## 压缩视频扩展 v1
+
+基础 API 保持 v2；现有 AIDL 方法顺序不变，末尾追加 `startEncoded(token, ParcelFileDescriptor)`。
+宿主绑定时声明 `EXTRA_ENCODED_VIDEO_VERSION=1`，插件握手返回 `PluginVideoInfo.encodedVideoVersion=1`
+才允许调用新方法。缺省 0 继续调用 `start(token, Surface)`。插件选择 WebRTC 但宿主未声明支持时，
+在握手阶段拒绝并提示更新或切回 Surface。两条启动路径互斥，同样校验调用 UID、token 与会话状态。
+
+宿主创建 reliable pipe，将写端通过 Binder 传给插件；宿主封送后关闭自己的写端副本。
+插件所有写入在独立线程完成，SDK 回调只放入有界队列。管道绑定到本次会话，不能复用到其他 token。
+停止后关闭两端；管道 EOF 或异常不等于 SDK 已释放资源，原有 `onStopped` 清理屏障仍有效。
+
+`EncodedVideoWire` 定义大端格式：`WPE1` magic、宽、高，随后每条记录为 `sequence:int64`、
+`ptsUs:int64`、`size:int32` 和 `size` 字节。序号从 0 连续递增，单条不超过 2 MiB，先校验长度再分配。
+目前仅支持完整 H.264 Annex-B access unit、单一固定格式和非重排视频；同帧多 slice 可以存在，
+但不能把多个 picture 合为一条。参数集在首张图片前提供，可重复；参数集变化、B 帧、缺片、PTS
+倒退或重复均要求重新连接。读取完整 AU 后立即交付，不等待下一帧时间戳，因此静态画面的最后一帧也能显示。
+
+视频宽高取编码格式，触控仍使用握手画布上的归一化坐标。此扩展未声明按需关键帧能力；
+宿主不伪造请求成功。每个新 WebRTC 消费者可使用有界完整 GOP 首播，同一消费者不回放旧时间戳。
+模式切换需要停止并重连，不在活动会话中改配置或同时运行两种输出。视频扩展不提供 framebuffer IPC；音频使用独立的 audio v1 扩展。
+
+
+## Browser source controls
+
+The web display uses `status.sourceControl` (version 1) to distinguish selected and active sources,
+lifecycle phase, cleanup state, foreground requirements and the currently allowed action.
+`source-action` carries a monotonically increasing per-WebSocket `requestId`, the advertised
+`revision`, `sourceId`, and `action` (`connect`, `configure`, or `stop`). The host validates the
+current selection/session again before execution; replies use `source-action-result` with the
+same request ID. Duplicate request IDs are ignored. Stop is also guarded by the runtime session
+generation, including during asynchronous acquisition. Missing or disabled default plugins fall back to CarPlay with a visible notice, without
+starting a connection (including startup auto-connect and Activity recreation). The fallback
+changes the control revision; requests still targeting the old plugin are rejected rather than
+executed as CarPlay. Native home and browser startup share the same source dispatcher;
+configuration/device permission UI stays on Android.
+
+The browser distinguishes source readiness from local media presentation. A ready source with
+no current frame offers a transport-only retry and stop, never another source connect. The retry
+reopens the browser WebSocket without stopping Android projection. Connecting sources offer
+cancel; stopping/failed-cleanup states suppress startup. During display-size reconfiguration,
+stop cancels automatic reopening. Raw SDK status text is not interpreted as capabilities.
+
+Old `phone-connect` requests are accepted only for an idle, explicitly selected CarPlay source
+with a foreground connection handler. Other selections receive a refresh message. New pages
+connected to old hosts do not guess a source action and ask for an update/refresh instead.
+
+
+## 连接准备与本机交互状态
+
+插件可在服务元数据中声明 `moe.feng.wheelplay.plugin.PREPARE_ACTIVITY`，指向同包可访问的 Activity。
+宿主连接前通过 Activity Result 启动它，并携带 `ProjectionPlugin.EXTRA_PREPARE_REQUEST`。
+插件负责申请自己的权限和引导系统设置；准备完成返回 `RESULT_OK` 并原样回传该请求值，取消返回 `RESULT_CANCELED`。
+宿主重新核对插件身份、启用状态、所选输入源及会话代次，确认会话空闲后才继续。未声明准备入口的旧插件沿用原流程。
+
+结构化交互通过 `PluginVideoInfo.interactionVersion` 与绑定 Intent 的 `EXTRA_INTERACTION_VERSION` 双向协商。
+双方支持版本 1 时，插件可调用 `events.interaction(PluginInteraction(...))`，由追加的 `IProjectionHost.onInteraction` 回调传递。
+阶段支持 `preparing`、`waiting-device`、`pairing`、`waiting-video`、`ready`、`failed`；六位数字配对码只允许出现在 `pairing` 阶段。
+配对码仅供本机 UI 使用，不得拼入普通状态、浏览器数据、日志或诊断。宿主在就绪、失败、停止及超时后清除展示；旧宿主不会收到新回调。
+
+
+## 宿主界面请求 v1
+
+宿主通过绑定参数 `EXTRA_HOST_UI_VERSION=1` 声明支持，插件通过 `PluginVideoInfo.hostUiVersion=1` 选择启用。
+投影就绪后，插件可调用 `events.requestHostUi()`，经追加的 `IProjectionHost.onHostUiRequested(token)` 回调请求浏览器设置。
+宿主校验 UID、token、能力协商、插件仍可用且属于当前就绪会话，再调用 `WebSession.requestSettings()`，复用已授权浏览器的 `open-settings` 消息和设置对话框。
+该事件不会停止或重启投影；旧宿主或旧插件未协商时不会发送新回调。
+CarLink 将 SDK `onGoToDesktop` 对应的状态 6 映射到此事件，状态 7（`onBackToForeground`）不触发弹窗。该转发交互已通过 Pixel 接收端实机验证。
+
+## 可选音频扩展 v1
+
+宿主绑定时声明 AUDIO_VERSION=1；插件在 PluginVideoInfo 中声明 audioVersion 和 microphone。
+双方支持后，宿主必须先调用 attachAudio，再启动视频。两个独立可靠管道分别承载
+插件播放/录音请求与宿主 PCM 麦克风数据；Binder 不承载音频样本。旧宿主继续使用插件的旧音频行为。
+
+WPA1 帧包含连续序号、正数流代次和有界载荷（每包最多 64 KiB）；播放支持 PCM16 LE
+及完整 AAC-LC ADTS 访问单元，单/双声道。开始、暂停/恢复、停止和麦克风请求具有独立代次，
+过期录音丢弃。队列溢出、格式错误或断管终止会话，不积累无界延迟。停止确认包含音频线程与描述符清理。
+
+宿主统一管理浏览器播放与 Android 回退；插件不同时启动 SDK 本机播放器。
+麦克风按现有“Android / 浏览器 / 禁用”设置工作，仅在 SDK 请求期间采集。
+Android 录音权限由宿主申请；浏览器使用现有安全上下文和 getUserMedia 授权。
+浏览器不可用时可回退 Android，缺少 Android 权限时不录音；禁用设置阻止两种来源。
+音频样本不写入日志或文件。摄像头、语音唤醒及媒体元数据不在此扩展范围内。
+
+## 可选媒体扩展 v1
+
+独立协商 MEDIA_VERSION=1 后，插件通过 onMediaState 发布有界完整快照：
+歌名、歌手、专辑、播放器标识、播放状态、时长和当前进度（毫秒）。
+每个文本字段最多 1024 字符；不经 Binder 传封面，也不下载 SDK 提供的封面地址。
+播放器销毁及会话结束清空状态。宿主通过 MediaControlSource 复用 Web now-playing 和原生媒体卡片。
+
+mediaCommand 带递增请求编号，支持播放、暂停、上一首、下一首；控制仅对已就绪的当前会话有效。
+回执只表示 SDK 接受发送，不能修改手机权威的播放状态。宿主限制单个在途请求并在 3 秒后超时；
+旧 token、重放、停止后回调及不支持该扩展的插件均不能操作当前播放。
+CarLink 使用 SDK IPhoneDataListener.onMusicInfoReceived 和 sendKeyEvent 的媒体按键。
+尚未验证 seek 接口，故 canSeek=false；有进度展示，但不注册浏览器 seek 动作。
+插件音频播放器保留音频焦点所有权，Media Session 不重复申请焦点。

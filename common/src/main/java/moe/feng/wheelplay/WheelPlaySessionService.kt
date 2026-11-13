@@ -224,7 +224,7 @@ class WheelPlaySessionService : Service() {
                 .setContentTitle(getString(R.string.app_name))
                 .setContentText(
                     if (WebSession.running)
-                        getString(UiR.string.notification_streaming_running, port)
+                        getString(UiR.string.notification_streaming_running, port.toString())
                     else getString(UiR.string.ui_preparing_streaming_service)
                 )
                 .addAction(
@@ -240,7 +240,7 @@ class WheelPlaySessionService : Service() {
         if (Build.VERSION.SDK_INT >= 29) {
             var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
             if (currentState.available && currentState.playing ||
-                projectionSessions.snapshot()?.let { it.capabilities.audioPlayback && !it.capabilities.browserAudio } == true)
+                projectionSessions.snapshot()?.let { it.capabilities.audioPlayback } == true)
                 types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
             if (
                 Build.VERSION.SDK_INT >= 30 &&

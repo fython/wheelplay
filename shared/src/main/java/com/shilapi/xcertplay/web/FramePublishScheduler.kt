@@ -8,6 +8,7 @@ internal class FramePublishScheduler(
     private val remove: (Runnable) -> Unit,
     private val publish: () -> Unit,
     private val intervalMillis: Long = 66,
+    private val currentIntervalMillis: () -> Long = { intervalMillis },
 ) {
     private var lastPublished: Long? = null
     private var dirty = false
@@ -31,7 +32,7 @@ internal class FramePublishScheduler(
     fun resume() {
         if (closed || !dirty || scheduled || !wanted()) return
         scheduled = true
-        val delay = lastPublished?.let { (it + intervalMillis - now()).coerceAtLeast(0) } ?: 0
+        val delay = lastPublished?.let { (it + currentIntervalMillis().coerceAtLeast(1) - now()).coerceAtLeast(0) } ?: 0
         post(task, delay)
     }
 

@@ -1,0 +1,1 @@
+package com.share.connect.wifiap; public class WifiApService extends android.app.Service { public void stopTethering() { throw new UnsupportedOperationException(); } public android.os.IBinder onBind(android.content.Intent intent) { throw new UnsupportedOperationException(); } }

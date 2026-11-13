@@ -23,7 +23,7 @@ function image(width, height, codec = 'mjpeg') {
 const images = { jpeg: [image(320, 180), image(180, 320)], webp: [image(320, 180, 'libwebp'), image(180, 320, 'libwebp')] };
 let viewer, connections = 0, acks = 0, paused = false, sequence = 0, format = 'jpeg', jpegFallbacks = 0, webpProbes = 0;
 const pendingImages = new Map();
-const touches = [], errors = [], mediaCommands = [], desktopInputs = [];
+const touches = [], errors = [], mediaCommands = [], desktopInputs = [], sourceActions = [];
 let media = { type: 'status', mediaProtocol: 3, sessionId: 7, videoEpoch: 1, width: 320, height: 180,
   sourceState: 'ready', inputReady: true, streaming: true, stage: 'Synthetic browser test' };
 const server = http.createServer(async (req, res) => {
@@ -46,7 +46,7 @@ const server = http.createServer(async (req, res) => {
   if (req.url === '/i18n.js') {
     res.setHeader('Content-Type', 'text/javascript'); res.end(`globalThis.wheelplayMessages=${JSON.stringify(messages)};`); return;
   }
-  const file = { '/': 'index.html', '/app.js': 'app.js', '/desktop-input.js': 'desktop-input.js', '/text.js': 'text.js', '/browser-audio.js': 'browser-audio.js', '/browser-media-session.js': 'browser-media-session.js', '/browser-location.js': 'browser-location.js',
+  const file = { '/': 'index.html', '/app.js': 'app.js', '/source-control.js': 'source-control.js', '/desktop-input.js': 'desktop-input.js', '/text.js': 'text.js', '/browser-audio.js': 'browser-audio.js', '/browser-media-session.js': 'browser-media-session.js', '/browser-location.js': 'browser-location.js',
     '/style.css': 'style.css', '/audio-worklet.js': 'audio-worklet.js' }[req.url];
   if (!file) { res.writeHead(404); res.end(); return; }
   let body = await readFile(new URL(file, root));
@@ -85,6 +85,10 @@ wss.on('connection', ws => {
       if (connections === 1) frame();
     }
     if (message.type === 'touch') touches.push(message);
+    if (message.type === 'source-action') {
+      sourceActions.push(message);
+      ws.send(JSON.stringify({ type: 'source-action-result', requestId: message.requestId, result: 'requested' }));
+    }
     if (message.type === 'media-command') {
       mediaCommands.push(message);
       ws.send(JSON.stringify({ type: 'media-command-result', requestId: message.requestId, result: 'sent' }));
@@ -175,9 +179,12 @@ try {
     };
     document.addEventListener('fullscreenchange',()=>fullscreenTrace.push({event:!!document.fullscreenElement}));
     document.addEventListener('fullscreenerror',()=>fullscreenTrace.push({event:'error'}));`);
+  // Finish PIN entry before measuring the button: the keypad can move the scroll viewport.
+  await evaluate(`document.getElementById('keypad-done').click()`);
   await command('Page.bringToFront');
+  await evaluate(`document.getElementById('connect').scrollIntoView({block:'center'});new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);
   const startButton = await evaluate(`(() => {
-    const button=document.getElementById('connect');button.scrollIntoView({block:'center'});
+    const button=document.getElementById('connect');
     const rect=button.getBoundingClientRect();return {x:rect.left+rect.width/2,y:rect.top+rect.height/2};
   })()`);
   await command('Input.dispatchMouseEvent', { type: 'mousePressed', ...startButton, button: 'left', clickCount: 1 });
@@ -201,6 +208,19 @@ try {
   assert.ok(centeredSettings.x < 2 && centeredSettings.y < 2, 'Settings must be centered in the viewport');
   assert.equal(centeredSettings.modal, true);
   assert.equal(centeredSettings.focus, true);
+  status({ sourceControl: { version: 1, revision: 7, activeId: 'plugin-carlink', activeName: 'CarLink',
+    selectedId: 'plugin-carlink', phase: 'running', cleanup: 'released', action: 'stop' } });
+  await wait(`!document.getElementById('source-stop').hidden`);
+  assert.equal(await evaluate(`document.getElementById('source-stop').closest('dialog')?.id`), 'settings-dialog');
+  await evaluate(`document.getElementById('source-stop').click()`);
+  for (let attempt = 0; !sourceActions.length && attempt < 100; attempt++) await pause(10);
+  assert.equal(sourceActions.length, 1);
+  assert.equal(sourceActions[0].action, 'stop');
+  assert.equal(sourceActions[0].sourceId, 'plugin-carlink');
+  assert.equal(sourceActions[0].revision, 7);
+  status({ sourceControl: null });
+  await wait(`document.getElementById('source-stop').hidden`);
+
   viewer.send(JSON.stringify({ type: 'open-settings' })); status();
   await pause(100);
   const settingsInputCount = touches.length + desktopInputs.length;
@@ -453,8 +473,8 @@ try {
       await command('Browser.grantPermissions',{origin:`http://127.0.0.1:${server.address().port}`,permissions:['clipboardReadWrite','clipboardSanitizedWrite']});
       await evaluate(`navigator.clipboard.writeText('098765')`,{userGesture:true});
       await evaluate(`document.getElementById('code-digit-1').focus({preventScroll:true})`);
-      await command('Input.dispatchKeyEvent',{type:'keyDown',key:'v',code:'KeyV',modifiers:2,windowsVirtualKeyCode:86});
-      await command('Input.dispatchKeyEvent',{type:'keyUp',key:'v',code:'KeyV',modifiers:2,windowsVirtualKeyCode:86});
+      await command('Input.dispatchKeyEvent',{type:'keyDown',key:'v',code:'KeyV',modifiers:process.platform === 'darwin' ? 4 : 2,windowsVirtualKeyCode:86,...(process.platform === 'darwin' ? {commands:['paste']} : {})});
+      await command('Input.dispatchKeyEvent',{type:'keyUp',key:'v',code:'KeyV',modifiers:process.platform === 'darwin' ? 4 : 2,windowsVirtualKeyCode:86});
       await wait(`document.getElementById('code').value==='098765'`);
       await tapKey('keypad-clear');
       for (const digit of '012') await tapKey('keypad-'+digit);

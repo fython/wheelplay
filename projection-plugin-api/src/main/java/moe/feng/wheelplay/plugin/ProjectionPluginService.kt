@@ -6,6 +6,7 @@ import android.content.Intent
 import android.os.Binder
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.ParcelFileDescriptor
 import android.os.IBinder
 import android.os.Looper
 import android.view.Surface
@@ -20,6 +21,27 @@ import java.util.concurrent.atomic.AtomicLong
  * A failed cleanup keeps this service quarantined until its process is restarted.
  */
 abstract class ProjectionPluginService : Service() {
+    /** Snapshot for the next handshake. Older hosts omit it; never changes a running Surface. */
+    @Volatile protected var requestedDisplaySize: Pair<Int, Int>? = null
+        private set
+    @Volatile protected var hostEncodedVideoVersion: Int = 0
+        private set
+    @Volatile private var hostInteractionVersion = 0
+    @Volatile private var hostUiVersion = 0
+    @Volatile protected var hostAudioVersion = 0
+        private set
+    @Volatile protected var hostMediaVersion = 0
+        private set
+    protected open fun onMediaCommand(command: Int): CompletableFuture<Boolean> = CompletableFuture.completedFuture(false)
+    protected open fun onAudioTransport(playback: ParcelFileDescriptor, microphone: ParcelFileDescriptor) {
+        error("Audio transport is not implemented by this plugin")
+    }
+    @Volatile private var hostDisplaySizeVersion: Int = 0
+    /** Return true when applying this size requires the host to stop and recreate the session.
+     * Do not mutate active video dimensions or release resources here. */
+    protected open fun onDisplaySizeChanged(width: Int, height: Int): Boolean = false
+    protected open fun onStartEncodedProjection(output: ParcelFileDescriptor, events: Events): Unit =
+        error("Encoded video is not implemented by this plugin")
     protected abstract fun videoInfo(): PluginVideoInfo
     protected abstract fun onStartProjection(surface: Surface, events: Events)
     protected abstract fun onStopProjection(): CompletableFuture<Unit>
@@ -39,6 +61,9 @@ abstract class ProjectionPluginService : Service() {
 
     interface Events {
         fun state(state: Int, message: String = "")
+        fun interaction(value: PluginInteraction) = Unit
+        fun requestHostUi() = Unit
+        fun media(value: PluginMediaState) = Unit
         /** Request teardown on remote disconnect or an unrecoverable SDK failure. */
         fun ended(message: String = "")
     }
@@ -69,10 +94,16 @@ abstract class ProjectionPluginService : Service() {
     private val overflowReported = AtomicBoolean()
     private inner class Client(val token: String, val uid: Int, val host: IProjectionHost, val info: PluginVideoInfo, val generation: Long) {
         var surface: Surface? = null
+        var encodedOutput: ParcelFileDescriptor? = null
+        var audioOutput: ParcelFileDescriptor? = null
+        var microphoneInput: ParcelFileDescriptor? = null
         var started = false
         var stopping = false
         var ready = false
         var cleanupComplete = false
+        var displayRequestId = 0L
+        var mediaRequestId = 0L
+        var mediaPending = false
         val death = IBinder.DeathRecipient { handler.post { finish(this, "Host disconnected", notifyHost = false) } }
     }
 
@@ -118,6 +149,11 @@ abstract class ProjectionPluginService : Service() {
                         "Process shutdown requires a dedicated private service process"
                     }
                     val next = Client(token, uid, host, videoInfo().copy(processExitRequired = terminateProcessAfterStop), generation)
+                    check(next.info.encodedVideoVersion == 0 || next.info.encodedVideoVersion == hostEncodedVideoVersion) {
+                        "当前 WheelPlay 不支持 WebRTC 插件输出，请更新宿主或在插件设置中选择 Surface。"
+                    }
+                    check(next.info.audioVersion == 0 || next.info.audioVersion == hostAudioVersion) { "Host does not support plugin audio" }
+                    check(next.info.mediaVersion == 0 || next.info.mediaVersion == hostMediaVersion) { "Host does not support plugin media" }
                     client = next
                     host.asBinder().linkToDeath(next.death, 0)
                     host.onInfo(token, next.info.toBundle())
@@ -128,31 +164,74 @@ abstract class ProjectionPluginService : Service() {
                 }
             }
         }
+        override fun mediaCommand(token: String, requestId: Long, command: Int) {
+            if (requestId <= 0 || !PluginMediaState.validCommand(command)) return
+            dispatch(token) { current ->
+                if (!current.started || !current.ready || current.stopping ||
+                    current.info.mediaVersion != ProjectionPlugin.MEDIA_VERSION || hostMediaVersion != ProjectionPlugin.MEDIA_VERSION ||
+                    requestId <= current.mediaRequestId) return@dispatch
+                current.mediaRequestId = requestId
+                if (current.mediaPending) {
+                    runCatching { current.host.onMediaCommandResult(current.token, requestId, false) }
+                    return@dispatch
+                }
+                current.mediaPending = true
+                val result = try { onMediaCommand(command) } catch (_: Exception) { CompletableFuture.completedFuture(false) }
+                result.whenComplete { sent, failure -> handler.post {
+                    current.mediaPending = false
+                    if (client === current && !current.stopping) runCatching {
+                        current.host.onMediaCommandResult(current.token, requestId, failure == null && sent == true)
+                    }
+                } }
+            }
+        }
+        override fun attachAudio(token: String, playback: ParcelFileDescriptor, microphone: ParcelFileDescriptor) {
+            val uid = Binder.getCallingUid()
+            handler.post {
+                val current = client
+                if (current == null || current.uid != uid || current.token != token || current.stopping ||
+                    current.started || current.audioOutput != null || current.info.audioVersion != ProjectionPlugin.AUDIO_VERSION ||
+                    hostAudioVersion != ProjectionPlugin.AUDIO_VERSION) {
+                    playback.close(); microphone.close(); return@post
+                }
+                current.audioOutput = playback; current.microphoneInput = microphone
+                try { onAudioTransport(playback, microphone) }
+                catch (failure: Throwable) { finish(current, failure.message ?: "Audio startup failed") }
+            }
+        }
         override fun start(token: String, surface: Surface) {
             // The received Surface is a separately owned handle, even when the call is rejected.
             val uid = Binder.getCallingUid()
             handler.post {
                 val current = client
-                if (current == null || current.uid != uid || current.token != token || current.stopping || current.started) {
+                if (current == null || current.uid != uid || current.token != token || current.stopping || current.started || current.info.encodedVideoVersion != 0) {
                     surface.release(); return@post
+                }
+                if (current.info.audioVersion != 0 && current.audioOutput == null) {
+                    surface.release(); finish(current, "Missing negotiated audio transport"); return@post
                 }
                 current.surface = surface
                 current.started = true
                 try {
-                    onStartProjection(surface, object : Events {
-                        override fun state(state: Int, message: String) {
-                            handler.post {
-                                if (client !== current || current.stopping) return@post
-                                if (state == ProjectionPlugin.ERROR) { finish(current, message); return@post }
-                                if (state !in ProjectionPlugin.CONNECTING..ProjectionPlugin.READY) return@post
-                                current.ready = state == ProjectionPlugin.READY
-                                runCatching { current.host.onState(current.token, state, message.take(512)) }
-                                    .onFailure { finish(current, "Host disconnected") }
-                            }
-                        }
-                        override fun ended(message: String) { handler.post { finish(current, message) } }
-                    })
+                    onStartProjection(surface, events(current))
                 } catch (failure: Throwable) { finish(current, failure.message ?: "Plugin startup failed") }
+            }
+        }
+        override fun startEncoded(token: String, output: ParcelFileDescriptor) {
+            val uid = Binder.getCallingUid()
+            handler.post {
+                val current = client
+                if (current == null || current.uid != uid || current.token != token || current.stopping ||
+                    current.started || current.info.encodedVideoVersion != ProjectionPlugin.ENCODED_VIDEO_VERSION) {
+                    output.close(); return@post
+                }
+                if (current.info.audioVersion != 0 && current.audioOutput == null) {
+                    output.close(); finish(current, "Missing negotiated audio transport"); return@post
+                }
+                current.encodedOutput = output
+                current.started = true
+                try { onStartEncodedProjection(output, events(current)) }
+                catch (failure: Throwable) { finish(current, failure.message ?: "Encoded startup failed") }
             }
         }
         override fun touch(token: String, ids: IntArray, xs: DoubleArray, ys: DoubleArray, down: BooleanArray) {
@@ -160,6 +239,16 @@ abstract class ProjectionPluginService : Service() {
             val contacts = ids.indices.map { PluginContact(ids[it], xs[it], ys[it], down[it]) }
             dispatch(token) {
                 if (it.started && (it.ready || contacts.isEmpty()) && validPluginContacts(contacts, it.info.maxTouchContacts)) onTouch(contacts)
+            }
+        }
+        override fun updateDisplaySize(token: String, requestId: Long, width: Int, height: Int) {
+            if (requestId <= 0 || !validDisplaySize(width, height)) return
+            dispatch(token) {
+                if (!it.started || hostDisplaySizeVersion != ProjectionPlugin.DISPLAY_SIZE_VERSION ||
+                    it.info.displaySizeVersion != ProjectionPlugin.DISPLAY_SIZE_VERSION || requestId <= it.displayRequestId) return@dispatch
+                it.displayRequestId = requestId
+                val restart = onDisplaySizeChanged(width, height)
+                it.host.onDisplaySizeResult(token, requestId, restart)
             }
         }
         override fun setNightMode(token: String, night: Boolean) = dispatch(token) {
@@ -177,6 +266,40 @@ abstract class ProjectionPluginService : Service() {
         }
     }
 
+    private fun events(current: Client): Events = object : Events {
+        override fun state(state: Int, message: String) {
+            handler.post {
+                if (client !== current || current.stopping) return@post
+                if (state == ProjectionPlugin.ERROR) { finish(current, message); return@post }
+                if (state !in ProjectionPlugin.CONNECTING..ProjectionPlugin.READY) return@post
+                current.ready = state == ProjectionPlugin.READY
+                runCatching { current.host.onState(current.token, state, message.take(512)) }
+                    .onFailure { finish(current, "Host disconnected") }
+            }
+        }
+        override fun interaction(value: PluginInteraction) { handler.post {
+            if (client !== current || current.stopping || !current.started ||
+                hostInteractionVersion != ProjectionPlugin.INTERACTION_VERSION ||
+                current.info.interactionVersion != ProjectionPlugin.INTERACTION_VERSION) return@post
+            runCatching { current.host.onInteraction(current.token, value.toBundle()) }
+                .onFailure { finish(current, "Host disconnected") }
+        } }
+        override fun media(value: PluginMediaState) { handler.post {
+            if (client !== current || current.stopping || !current.started ||
+                current.info.mediaVersion != ProjectionPlugin.MEDIA_VERSION || hostMediaVersion != ProjectionPlugin.MEDIA_VERSION) return@post
+            runCatching { current.host.onMediaState(current.token, value.toBundle()) }
+                .onFailure { finish(current, "Host disconnected") }
+        } }
+        override fun requestHostUi() { handler.post {
+            if (client !== current || current.stopping || !current.started || !current.ready ||
+                hostUiVersion != ProjectionPlugin.HOST_UI_VERSION ||
+                current.info.hostUiVersion != ProjectionPlugin.HOST_UI_VERSION) return@post
+            runCatching { current.host.onHostUiRequested(current.token) }
+                .onFailure { finish(current, "Host disconnected") }
+        } }
+        override fun ended(message: String) { handler.post { finish(current, message) } }
+    }
+
     private fun finish(current: Client, message: String, notifyHost: Boolean = true) {
         if (client !== current || current.stopping) return
         current.stopping = true
@@ -187,10 +310,14 @@ abstract class ProjectionPluginService : Service() {
             current.host.onState(current.token, ProjectionPlugin.ERROR, message.take(512))
         }
         val stopped = try {
-            if (current.started) onStopProjection() else CompletableFuture.completedFuture(Unit)
+            if (current.started || current.audioOutput != null) onStopProjection() else CompletableFuture.completedFuture(Unit)
         } catch (failure: Throwable) { CompletableFuture<Unit>().also { it.completeExceptionally(failure) } }
         stopped.whenComplete { _, failure -> handler.post {
             val result = runCatching {
+                current.audioOutput?.close(); current.microphoneInput?.close()
+                current.audioOutput = null; current.microphoneInput = null
+                current.encodedOutput?.close()
+                current.encodedOutput = null
                 // In process mode native handles disappear with the process; keep this handle valid until then.
                 if (failure == null && !current.info.processExitRequired) current.surface?.release()
             }.exceptionOrNull() ?: failure
@@ -210,7 +337,23 @@ abstract class ProjectionPluginService : Service() {
         } }
     }
 
+    private fun validDisplaySize(width: Int, height: Int) =
+        width in 1..8192 && height in 1..8192 && width.toLong() * height <= 33_554_432
+
     override fun onBind(intent: Intent): IBinder? = if (intent.action == ProjectionPlugin.ACTION) {
+        hostMediaVersion = intent.getIntExtra(ProjectionPlugin.EXTRA_MEDIA_VERSION, 0)
+            .takeIf { it == ProjectionPlugin.MEDIA_VERSION } ?: 0
+        hostAudioVersion = intent.getIntExtra(ProjectionPlugin.EXTRA_AUDIO_VERSION, 0)
+            .takeIf { it == ProjectionPlugin.AUDIO_VERSION } ?: 0
+        hostUiVersion = intent.getIntExtra(ProjectionPlugin.EXTRA_HOST_UI_VERSION, 0)
+        hostInteractionVersion = intent.getIntExtra(ProjectionPlugin.EXTRA_INTERACTION_VERSION, 0)
+        hostDisplaySizeVersion = intent.getIntExtra(ProjectionPlugin.EXTRA_DISPLAY_SIZE_VERSION, 0)
+            .takeIf { it == ProjectionPlugin.DISPLAY_SIZE_VERSION } ?: 0
+        hostEncodedVideoVersion = intent.getIntExtra(ProjectionPlugin.EXTRA_ENCODED_VIDEO_VERSION, 0)
+            .takeIf { it == ProjectionPlugin.ENCODED_VIDEO_VERSION } ?: 0
+        val width = intent.getIntExtra(ProjectionPlugin.EXTRA_DISPLAY_WIDTH, 0)
+        val height = intent.getIntExtra(ProjectionPlugin.EXTRA_DISPLAY_HEIGHT, 0)
+        requestedDisplaySize = if (validDisplaySize(width, height)) width to height else null
         bindingGeneration.incrementAndGet()
         unbound = false
         lifecycleHandler.removeCallbacks(abandonedProcess)

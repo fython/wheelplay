@@ -1,0 +1,52 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+    <queries>
+        <package android:name="moe.feng.wheelplay" />
+        <package android:name="moe.feng.wheelplay.debug" />
+    </queries>
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+    <uses-feature android:name="android.hardware.wifi.direct" android:required="false" />
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <application android:label="WheelPlay CarLink" android:allowBackup="false"
+        android:icon="@mipmap/ic_carlink" android:roundIcon="@mipmap/ic_carlink_round"
+        android:appComponentFactory="moe.feng.wheelplay.plugin.carlink.CarLinkComponentFactory" tools:replace="android:appComponentFactory"
+        android:theme="@style/Theme.WheelPlay.CarLink">
+        <service android:name=".CarLinkService" android:exported="true" android:process=":projection"
+            android:foregroundServiceType="connectedDevice" android:label="ICCOA CarLink">
+            <intent-filter><action android:name="moe.feng.wheelplay.action.PROJECTION_SOURCE" /></intent-filter>
+            <meta-data android:name="moe.feng.wheelplay.plugin.API_VERSION" android:value="2" />
+            <meta-data android:name="moe.feng.wheelplay.plugin.MICROPHONE" android:value="true" />
+            <meta-data android:name="moe.feng.wheelplay.plugin.SOURCE_ID" android:value="iccoa-carlink" />
+            <meta-data android:name="moe.feng.wheelplay.plugin.PREPARE_ACTIVITY" android:value="moe.feng.wheelplay.plugin.carlink.CarLinkPrepareActivity" />
+            <meta-data android:name="moe.feng.wheelplay.plugin.SETTINGS_ACTIVITY" android:value=".CarLinkSettingsActivity" />
+        </service>
+        <service android:name="com.share.connect.ShareLinkService" android:exported="false" android:process=":projection" />
+        <service android:name="com.share.connect.ble.BluetoothLeService" android:exported="false" android:process=":projection" />
+        <service android:name="com.share.connect.wifip2p.WifiP2pService" android:exported="false" android:process=":projection" />
+        <service android:name="com.share.connect.wifiap.WifiApService" android:exported="false" android:process=":projection" />
+        <service android:name="androidx.room.MultiInstanceInvalidationService" android:exported="false" android:process=":projection" />
+        <provider android:name=".CarLinkSettingsProvider" android:authorities="${applicationId}.settings" android:exported="false" />
+        <activity android:name=".CarLinkPrepareActivity" android:exported="true" />
+        <activity android:name=".CarLinkSettingsActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

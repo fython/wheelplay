@@ -29,8 +29,10 @@ internal data class HomeUi(
     val sourceName: String = "", val stage: String = "", val connectLabel: String = "",
     val showConnect: Boolean = false, val connectEnabled: Boolean = false, val stopLabel: String? = null,
     val showAudioHint: Boolean = true,
+    val interaction: moe.feng.wheelplay.plugin.PluginInteraction? = null,
 )
-internal data class SessionUi(val message: String = "", val canStop: Boolean = false)
+internal data class SessionUi(val message: String = "", val canStop: Boolean = false,
+    val interaction: moe.feng.wheelplay.plugin.PluginInteraction? = null)
 internal data class PluginUi(
     val id: String, val name: String, val packageName: String, val carLink: Boolean,
     val enabled: Boolean, val problem: String?, val failure: String?, val hasSettings: Boolean, val canConnect: Boolean,
