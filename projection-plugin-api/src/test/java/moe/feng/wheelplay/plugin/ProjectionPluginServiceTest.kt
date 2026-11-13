@@ -3,6 +3,7 @@ package moe.feng.wheelplay.plugin
 import android.content.Intent
 import android.graphics.SurfaceTexture
 import android.os.Bundle
+import android.os.ParcelFileDescriptor
 import android.view.Surface
 import org.junit.Assert.*
 import org.junit.Test
@@ -18,6 +19,8 @@ class ProjectionPluginServiceTest {
     open class Service : ProjectionPluginService() {
         var allowHost = true
         var nativeCancel = false
+        var encoded = false
+        var encodedDescriptor: ParcelFileDescriptor? = null
         val cancellations = LinkedBlockingQueue<Boolean>()
         val started = CountDownLatch(1)
         val stopRequested = CountDownLatch(1)
@@ -25,9 +28,12 @@ class ProjectionPluginServiceTest {
         val touches = LinkedBlockingQueue<List<PluginContact>>()
         var beforeInfo: (() -> Unit)? = null
         override fun isHostAllowed(uid: Int) = allowHost
-        override fun videoInfo(): PluginVideoInfo { beforeInfo?.invoke(); return PluginVideoInfo(640, 360, 2, true, nativeCancelInput = nativeCancel) }
+        override fun videoInfo(): PluginVideoInfo { beforeInfo?.invoke(); return PluginVideoInfo(640, 360, 2, true, nativeCancelInput = nativeCancel, encodedVideoVersion = if (encoded) 1 else 0) }
         override fun onStartProjection(surface: Surface, events: Events) {
             started.countDown(); events.state(ProjectionPlugin.READY)
+        }
+        override fun onStartEncodedProjection(output: ParcelFileDescriptor, events: Events) {
+            encodedDescriptor = output; started.countDown(); events.state(ProjectionPlugin.READY)
         }
         override fun onStopProjection(): CompletableFuture<Unit> { stopRequested.countDown(); return stopped }
         override fun onCancelInput() { cancellations.offer(true) }
@@ -48,6 +54,34 @@ class ProjectionPluginServiceTest {
         override fun onState(token: String, state: Int, message: String) { if (state == ProjectionPlugin.READY) ready.countDown() }
         override fun onStopped(token: String, clean: Boolean, message: String) { stopped.add(clean) }
     }
+    @Test fun encodedSelectionRejectsOldHostBeforeStartingResources() {
+        val controller = Robolectric.buildService(Service::class.java).create()
+        val service = controller.get().apply { encoded = true }; val host = Host()
+        try {
+            val binder = IProjectionPlugin.Stub.asInterface(service.onBind(Intent(ProjectionPlugin.ACTION)))
+            binder.connect("session", 2, host)
+            assertEquals(true, host.stopped.poll(3, TimeUnit.SECONDS))
+            assertTrue(host.info.isEmpty()); assertEquals(1L, service.started.count)
+        } finally { controller.destroy() }
+    }
+    @Test fun encodedStartRequiresNegotiationAndOwnsDescriptorUntilCleanup() {
+        val controller = Robolectric.buildService(Service::class.java).create()
+        val service = controller.get().apply { encoded = true }; val host = Host()
+        val pipe = ParcelFileDescriptor.createPipe()
+        try {
+            val binder = IProjectionPlugin.Stub.asInterface(service.onBind(Intent(ProjectionPlugin.ACTION)
+                .putExtra(ProjectionPlugin.EXTRA_ENCODED_VIDEO_VERSION, 1)))
+            binder.connect("session", 2, host)
+            assertEquals(1, PluginVideoInfo.fromBundle(host.info.poll(3, TimeUnit.SECONDS)!!).encodedVideoVersion)
+            binder.startEncoded("session", pipe[1]); assertTrue(host.ready.await(3, TimeUnit.SECONDS))
+            assertSame(pipe[1], service.encodedDescriptor)
+            binder.stop("session"); assertTrue(service.stopRequested.await(3, TimeUnit.SECONDS))
+            assertTrue(host.stopped.isEmpty())
+            service.stopped.complete(Unit); assertEquals(true, host.stopped.poll(3, TimeUnit.SECONDS))
+            assertThrows(IllegalStateException::class.java) { pipe[1].fd }
+        } finally { service.stopped.complete(Unit); pipe.forEach { it.close() }; controller.destroy() }
+    }
+
     @Test fun nativeCancellationIsNegotiatedAndRejectsForeignTokens() {
         val controller = Robolectric.buildService(Service::class.java).create()
         val service = controller.get().apply { nativeCancel = true }; val host = Host()

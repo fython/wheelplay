@@ -11,6 +11,8 @@ object ProjectionPlugin {
     const val META_SOURCE_ID = "moe.feng.wheelplay.plugin.SOURCE_ID"
     const val SOURCE_ICCOA_CARLINK = "iccoa-carlink"
     const val META_SETTINGS_ACTIVITY = "moe.feng.wheelplay.plugin.SETTINGS_ACTIVITY"
+    const val EXTRA_ENCODED_VIDEO_VERSION = "moe.feng.wheelplay.plugin.ENCODED_VIDEO_VERSION"
+    const val ENCODED_VIDEO_VERSION = 1
     const val CONNECTING = 0
     const val READY = 1
     const val ERROR = 2
@@ -23,22 +25,26 @@ data class PluginVideoInfo(
     val nightMode: Boolean = false,
     val processExitRequired: Boolean = false,
     val nativeCancelInput: Boolean = false,
+    /** 0: Surface; 1: complete H.264 Annex-B access units through EncodedVideoWire. */
+    val encodedVideoVersion: Int = 0,
 ) {
     init {
         require(width in 1..4096 && height in 1..4096 && width.toLong() * height <= 8_388_608)
         require(maxTouchContacts in 0..10)
+        require(encodedVideoVersion in 0..ProjectionPlugin.ENCODED_VIDEO_VERSION)
     }
     fun toBundle() = Bundle().apply {
         putInt("apiVersion", ProjectionPlugin.API_VERSION)
         putInt("width", width); putInt("height", height)
         putInt("maxTouchContacts", maxTouchContacts); putBoolean("nightMode", nightMode)
         putBoolean("processExitRequired", processExitRequired); putBoolean("nativeCancelInput", nativeCancelInput)
+        putInt("encodedVideoVersion", encodedVideoVersion)
     }
     companion object {
         fun fromBundle(bundle: Bundle): PluginVideoInfo {
             require(bundle.getInt("apiVersion") == ProjectionPlugin.API_VERSION) { "Unsupported plugin API" }
             return PluginVideoInfo(bundle.getInt("width"), bundle.getInt("height"),
-                bundle.getInt("maxTouchContacts"), bundle.getBoolean("nightMode"), bundle.getBoolean("processExitRequired"), bundle.getBoolean("nativeCancelInput"))
+                bundle.getInt("maxTouchContacts"), bundle.getBoolean("nightMode"), bundle.getBoolean("processExitRequired"), bundle.getBoolean("nativeCancelInput"), bundle.getInt("encodedVideoVersion"))
         }
     }
 }

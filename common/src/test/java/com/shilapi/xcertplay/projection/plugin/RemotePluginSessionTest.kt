@@ -47,6 +47,7 @@ class RemotePluginSessionTest {
         val cancellations = LinkedBlockingQueue<String>()
         override fun cancelInput(token: String) { cancellations.offer(token) }
         override fun start(token: String, surface: Surface) { starts++; host.onState(token, ProjectionPlugin.READY, "Ready") }
+        override fun startEncoded(token: String, output: ParcelFileDescriptor) { starts++; output.close(); host.onState(token, ProjectionPlugin.READY, "Ready") }
         override fun touch(token: String, ids: IntArray, xs: DoubleArray, ys: DoubleArray, down: BooleanArray) { touches.offer(ids) }
         override fun setNightMode(token: String, night: Boolean) = Unit
         override fun stop(token: String) { stops++ }
@@ -176,6 +177,19 @@ class RemotePluginSessionTest {
         until { stopped.isDone }; stopped.join()
         assertTrue(output.closed); assertNull(runtime.snapshot()); assertEquals(1, context.unbinds)
     }
+    @Test fun failedCleanupPreservesPluginDiagnosticAndKeepsResourcesQuarantined() {
+        val peer = Peer(); val context = Binding(peer); val runtime = ProjectionRuntime(); val output = Output()
+        val session = RemotePluginSession(context, plugin, runtime, { true }, { _, _ -> output })
+        runtime.adopt(session, setOf(ProjectionResource.WIRELESS)); session.activate(); until { session.inputReady }
+        val stopped = runtime.stop(session); until { peer.stops == 1 }
+        peer.host.onStopped(peer.token, false, "SDK video session remains active")
+        until { stopped.isDone }
+        assertTrue(stopped.isCompletedExceptionally)
+        assertTrue(session.statusText!!.contains("SDK video session remains active"))
+        assertEquals(setOf(ProjectionResource.WIRELESS), runtime.resources())
+        assertSame(session, runtime.snapshot())
+    }
+
     @Test fun processThatAcknowledgesButDoesNotExitIsQuarantined() {
         val peer = Peer().apply { info = PluginVideoInfo(640, 360, processExitRequired = true).toBundle() }
         val context = Binding(peer); val runtime = ProjectionRuntime(); val output = Output()

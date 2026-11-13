@@ -54,7 +54,7 @@ internal class RemotePluginSession(
     private var stopSent = false
     private var processExitRequired = false
     private var awaitingProcessExit = false
-    private var output: CompletableFuture<ProjectionVideoOutput>? = null
+    private var output: CompletableFuture<AutoCloseable>? = null
     private val deadline = Runnable { fail(context.getString(UiR.string.plugin_timeout)) }
     private val stopDeadline = Runnable { finish(false, context.getString(UiR.string.plugin_cleanup_failed)) }
     private val death = IBinder.DeathRecipient { main.post {
@@ -85,17 +85,23 @@ internal class RemotePluginSession(
                 processExitRequired = video.processExitRequired
                 main.removeCallbacks(deadline)
                 main.postDelayed(deadline, startupTimeoutMs)
-                capabilities = ProjectionCapabilities(setOf(VideoIngressKind.SURFACE), video.maxTouchContacts, video.nightMode,
+                capabilities = ProjectionCapabilities(setOf(if (video.encodedVideoVersion != 0) VideoIngressKind.ENCODED else VideoIngressKind.SURFACE), video.maxTouchContacts, video.nightMode,
                     cancellation = if (video.nativeCancelInput) ProjectionCancellation.NATIVE else ProjectionCancellation.RELEASE_ONLY)
                 runtime.changed(this@RemotePluginSession)
-                output = CompletableFuture.supplyAsync({ outputFactory(video.width, video.height) }, mediaWorker).also { pending ->
+                output = CompletableFuture.supplyAsync<AutoCloseable>({
+                    if (video.encodedVideoVersion != 0) EncodedPluginVideo { reason -> main.post { fail(reason) } }
+                    else outputFactory(video.width, video.height)
+                }, mediaWorker).also { pending ->
                     pending.whenComplete { port, failure -> main.post {
                         if (closing) return@post
                         if (failure != null) { fail(failure.message ?: "Cannot create video output"); return@post }
                         if (stopping) { beginStop(); return@post }
                         if (!stillAllowed()) { fail(context.getString(UiR.string.plugin_disabled)); return@post }
                         startSent = true
-                        enqueue { it.start(this@RemotePluginSession.token, port.surface) }
+                        enqueue {
+                            if (port is EncodedPluginVideo) port.sendTo(it, this@RemotePluginSession.token)
+                            else it.start(this@RemotePluginSession.token, (port as ProjectionVideoOutput).surface)
+                        }
                     } }
                 }
             } catch (failure: Exception) { fail(failure.message ?: "Invalid plugin information") }
@@ -169,7 +175,9 @@ internal class RemotePluginSession(
             if (!stillAllowed()) { fail(context.getString(UiR.string.plugin_disabled)); return@post }
             main.postDelayed(deadline, connectTimeoutMs)
             try {
-                bound = context.bindService(Intent(ProjectionPlugin.ACTION).setComponent(plugin.component), connection, Context.BIND_AUTO_CREATE)
+                val intent = Intent(ProjectionPlugin.ACTION).setComponent(plugin.component)
+                    .putExtra(ProjectionPlugin.EXTRA_ENCODED_VIDEO_VERSION, ProjectionPlugin.ENCODED_VIDEO_VERSION)
+                bound = context.bindService(intent, connection, Context.BIND_AUTO_CREATE)
                 if (!bound) fail(context.getString(UiR.string.plugin_unavailable))
             } catch (failure: Exception) { fail(failure.message ?: "Cannot bind plugin") }
         }
@@ -247,7 +255,7 @@ internal class RemotePluginSession(
         // Failed or absent acknowledgement keeps the runtime lease quarantined even if the host closes successfully.
         val pending = output ?: CompletableFuture.completedFuture(null)
         pending.handleAsync({ port, allocationFailure ->
-            var failure: Throwable? = if (clean) null else ProjectionCleanupException(context.getString(UiR.string.plugin_cleanup_failed))
+            var failure: Throwable? = if (clean) null else ProjectionCleanupException(message.ifBlank { context.getString(UiR.string.plugin_cleanup_failed) })
             if (allocationFailure != null && generateSequence(allocationFailure) { it.cause }.any { it is ProjectionCleanupException }) failure = allocationFailure
             try { port?.close() } catch (closeFailure: Throwable) { failure = closeFailure }
             failure
@@ -262,7 +270,8 @@ internal class RemotePluginSession(
                 lifecycleFailure = ProjectionFailure(ProjectionErrorCategory.CLEANUP, failure.toString(), "plugin")
                 val cleanupMessage = context.getString(UiR.string.plugin_cleanup_failed)
                 // Preserve the original failure too, but make the unsafe cleanup actionable.
-                val report = failureReason?.let { "$it\n$cleanupMessage" } ?: cleanupMessage
+                val detail = failureReason ?: message.takeIf { it.isNotBlank() && it != cleanupMessage }
+                val report = detail?.let { "$it\n$cleanupMessage" } ?: cleanupMessage
                 runCatching { onFailure(report) }
                 notifyStatus(report)
                 completion.completeExceptionally(failure)

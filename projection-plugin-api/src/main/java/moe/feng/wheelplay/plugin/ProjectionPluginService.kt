@@ -6,6 +6,7 @@ import android.content.Intent
 import android.os.Binder
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.ParcelFileDescriptor
 import android.os.IBinder
 import android.os.Looper
 import android.view.Surface
@@ -20,6 +21,10 @@ import java.util.concurrent.atomic.AtomicLong
  * A failed cleanup keeps this service quarantined until its process is restarted.
  */
 abstract class ProjectionPluginService : Service() {
+    @Volatile protected var hostEncodedVideoVersion: Int = 0
+        private set
+    protected open fun onStartEncodedProjection(output: ParcelFileDescriptor, events: Events): Unit =
+        error("Encoded video is not implemented by this plugin")
     protected abstract fun videoInfo(): PluginVideoInfo
     protected abstract fun onStartProjection(surface: Surface, events: Events)
     protected abstract fun onStopProjection(): CompletableFuture<Unit>
@@ -69,6 +74,7 @@ abstract class ProjectionPluginService : Service() {
     private val overflowReported = AtomicBoolean()
     private inner class Client(val token: String, val uid: Int, val host: IProjectionHost, val info: PluginVideoInfo, val generation: Long) {
         var surface: Surface? = null
+        var encodedOutput: ParcelFileDescriptor? = null
         var started = false
         var stopping = false
         var ready = false
@@ -118,6 +124,9 @@ abstract class ProjectionPluginService : Service() {
                         "Process shutdown requires a dedicated private service process"
                     }
                     val next = Client(token, uid, host, videoInfo().copy(processExitRequired = terminateProcessAfterStop), generation)
+                    check(next.info.encodedVideoVersion == 0 || next.info.encodedVideoVersion == hostEncodedVideoVersion) {
+                        "当前 WheelPlay 不支持 WebRTC 插件输出，请更新宿主或在插件设置中选择 Surface。"
+                    }
                     client = next
                     host.asBinder().linkToDeath(next.death, 0)
                     host.onInfo(token, next.info.toBundle())
@@ -133,26 +142,28 @@ abstract class ProjectionPluginService : Service() {
             val uid = Binder.getCallingUid()
             handler.post {
                 val current = client
-                if (current == null || current.uid != uid || current.token != token || current.stopping || current.started) {
+                if (current == null || current.uid != uid || current.token != token || current.stopping || current.started || current.info.encodedVideoVersion != 0) {
                     surface.release(); return@post
                 }
                 current.surface = surface
                 current.started = true
                 try {
-                    onStartProjection(surface, object : Events {
-                        override fun state(state: Int, message: String) {
-                            handler.post {
-                                if (client !== current || current.stopping) return@post
-                                if (state == ProjectionPlugin.ERROR) { finish(current, message); return@post }
-                                if (state !in ProjectionPlugin.CONNECTING..ProjectionPlugin.READY) return@post
-                                current.ready = state == ProjectionPlugin.READY
-                                runCatching { current.host.onState(current.token, state, message.take(512)) }
-                                    .onFailure { finish(current, "Host disconnected") }
-                            }
-                        }
-                        override fun ended(message: String) { handler.post { finish(current, message) } }
-                    })
+                    onStartProjection(surface, events(current))
                 } catch (failure: Throwable) { finish(current, failure.message ?: "Plugin startup failed") }
+            }
+        }
+        override fun startEncoded(token: String, output: ParcelFileDescriptor) {
+            val uid = Binder.getCallingUid()
+            handler.post {
+                val current = client
+                if (current == null || current.uid != uid || current.token != token || current.stopping ||
+                    current.started || current.info.encodedVideoVersion != ProjectionPlugin.ENCODED_VIDEO_VERSION) {
+                    output.close(); return@post
+                }
+                current.encodedOutput = output
+                current.started = true
+                try { onStartEncodedProjection(output, events(current)) }
+                catch (failure: Throwable) { finish(current, failure.message ?: "Encoded startup failed") }
             }
         }
         override fun touch(token: String, ids: IntArray, xs: DoubleArray, ys: DoubleArray, down: BooleanArray) {
@@ -177,6 +188,20 @@ abstract class ProjectionPluginService : Service() {
         }
     }
 
+    private fun events(current: Client): Events = object : Events {
+        override fun state(state: Int, message: String) {
+            handler.post {
+                if (client !== current || current.stopping) return@post
+                if (state == ProjectionPlugin.ERROR) { finish(current, message); return@post }
+                if (state !in ProjectionPlugin.CONNECTING..ProjectionPlugin.READY) return@post
+                current.ready = state == ProjectionPlugin.READY
+                runCatching { current.host.onState(current.token, state, message.take(512)) }
+                    .onFailure { finish(current, "Host disconnected") }
+            }
+        }
+        override fun ended(message: String) { handler.post { finish(current, message) } }
+    }
+
     private fun finish(current: Client, message: String, notifyHost: Boolean = true) {
         if (client !== current || current.stopping) return
         current.stopping = true
@@ -191,6 +216,8 @@ abstract class ProjectionPluginService : Service() {
         } catch (failure: Throwable) { CompletableFuture<Unit>().also { it.completeExceptionally(failure) } }
         stopped.whenComplete { _, failure -> handler.post {
             val result = runCatching {
+                current.encodedOutput?.close()
+                current.encodedOutput = null
                 // In process mode native handles disappear with the process; keep this handle valid until then.
                 if (failure == null && !current.info.processExitRequired) current.surface?.release()
             }.exceptionOrNull() ?: failure
@@ -211,6 +238,8 @@ abstract class ProjectionPluginService : Service() {
     }
 
     override fun onBind(intent: Intent): IBinder? = if (intent.action == ProjectionPlugin.ACTION) {
+        hostEncodedVideoVersion = intent.getIntExtra(ProjectionPlugin.EXTRA_ENCODED_VIDEO_VERSION, 0)
+            .takeIf { it == ProjectionPlugin.ENCODED_VIDEO_VERSION } ?: 0
         bindingGeneration.incrementAndGet()
         unbound = false
         lifecycleHandler.removeCallbacks(abandonedProcess)
