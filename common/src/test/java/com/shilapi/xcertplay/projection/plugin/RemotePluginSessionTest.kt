@@ -76,6 +76,40 @@ class RemotePluginSessionTest {
         while (!predicate() && System.nanoTime() < deadline) { shadowOf(Looper.getMainLooper()).idle(); Thread.sleep(5) }
         assertTrue("Timed out", predicate())
     }
+    @Test fun pairingCodeIsNegotiatedLocalOnlyReplacedAndClearedOnReadyOrStop() {
+        for (version in listOf(0, 1)) {
+            val peer = Peer().apply { info = PluginVideoInfo(640, 360, interactionVersion = version).toBundle() }
+            val binding = Binding(peer); val runtime = ProjectionRuntime()
+            val session = RemotePluginSession(binding, plugin, runtime, { true }, { _, _ -> Output() })
+            runtime.adopt(session, setOf(ProjectionResource.DISPLAY)); session.activate(); until { session.inputReady }
+            assertEquals(1, binding.bindIntent!!.getIntExtra(ProjectionPlugin.EXTRA_INTERACTION_VERSION, 0))
+            peer.host.onState(peer.token, ProjectionPlugin.CONNECTING, "Waiting for phone")
+            shadowOf(Looper.getMainLooper()).idle()
+            fun send(code: String, token: String = peer.token) {
+                peer.host.onInteraction(token, PluginInteraction("pairing", code, "MiAutoCar").toBundle())
+                shadowOf(Looper.getMainLooper()).idle()
+            }
+            send("123456", "retired-session"); assertNull(session.interaction)
+            send("123456")
+            if (version == 1) {
+                assertEquals("123456", session.interaction?.pairingCode)
+                assertEquals("Waiting for phone", session.statusText)
+                send("654321"); assertEquals("654321", session.interaction?.pairingCode)
+                peer.host.onInteraction(peer.token, Bundle().apply { putInt("version", 1); putString("phase", "pairing"); putString("pairingCode", "bad") })
+                shadowOf(Looper.getMainLooper()).idle(); assertNull(session.interaction)
+                send("123456")
+                peer.host.onState(peer.token, ProjectionPlugin.READY, "Ready")
+                shadowOf(Looper.getMainLooper()).idle(); assertNull(session.interaction)
+                send("654321"); assertNull(session.interaction)
+                peer.host.onState(peer.token, ProjectionPlugin.CONNECTING, "Waiting")
+                shadowOf(Looper.getMainLooper()).idle(); send("123456")
+            } else assertNull(session.interaction)
+            val stopped = runtime.stop(); until { peer.stops == 1 }
+            assertNull(session.interaction); send("654321"); assertNull(session.interaction)
+            peer.acknowledge(); until { stopped.isDone }
+        }
+    }
+
     @Test fun viewportChangesCoalesceAndRestartOnlyAfterMatchingReplyAndCleanup() {
         val web = com.shilapi.xcertplay.web.WebSession
         val oldAdaptive = web.adaptiveBrowserSize; val oldViewport = web.currentBrowserViewport

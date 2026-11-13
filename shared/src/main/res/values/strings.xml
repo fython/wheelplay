@@ -629,4 +629,6 @@
     <string name="web_source_failed">Could not complete the request. Check WheelPlay on Android.</string>
     <string name="web_source_resizing">Applying display size · Reconnecting %1$s</string>
     <string name="source_fallback_carplay">The selected input source is unavailable. The default is now CarPlay; no connection was started.</string>
+    <string name="plugin_pairing_code">CarLink pairing code</string>
+    <string name="plugin_pairing_instruction">On the sending phone, select %1$s in car connectivity and enter this code. This is not the browser pairing code.</string>
 </resources>

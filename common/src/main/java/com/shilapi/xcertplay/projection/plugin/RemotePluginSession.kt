@@ -58,6 +58,13 @@ internal class RemotePluginSession(
     private var output: CompletableFuture<AutoCloseable>? = null
     private var viewportSubscription: AutoCloseable? = null
     private var displaySizeSupported = false
+    private var interactionSupported = false
+    private var localInteraction: moe.feng.wheelplay.plugin.PluginInteraction? = null
+    private var interactionAt = 0L
+    val interaction: moe.feng.wheelplay.plugin.PluginInteraction?
+        get() = localInteraction?.takeIf { !stopping && !closing && !ready &&
+            android.os.SystemClock.elapsedRealtime() - interactionAt < 120_000 }
+
     private var sentDisplaySize = 1280 to 720
     private var desiredDisplaySize = sentDisplaySize
     private var displayRequestId = 0L
@@ -108,6 +115,7 @@ internal class RemotePluginSession(
                 check(stillAllowed()) { context.getString(UiR.string.plugin_disabled) }
                 val video = PluginVideoInfo.fromBundle(info)
                 infoReceived = true
+                interactionSupported = video.interactionVersion == ProjectionPlugin.INTERACTION_VERSION
                 processExitRequired = video.processExitRequired
                 displaySizeSupported = video.displaySizeVersion == ProjectionPlugin.DISPLAY_SIZE_VERSION
                 if (displaySizeSupported) observeDisplaySize()
@@ -145,6 +153,12 @@ internal class RemotePluginSession(
                 }
             }
         }
+        override fun onInteraction(token: String, interaction: android.os.Bundle) = callback(token) {
+            if (stopping || ready || !startSent || !interactionSupported) return@callback
+            localInteraction = runCatching { moe.feng.wheelplay.plugin.PluginInteraction.fromBundle(interaction) }.getOrNull()
+            interactionAt = android.os.SystemClock.elapsedRealtime()
+            runtime.changed(this@RemotePluginSession)
+        }
         override fun onState(token: String, state: Int, message: String) = callback(token) {
             if (stopping) return@callback
             // A handshake failure may arrive before start/Surface allocation.
@@ -156,6 +170,7 @@ internal class RemotePluginSession(
             when (state) {
                 ProjectionPlugin.CONNECTING -> { ready = false; notifyStatus(message) }
                 ProjectionPlugin.READY -> {
+                    localInteraction = null
                     ready = true
                     main.removeCallbacks(deadline)
                     notifyStatus(message.ifBlank { context.getString(UiR.string.plugin_connected) })
@@ -218,6 +233,7 @@ internal class RemotePluginSession(
                     .takeIf { WebSession.adaptiveBrowserSize } ?: (1280 to 720)
                 sentDisplaySize = viewport; desiredDisplaySize = viewport
                 val intent = Intent(ProjectionPlugin.ACTION).setComponent(plugin.component)
+                    .putExtra(ProjectionPlugin.EXTRA_INTERACTION_VERSION, ProjectionPlugin.INTERACTION_VERSION)
                 .putExtra(ProjectionPlugin.EXTRA_DISPLAY_SIZE_VERSION, ProjectionPlugin.DISPLAY_SIZE_VERSION)
                     .putExtra(ProjectionPlugin.EXTRA_ENCODED_VIDEO_VERSION, ProjectionPlugin.ENCODED_VIDEO_VERSION)
                     .putExtra(ProjectionPlugin.EXTRA_DISPLAY_WIDTH, viewport.first)
@@ -269,6 +285,7 @@ internal class RemotePluginSession(
         notifyStatus(reason)
     }
     private fun beginStop() {
+        localInteraction = null
         stopObservingDisplaySize()
         if (closing || completion.isDone || stopSent) return
         notifyStatus(context.getString(UiR.string.plugin_stopping))

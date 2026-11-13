@@ -7,6 +7,7 @@ import com.shilapi.xcertplay.projection.projectionFailure
 import com.shilapi.xcertplay.projection.ProjectionSourceIds
 import com.shilapi.xcertplay.projection.projectionSessions
 import com.shilapi.xcertplay.projection.plugin.projectionPlugins
+import com.shilapi.xcertplay.projection.plugin.PluginPreparation
 import com.shilapi.xcertplay.projection.plugin.RemotePluginSession
 import com.shilapi.xcertplay.projection.ProjectionSession
 import moe.feng.wheelplay.plugin.ProjectionPlugin
@@ -74,6 +75,22 @@ class WheelPlayActivity : AppCompatActivity() {
     private val settingsDialogs = SettingsDialogHost()
     private var webBusy = false
     private var awaitingTeslaVpnConsent = false
+    private var pendingPluginPreparation: PluginPreparation? = null
+    private val pluginPreparation = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val pending = pendingPluginPreparation
+        pendingPluginPreparation = null
+        if (pending != null && result.resultCode == RESULT_OK) {
+            val registry = projectionPlugins(this).also { it.refresh() }
+            val plugin = registry.entries().find { it.id == pending.sourceId }
+            val snapshot = projectionSessions.controlSnapshot()
+            if (pending.accepts(plugin, selectedHomeSource().id, snapshot.generation, snapshot.occupied,
+                    plugin?.let { registry.available(it) } == true,
+                    result.data?.getStringExtra(ProjectionPlugin.EXTRA_PREPARE_REQUEST))) {
+                startProjectionSourceNow(pending.sourceId)
+            }
+        }
+        refreshUiState()
+    }
     private val localAndroidAutoSettings = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (!isFinishing && !isDestroyed) showLocalAndroidAutoSetup()
     }
@@ -227,6 +244,7 @@ class WheelPlayActivity : AppCompatActivity() {
         ServerWindow.showSystemBars(window)
         refreshAuthentication()
         selectedPrivateKey = savedInstanceState?.getString("selectedPrivateKey")?.let(Uri::parse)
+        pendingPluginPreparation = PluginPreparation.fromBundle(savedInstanceState?.getBundle("pluginPreparation"))
         pendingAndroidAutoSourceId = savedInstanceState?.getString("pendingAndroidAutoSourceId")
         aaConnection = AaConnection.entries.firstOrNull { it.name == savedInstanceState?.getString("aaConnection") } ?: AaConnection.LOCAL
         awaitingTeslaVpnConsent = savedInstanceState?.getBoolean("awaitingTeslaVpnConsent") ?: false
@@ -269,6 +287,7 @@ class WheelPlayActivity : AppCompatActivity() {
         outState.putString("selectedPrivateKey", selectedPrivateKey?.toString())
         outState.putString("pendingAndroidAutoSourceId", pendingAndroidAutoSourceId)
         outState.putString("aaConnection", aaConnection.name)
+        outState.putBundle("pluginPreparation", pendingPluginPreparation?.toBundle())
         outState.putBoolean("awaitingTeslaVpnConsent", awaitingTeslaVpnConsent)
         super.onSaveInstanceState(outState)
     }
@@ -346,6 +365,7 @@ class WheelPlayActivity : AppCompatActivity() {
                 } } else CarPlayBackgroundSession.stop { runOnUiThread { refreshUiState() } }
             }
             UiAction.STOP_SERVICE -> {
+                pendingPluginPreparation = null
                 startService(Intent(this, WheelPlaySessionService::class.java).setAction(WheelPlaySessionService.ACTION_STOP))
                 finishAndRemoveTask()
             }
@@ -467,7 +487,7 @@ class WheelPlayActivity : AppCompatActivity() {
                 belongs && (state.failure != null || (session == null && running)) -> state.message(this)
                 session != null -> session.statusText ?: state.message(this)
                 else -> getString(UiR.string.source_idle)
-            }, session != null || (belongs && running))
+            }, session != null || (belongs && running), (session as? RemotePluginSession)?.interaction)
         }.toMap()
         val plugins = registry.entries().map { plugin -> PluginUi(
             plugin.id, plugin.name, plugin.component.packageName, plugin.sourceId == ProjectionPlugin.SOURCE_ICCOA_CARLINK,
@@ -489,6 +509,7 @@ class WheelPlayActivity : AppCompatActivity() {
                 browserEnabled = WebSession.running && BrowserExperienceLink.local(WebSession.code, WebSession.httpPort) != null,
                 code = if (WebSession.running) WebSession.code else "— — — — — —", viewerConnected = WebSession.hasViewer,
                 sourceName = getString(UiR.string.home_switch_source, selected.name),
+                interaction = (active as? RemotePluginSession)?.interaction,
                 stage = (when {
                     active != null -> getString(UiR.string.home_active_source, active.descriptor.displayName, state.failure?.message(this) ?: active.statusText ?: getString(UiR.string.projection_active, active.descriptor.displayName))
                     carPlayRunning -> getString(UiR.string.home_active_source, getString(UiR.string.source_carplay), WebSession.stage(this))
@@ -816,6 +837,7 @@ class WheelPlayActivity : AppCompatActivity() {
     }
 
     private fun startProjectionSource(id: String) {
+        if (pendingPluginPreparation != null) return
         homeFallbackMessage = null
         val homeId = when {
             belongsToSource(id, ProjectionSourceIds.ANDROID_AUTO) -> ProjectionSourceIds.ANDROID_AUTO
@@ -828,6 +850,18 @@ class WheelPlayActivity : AppCompatActivity() {
             checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             pendingAndroidAutoSourceId = id
             androidAutoMicrophonePermission.launch(Manifest.permission.RECORD_AUDIO)
+            return
+        }
+        val registry = projectionPlugins(this)
+        val plugin = registry.entries().find { it.id == id }
+        if (plugin?.preparation != null && registry.available(plugin)) {
+            val snapshot = projectionSessions.controlSnapshot()
+            if (snapshot.occupied) { toast(getString(UiR.string.projection_busy)); return }
+            val pending = PluginPreparation.create(plugin, snapshot.generation)
+            pendingPluginPreparation = pending
+            runCatching { pluginPreparation.launch(Intent().setComponent(plugin.preparation)
+                .putExtra(ProjectionPlugin.EXTRA_PREPARE_REQUEST, pending.request)) }
+                .onFailure { pendingPluginPreparation = null; toast(getString(UiR.string.plugin_unavailable)) }
             return
         }
         startProjectionSourceNow(id)

@@ -198,3 +198,15 @@ stop cancels automatic reopening. Raw SDK status text is not interpreted as capa
 Old `phone-connect` requests are accepted only for an idle, explicitly selected CarPlay source
 with a foreground connection handler. Other selections receive a refresh message. New pages
 connected to old hosts do not guess a source action and ask for an update/refresh instead.
+
+## 连接准备与本机交互状态
+
+插件可在服务元数据中声明 `moe.feng.wheelplay.plugin.PREPARE_ACTIVITY`，指向同包可访问的 Activity。
+宿主连接前通过 Activity Result 启动它，并携带 `ProjectionPlugin.EXTRA_PREPARE_REQUEST`。
+插件负责申请自己的权限和引导系统设置；准备完成返回 `RESULT_OK` 并原样回传该请求值，取消返回 `RESULT_CANCELED`。
+宿主重新核对插件身份、启用状态、所选输入源及会话代次，确认会话空闲后才继续。未声明准备入口的旧插件沿用原流程。
+
+结构化交互通过 `PluginVideoInfo.interactionVersion` 与绑定 Intent 的 `EXTRA_INTERACTION_VERSION` 双向协商。
+双方支持版本 1 时，插件可调用 `events.interaction(PluginInteraction(...))`，由追加的 `IProjectionHost.onInteraction` 回调传递。
+阶段支持 `preparing`、`waiting-device`、`pairing`、`waiting-video`、`ready`、`failed`；六位数字配对码只允许出现在 `pairing` 阶段。
+配对码仅供本机 UI 使用，不得拼入普通状态、浏览器数据、日志或诊断。宿主在就绪、失败、停止及超时后清除展示；旧宿主不会收到新回调。

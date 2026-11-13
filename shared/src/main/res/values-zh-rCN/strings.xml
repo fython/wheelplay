@@ -629,4 +629,6 @@
     <string name="web_source_failed">请求未完成，请查看 Android 上的 WheelPlay。</string>
     <string name="web_source_resizing">正在应用新尺寸 · 重新连接 %1$s</string>
     <string name="source_fallback_carplay">所选输入源已不可用，默认选择已恢复为 CarPlay，尚未发起连接。</string>
+    <string name="plugin_pairing_code">CarLink 配对码</string>
+    <string name="plugin_pairing_instruction">请在发送手机的车联功能中选择 %1$s，并输入此验证码。这不是浏览器配对码。</string>
 </resources>

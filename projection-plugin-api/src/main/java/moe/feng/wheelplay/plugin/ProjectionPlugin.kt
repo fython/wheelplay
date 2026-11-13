@@ -10,6 +10,10 @@ object ProjectionPlugin {
     /** Optional UI association; never replaces the component-derived runtime identity or consent. */
     const val META_SOURCE_ID = "moe.feng.wheelplay.plugin.SOURCE_ID"
     const val SOURCE_ICCOA_CARLINK = "iccoa-carlink"
+    const val META_PREPARE_ACTIVITY = "moe.feng.wheelplay.plugin.PREPARE_ACTIVITY"
+    const val EXTRA_PREPARE_REQUEST = "moe.feng.wheelplay.plugin.PREPARE_REQUEST"
+    const val EXTRA_INTERACTION_VERSION = "moe.feng.wheelplay.plugin.INTERACTION_VERSION"
+    const val INTERACTION_VERSION = 1
     const val META_SETTINGS_ACTIVITY = "moe.feng.wheelplay.plugin.SETTINGS_ACTIVITY"
     /** Optional bind-time pixel size; plugins may constrain it and return their actual size in onInfo. */
     const val EXTRA_DISPLAY_WIDTH = "moe.feng.wheelplay.plugin.DISPLAY_WIDTH"
@@ -36,12 +40,14 @@ data class PluginVideoInfo(
     val encodedVideoVersion: Int = 0,
     /** 1: accepts viewport requests and replies whether a clean session restart is needed. */
     val displaySizeVersion: Int = 0,
+    val interactionVersion: Int = 0,
 ) {
     init {
         require(width in 1..4096 && height in 1..4096 && width.toLong() * height <= 8_388_608)
         require(maxTouchContacts in 0..10)
         require(encodedVideoVersion in 0..ProjectionPlugin.ENCODED_VIDEO_VERSION)
         require(displaySizeVersion in 0..ProjectionPlugin.DISPLAY_SIZE_VERSION)
+        require(interactionVersion in 0..ProjectionPlugin.INTERACTION_VERSION)
     }
     fun toBundle() = Bundle().apply {
         putInt("apiVersion", ProjectionPlugin.API_VERSION)
@@ -50,12 +56,13 @@ data class PluginVideoInfo(
         putBoolean("processExitRequired", processExitRequired); putBoolean("nativeCancelInput", nativeCancelInput)
         putInt("encodedVideoVersion", encodedVideoVersion)
         putInt("displaySizeVersion", displaySizeVersion)
+        putInt("interactionVersion", interactionVersion)
     }
     companion object {
         fun fromBundle(bundle: Bundle): PluginVideoInfo {
             require(bundle.getInt("apiVersion") == ProjectionPlugin.API_VERSION) { "Unsupported plugin API" }
             return PluginVideoInfo(bundle.getInt("width"), bundle.getInt("height"),
-                bundle.getInt("maxTouchContacts"), bundle.getBoolean("nightMode"), bundle.getBoolean("processExitRequired"), bundle.getBoolean("nativeCancelInput"), bundle.getInt("encodedVideoVersion"), bundle.getInt("displaySizeVersion"))
+                bundle.getInt("maxTouchContacts"), bundle.getBoolean("nightMode"), bundle.getBoolean("processExitRequired"), bundle.getBoolean("nativeCancelInput"), bundle.getInt("encodedVideoVersion"), bundle.getInt("displaySizeVersion"), bundle.getInt("interactionVersion"))
         }
     }
 }
@@ -76,4 +83,23 @@ fun android.os.ResultReceiver.forRemoteProcess(): android.os.ResultReceiver {
         parcel.setDataPosition(0)
         android.os.ResultReceiver.CREATOR.createFromParcel(parcel)
     } finally { parcel.recycle() }
+}
+
+/** Ephemeral local UI only: never include this payload in status text, logs or diagnostics. */
+data class PluginInteraction(val phase: String, val pairingCode: String? = null, val deviceName: String = "") {
+    init {
+        require(phase in setOf("preparing", "waiting-device", "pairing", "waiting-video", "ready", "failed"))
+        require(pairingCode == null || (phase == "pairing" && pairingCode.matches(Regex("[0-9]{6}"))))
+        require(deviceName.length <= 120 && deviceName.none { it.isISOControl() })
+    }
+    fun toBundle() = Bundle().apply {
+        putInt("version", ProjectionPlugin.INTERACTION_VERSION)
+        putString("phase", phase); putString("pairingCode", pairingCode); putString("deviceName", deviceName)
+    }
+    companion object {
+        fun fromBundle(value: Bundle): PluginInteraction {
+            require(value.getInt("version") == ProjectionPlugin.INTERACTION_VERSION)
+            return PluginInteraction(requireNotNull(value.getString("phase")), value.getString("pairingCode"), value.getString("deviceName").orEmpty())
+        }
+    }
 }
