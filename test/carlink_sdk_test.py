@@ -110,6 +110,20 @@ class PackagingPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'mismatch'):
             sdk.validate_variant({'variantName': 'release', 'applicationId': 'other.app'}, 'release')
 
+    def test_component_factory_is_absolute_and_packaged_for_both_variants(self):
+        definitions = {'Lmoe/feng/wheelplay/plugin/carlink/CarLinkComponentFactory;'}
+        for application_id in ('moe.feng.wheelplay.plugin.carlink.debug', 'moe.feng.wheelplay.plugin.carlink'):
+            manifest = (f'A: package="{application_id}"\n'
+                        f'A: http://schemas.android.com/apk/res/android:appComponentFactory(0x0101057a)="{sdk.COMPONENT_FACTORY}"')
+            sdk.validate_component_factory(manifest, definitions)
+            for wrong in ('.CarLinkComponentFactory', 'moe.feng.wheelplay.plugin.carlink.debug.CarLinkComponentFactory'):
+                with self.assertRaisesRegex(ValueError, 'fully qualified'):
+                    sdk.validate_component_factory(manifest.replace(sdk.COMPONENT_FACTORY, wrong), definitions)
+            with self.assertRaisesRegex(ValueError, 'missing from the final APK'):
+                sdk.validate_component_factory(manifest, set())
+        with self.assertRaisesRegex(ValueError, 'fully qualified'):
+            sdk.validate_component_factory('', definitions)
+
     def test_release_requires_explicit_signing_and_does_not_put_passwords_in_arguments(self):
         with patch.dict('os.environ', {}, clear=True):
             with self.assertRaisesRegex(ValueError, 'Release signing requires'):

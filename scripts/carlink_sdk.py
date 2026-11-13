@@ -92,6 +92,20 @@ def validate_variant(metadata, variant):
         raise ValueError('CarLink APK variant/application ID mismatch')
 
 
+COMPONENT_FACTORY = 'moe.feng.wheelplay.plugin.carlink.CarLinkComponentFactory'
+
+
+def validate_component_factory(manifest, definitions):
+    # appComponentFactory is not expanded by the manifest merger like service names.
+    # A relative name resolves against applicationId, which changes for Debug.
+    factories = re.findall(r'android:appComponentFactory(?:\(0x[0-9a-fA-F]+\))?="([^"]+)"', manifest)
+    if factories != [COMPONENT_FACTORY]:
+        raise ValueError('CarLink appComponentFactory must use its fully qualified class name')
+    descriptor = 'L' + COMPONENT_FACTORY.replace('.', '/') + ';'
+    if descriptor not in definitions:
+        raise ValueError('CarLink component factory class is missing from the final APK')
+
+
 def signing_arguments(variant):
     if variant == 'debug':
         return ['--ks-key-alias', 'androiddebugkey', '--ks-pass', 'pass:android', '--key-pass', 'pass:android']
@@ -158,11 +172,14 @@ def package(args, lock):
         resources = subprocess.check_output([str(args.build_tools / 'aapt2'), 'dump', 'resources', str(signed)], text=True)
         if not re.search(r'0x7f0700a8\s+drawable/carlink_sdk_icon', resources):
             raise ValueError('SDK hard-coded bitmap resource ID was not preserved')
+        manifest = subprocess.check_output([str(args.build_tools / 'aapt2'), 'dump', 'xmltree',
+                                            str(signed), '--file', 'AndroidManifest.xml'], text=True)
         with zipfile.ZipFile(signed) as archive:
             definitions = set()
             for entry in archive.namelist():
                 if re.fullmatch(r'classes(?:\d+)?\.dex', entry):
                     definitions.update(dex_classes(archive.read(entry)))
+            validate_component_factory(manifest, definitions)
             missing = missing_sdk_types((args.sdk / 'icar-sdk.dex').read_bytes(), definitions)
             if missing:
                 raise ValueError(f'SDK references missing external classes: {missing}')

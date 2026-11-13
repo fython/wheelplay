@@ -25,7 +25,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <application android:label="WheelPlay CarLink" android:allowBackup="false"
         android:icon="@mipmap/ic_carlink" android:roundIcon="@mipmap/ic_carlink_round"
-        android:appComponentFactory=".CarLinkComponentFactory" tools:replace="android:appComponentFactory"
+        android:appComponentFactory="moe.feng.wheelplay.plugin.carlink.CarLinkComponentFactory" tools:replace="android:appComponentFactory"
         android:theme="@style/Theme.WheelPlay.CarLink">
         <service android:name=".CarLinkService" android:exported="true" android:process=":projection"
             android:foregroundServiceType="connectedDevice" android:label="ICCOA CarLink">
