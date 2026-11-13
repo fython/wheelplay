@@ -21,7 +21,8 @@ printf '%s\\n' "$@" > "$SDK_CALL_LOG"
 if [[ "\${MOCK_SDKMANAGER_FAIL:-0}" == 1 ]]; then exit 7; fi
 shift 2
 for package in "$@"; do
-  directory="$ANDROID_HOME/\${package//;/\\/}"
+  relative=\${package//;/\\/}
+  directory="$ANDROID_HOME/$relative"
   mkdir -p "$directory"
   printf 'installed' > "$directory/package.xml"
 done
@@ -48,6 +49,7 @@ test('SDK cold start installs all packages and a warm run skips sdkmanager entir
   const f = sdkFixture(t);
   assert.equal(f.run().status, 0);
   assert.deepEqual(f.calls(), [`--sdk_root=${f.sdk}`, '--install', ...packages]);
+  for (const id of packages) assert.equal(existsSync(join(f.sdk, ...id.split(';'), 'package.xml')), true);
   rmSync(f.log);
   assert.equal(f.run().status, 0);
   assert.equal(existsSync(f.log), false);

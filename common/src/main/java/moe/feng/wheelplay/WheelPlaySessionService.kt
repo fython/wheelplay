@@ -224,7 +224,7 @@ class WheelPlaySessionService : Service() {
                 .setContentTitle(getString(R.string.app_name))
                 .setContentText(
                     if (WebSession.running)
-                        getString(UiR.string.notification_streaming_running, port)
+                        getString(UiR.string.notification_streaming_running, port.toString())
                     else getString(UiR.string.ui_preparing_streaming_service)
                 )
                 .addAction(

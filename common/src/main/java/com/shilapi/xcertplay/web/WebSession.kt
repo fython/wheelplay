@@ -422,7 +422,7 @@ internal object WebSession {
                 }
         } catch (e: Exception) {
             next.stop()
-            error = context.getString(UiR.string.error_listener_start, port, e.userMessage(context))
+            error = context.getString(UiR.string.error_listener_start, port.toString(), e.userMessage(context))
         }
     }
 
@@ -445,9 +445,9 @@ internal object WebSession {
                 next.stopPreservingPairing()
                 return context.getString(
                     UiR.string.error_listener_start_kept_previous,
-                    port,
+                    port.toString(),
                     e.userMessage(context),
-                    httpPort,
+                    httpPort.toString(),
                 )
             }
             try {

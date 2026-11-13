@@ -1025,16 +1025,21 @@ class WheelPlayActivity : AppCompatActivity() {
         if (adapter == null || !adapter.isEnabled) {
             dialogs.message(getString(UiR.string.ui_turn_on_bluetooth), getString(UiR.string.ui_turn_on_bluetooth_on_this_android_device_and_pair), listOf(settings)); return
         }
-        val devices = runCatching { adapter.bondedDevices.sortedBy { it.name ?: "" } }.getOrDefault(emptyList())
+        val devices = try {
+            adapter.bondedDevices.map { it.address to (it.name ?: getString(UiR.string.ui_paired_device)) }
+                .sortedBy { it.second }
+        } catch (_: SecurityException) {
+            dialogs.message(getString(UiR.string.ui_open_bluetooth_settings), getString(UiR.string.ui_pair_this_android_device_in_settings_bluetooth_on_your), listOf(settings)); return
+        }
         if (devices.isEmpty()) {
             dialogs.message(getString(UiR.string.ui_pair_your_iphone_first), getString(UiR.string.ui_pair_this_android_device_in_settings_bluetooth_on_your), listOf(settings)); return
         }
         dialogs.choices(getString(UiR.string.ui_choose_iphone), devices.map { device ->
-            val name = device.name ?: getString(UiR.string.ui_paired_device)
-            if (devices.count { it.name == device.name } > 1) "$name · ${device.address.takeLast(5)}" else name
+            val name = device.second
+            if (devices.count { it.second == name } > 1) "$name · ${device.first.takeLast(5)}" else name
         }, extra = WheelPlayDialogs.Action(getString(UiR.string.ui_pair_another_device), settings.run), onCancel = { pendingWireless = false }) { index ->
             val device = devices[index]
-            WheelPlayPreferences.savePhone(this, device.address, device.name ?: "iPhone")
+            WheelPlayPreferences.savePhone(this, device.first, device.second)
             val start = pendingWireless; pendingWireless = false
             render()
             if (start) connect(true)

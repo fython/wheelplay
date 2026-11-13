@@ -175,9 +175,12 @@ try {
     };
     document.addEventListener('fullscreenchange',()=>fullscreenTrace.push({event:!!document.fullscreenElement}));
     document.addEventListener('fullscreenerror',()=>fullscreenTrace.push({event:'error'}));`);
+  // Finish PIN entry before measuring the button: the keypad can move the scroll viewport.
+  await evaluate(`document.getElementById('keypad-done').click()`);
   await command('Page.bringToFront');
+  await evaluate(`document.getElementById('connect').scrollIntoView({block:'center'});new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);
   const startButton = await evaluate(`(() => {
-    const button=document.getElementById('connect');button.scrollIntoView({block:'center'});
+    const button=document.getElementById('connect');
     const rect=button.getBoundingClientRect();return {x:rect.left+rect.width/2,y:rect.top+rect.height/2};
   })()`);
   await command('Input.dispatchMouseEvent', { type: 'mousePressed', ...startButton, button: 'left', clickCount: 1 });
@@ -453,8 +456,8 @@ try {
       await command('Browser.grantPermissions',{origin:`http://127.0.0.1:${server.address().port}`,permissions:['clipboardReadWrite','clipboardSanitizedWrite']});
       await evaluate(`navigator.clipboard.writeText('098765')`,{userGesture:true});
       await evaluate(`document.getElementById('code-digit-1').focus({preventScroll:true})`);
-      await command('Input.dispatchKeyEvent',{type:'keyDown',key:'v',code:'KeyV',modifiers:2,windowsVirtualKeyCode:86});
-      await command('Input.dispatchKeyEvent',{type:'keyUp',key:'v',code:'KeyV',modifiers:2,windowsVirtualKeyCode:86});
+      await command('Input.dispatchKeyEvent',{type:'keyDown',key:'v',code:'KeyV',modifiers:process.platform === 'darwin' ? 4 : 2,windowsVirtualKeyCode:86,...(process.platform === 'darwin' ? {commands:['paste']} : {})});
+      await command('Input.dispatchKeyEvent',{type:'keyUp',key:'v',code:'KeyV',modifiers:process.platform === 'darwin' ? 4 : 2,windowsVirtualKeyCode:86});
       await wait(`document.getElementById('code').value==='098765'`);
       await tapKey('keypad-clear');
       for (const digit of '012') await tapKey('keypad-'+digit);
