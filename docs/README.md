@@ -10,6 +10,8 @@
 - [VNC 远程桌面](VNC.md)：连接方法、RFB 协议范围、通用桌面输入和设备验收。
 - [Android 虚拟桌面](ANDROID_DESKTOP.md)：Shizuku 安装授权、本机应用选择、图像/触控链路、生命周期及尚未完成的真机验收。
 - [APK 输入源插件](PROJECTION_PLUGINS.md)：安装启用、独立 SDK/示例 APK、Surface 与触控协议，以及 ICCOA 插件接入边界。
+- [CarLink 插件使用指南](CARLINK_USER_GUIDE.md)：安装、三种连接方式、画面设置与故障恢复。
+- [CarLink 开发与构建说明](CARLINK.md)：SDK 依赖、Debug / Release 打包、签名、CI 产物和验证状态。
 - [投影输入源实现与设备验收](PROJECTION_IMPLEMENTATION.md)：当前框架、CarPlay 适配、三类诊断源及后续协议接入范围。
 - [通用输入源框架设计草案](INPUT_SOURCE_FRAMEWORK.md)：CarPlay、Android Auto、ICCOA、桌面与 VNC 的接口边界、研究证据及分阶段迁移建议（研究时点的方案）。
 - [WebRTC 稳定性与卡顿恢复](WEBRTC_RECOVERY.md)：回退原因、可配置容忍时间及真机排查方法。

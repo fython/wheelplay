@@ -1,0 +1,1 @@
+moe.feng.wheelplay.plugin.carlink.debug:drawable/carlink_sdk_icon = 0x7f0700a8

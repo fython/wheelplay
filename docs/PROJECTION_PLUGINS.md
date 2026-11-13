@@ -102,7 +102,7 @@ API v2 使用精确版本匹配。宿主与插件须一起更新；v1 插件须�
 
 ## ICCOA CarLink 接入边界
 
-CarLink 运行库、固定名称的服务、native 库、初始化代码及权限配置放在未来的 **CarLink 插件 APK**。WheelPlay 不包含、下载或加载 `icar-sdk.dex`，也不接受只替换 dex 的注入流程。插件可用本协议将宿主 Surface 交给 SDK，并回传状态、接收触控。
+实验性 `projection-plugin-carlink` 模块将 CarLink 运行库、固定名称的服务、native 库、初始化代码及权限配置放在独立插件 APK 中，详见[本地构建与验收记录](CARLINK.md)。WheelPlay 宿主不包含、下载或加载 `icar-sdk.dex`，也不接受只替换 dex 的注入流程。插件需本地提供完整且校验通过的依赖，可用本协议将宿主 Surface 交给 SDK，并回传状态、接收触控；不代表真实协议闭环已验收。
 
 仍必须在持有适用 SDK 的设备上确认：离屏 Surface 是否被 SDK 接受；能否停止生产者和网络服务；授权及后台/前台服务限制；设备是否需要系统签名；宿主浏览器 LAN 与 SDK 的无线链路是否共存。需要麦克风和音频时，必须先明确插件本机处理与宿主路由的责任，再扩展 SDK；v2 不承诺完整 CarLink 音频闭环。
 
@@ -125,27 +125,6 @@ adb shell am instrument -w -r -e class moe.feng.wheelplay.plugin.PluginSurfaceIn
 ### 可选原生取消扩展
 
 API v2 的 `PluginVideoInfo` 新增可选 `nativeCancelInput`（缺省 false）。明确声明 true 的插件可以实现 `ProjectionPluginService.onCancelInput()`，宿主才会调用追加在 AIDL 末尾的 `cancelInput(token)`；该调用与触控在同一 oneway Binder/SDK 队列中排序，并沿用 UID/token 检查。只有确实取消手势而非正常抬手的实现才应声明此能力。旧插件未携带此字段，继续收到空触控快照，旧事务号保持不变。新插件也可被旧宿主使用，旧宿主忽略此可选字段。SDK 状态消息在宿主映射到公共生命周期/错误模型，停止确认与专属进程退出要求保持不变。
-
-## 压缩视频扩展 v1
-
-基础 API 保持 v2；现有 AIDL 方法顺序不变，末尾追加 `startEncoded(token, ParcelFileDescriptor)`。
-宿主绑定时声明 `EXTRA_ENCODED_VIDEO_VERSION=1`，插件握手返回 `PluginVideoInfo.encodedVideoVersion=1`
-才允许调用新方法。缺省 0 继续调用 `start(token, Surface)`。插件选择 WebRTC 但宿主未声明支持时，
-在握手阶段拒绝并提示更新或切回 Surface。两条启动路径互斥，同样校验调用 UID、token 与会话状态。
-
-宿主创建 reliable pipe，将写端通过 Binder 传给插件；宿主封送后关闭自己的写端副本。
-插件所有写入在独立线程完成，SDK 回调只放入有界队列。管道绑定到本次会话，不能复用到其他 token。
-停止后关闭两端；管道 EOF 或异常不等于 SDK 已释放资源，原有 `onStopped` 清理屏障仍有效。
-
-`EncodedVideoWire` 定义大端格式：`WPE1` magic、宽、高，随后每条记录为 `sequence:int64`、
-`ptsUs:int64`、`size:int32` 和 `size` 字节。序号从 0 连续递增，单条不超过 2 MiB，先校验长度再分配。
-目前仅支持完整 H.264 Annex-B access unit、单一固定格式和非重排视频；同帧多 slice 可以存在，
-但不能把多个 picture 合为一条。参数集在首张图片前提供，可重复；参数集变化、B 帧、缺片、PTS
-倒退或重复均要求重新连接。读取完整 AU 后立即交付，不等待下一帧时间戳，因此静态画面的最后一帧也能显示。
-
-视频宽高取编码格式，触控仍使用握手画布上的归一化坐标。此扩展未声明按需关键帧能力；
-宿主不伪造请求成功。每个新 WebRTC 消费者可使用有界完整 GOP 首播，同一消费者不回放旧时间戳。
-模式切换需要停止并重连，不在活动会话中改配置或同时运行两种输出。扩展不提供音频或 framebuffer IPC。
 
 ### Optional browser display hint
 
@@ -175,6 +154,32 @@ binding a fresh session with the latest viewport. A user stop or source switch c
 reopening; a cleanup failure retains quarantine. Surface and encoded outputs are recreated together
 with touch mapping rather than changing dimensions underneath an active producer.
 
+## 编码视频扩展调研
+
+ICCOA 的独立实验已验证压缩 H.264 可经现有 WebRTC 在浏览器出画，且无需本机解码即可完成普通触控。CarLink 设置现已提供可选 WebRTC 模式，默认仍为 Surface；关键帧请求与重连恢复仍有实验性限制。实测记录、失败边界和能力协商／有界媒体管道／关键帧控制设计见 [ICCOA WebRTC 验证与协议草案](ICCOA_WEBRTC_PROBE.md)。
+
+## 压缩视频扩展 v1
+
+基础 API 保持 v2；现有 AIDL 方法顺序不变，末尾追加 `startEncoded(token, ParcelFileDescriptor)`。
+宿主绑定时声明 `EXTRA_ENCODED_VIDEO_VERSION=1`，插件握手返回 `PluginVideoInfo.encodedVideoVersion=1`
+才允许调用新方法。缺省 0 继续调用 `start(token, Surface)`。插件选择 WebRTC 但宿主未声明支持时，
+在握手阶段拒绝并提示更新或切回 Surface。两条启动路径互斥，同样校验调用 UID、token 与会话状态。
+
+宿主创建 reliable pipe，将写端通过 Binder 传给插件；宿主封送后关闭自己的写端副本。
+插件所有写入在独立线程完成，SDK 回调只放入有界队列。管道绑定到本次会话，不能复用到其他 token。
+停止后关闭两端；管道 EOF 或异常不等于 SDK 已释放资源，原有 `onStopped` 清理屏障仍有效。
+
+`EncodedVideoWire` 定义大端格式：`WPE1` magic、宽、高，随后每条记录为 `sequence:int64`、
+`ptsUs:int64`、`size:int32` 和 `size` 字节。序号从 0 连续递增，单条不超过 2 MiB，先校验长度再分配。
+目前仅支持完整 H.264 Annex-B access unit、单一固定格式和非重排视频；同帧多 slice 可以存在，
+但不能把多个 picture 合为一条。参数集在首张图片前提供，可重复；参数集变化、B 帧、缺片、PTS
+倒退或重复均要求重新连接。读取完整 AU 后立即交付，不等待下一帧时间戳，因此静态画面的最后一帧也能显示。
+
+视频宽高取编码格式，触控仍使用握手画布上的归一化坐标。此扩展未声明按需关键帧能力；
+宿主不伪造请求成功。每个新 WebRTC 消费者可使用有界完整 GOP 首播，同一消费者不回放旧时间戳。
+模式切换需要停止并重连，不在活动会话中改配置或同时运行两种输出。扩展不提供音频或 framebuffer IPC。
+
+
 ## Browser source controls
 
 The web display uses `status.sourceControl` (version 1) to distinguish selected and active sources,
@@ -198,6 +203,7 @@ stop cancels automatic reopening. Raw SDK status text is not interpreted as capa
 Old `phone-connect` requests are accepted only for an idle, explicitly selected CarPlay source
 with a foreground connection handler. Other selections receive a refresh message. New pages
 connected to old hosts do not guess a source action and ask for an update/refresh instead.
+
 
 ## 连接准备与本机交互状态
 
