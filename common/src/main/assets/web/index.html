@@ -60,7 +60,7 @@
 <label class="launch-option" for="settings-ignore-browser-zoom"><input id="settings-ignore-browser-zoom" type="checkbox"><span><strong>{{web_ignore_browser_zoom}}</strong><small>{{web_ignore_browser_zoom_help}}</small></span></label>
 <label class="launch-option" for="settings-browser-location"><input id="settings-browser-location" type="checkbox" autocomplete="off" aria-describedby="settings-location-status"><span><strong>{{web_location_title}}</strong><small>{{web_location_help}}</small></span></label>
 <p id="settings-location-status" class="hint" role="status" aria-live="polite"></p>
-<div class="settings-actions"><button id="settings-fullscreen" type="button">{{web_full_screen}}</button><button id="settings-disconnect" type="button">{{web_disconnect}}</button></div>
+<div class="settings-actions"><button id="settings-fullscreen" type="button">{{web_full_screen}}</button><button id="source-stop" type="button" hidden>{{web_source_stop}}</button><button id="settings-disconnect" type="button">{{web_disconnect}}</button></div>
 </dialog>
 <aside id="debug-overlay" aria-labelledby="debug-title" hidden>
 <h2 id="debug-title" class="sr-only">{{web_debug_title}}</h2>
@@ -90,7 +90,7 @@
 <div id="touch-surface" aria-hidden="true"></div>
 <div id="location-message" hidden role="status" aria-live="polite"></div>
 <div id="audio-message" hidden role="status" aria-live="polite"></div>
-<div id="waiting" role="status"><strong>{{web_head_unit_connected}}</strong><p id="stage">{{web_waiting_for_iphone_video}}</p><button id="phone-connect" class="primary" type="button">{{ui_connect_iphone}}</button><p id="phone-connect-message" class="hint" aria-live="polite">{{web_uses_android_s_current_usb_wireless_connection_settings_for}}</p></div>
+<div id="waiting" role="status"><strong>{{web_head_unit_connected}}</strong><p id="stage">{{web_source_waiting}}</p><button id="source-action" class="primary" type="button" hidden>{{web_source_connect}}</button><button id="media-retry" type="button" hidden>{{web_source_retry_media}}</button><p id="source-message" class="hint" aria-live="polite"></p><p id="source-detail" class="hint" hidden></p></div>
 </section>
 </main>
 <div id="pairing-keypad" popover="manual" role="dialog" aria-modal="false" aria-labelledby="keypad-title" hidden>

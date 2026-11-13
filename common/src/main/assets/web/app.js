@@ -1,3 +1,4 @@
+import { sourcePanel } from './source-control.js';
 import { t } from './text.js';
 import { createDesktopInput } from './desktop-input.js';
 // A surface inversely scaled inside the visual viewport cancels browser zoom.
@@ -378,7 +379,7 @@ export function createControlOutbox(socket, {
         if (kind === 'move' && tail && tail.kind === 'move' && tail.type === data.type && tail.eventKind === data.kind) tail.json = json;
         else if (touches.length < 64) touches.push({ kind, json, type: data.type, eventKind: data.kind });
         else { fail(); return false; }
-      } else if (['rtc-start', 'rtc-answer', 'rtc-ready', 'rtc-fallback', 'phone-connect', 'image-format', 'location-start', 'location-stop', 'location-clear', 'media-command'].includes(data.type)) {
+      } else if (['rtc-start', 'rtc-answer', 'rtc-ready', 'rtc-fallback', 'phone-connect', 'source-action', 'image-format', 'location-start', 'location-stop', 'location-clear', 'media-command'].includes(data.type)) {
         if (signals.length >= 8 || json.length > 32768) { fail(); return false; }
         if (data.type.startsWith('location-')) locationFix = null;
         signals.push(json);
@@ -902,6 +903,8 @@ if (typeof document !== 'undefined') {
   const webpSupport = probeWebp();
   Object.defineProperty(window, 'wheelplayStats', { configurable: true, get: () => JSON.parse(JSON.stringify(performanceStats)) });
   let rtc = null, rtcRequested = false, rtcFps = null;
+  let sourceControl = null, sourceRequest = null, sourceReply = '', sourceSequence = 0;
+  let sourceRequestTimer = null;
   let socket = null, stopped = true, paired = false, retry = null, attempts = 0;
   let width = 1280, height = 720, live = false, lastStatus = 0, rtcMedia = {};
   let heartbeat = null, movePending = false, moveGeneration = 0, outbox = null;
@@ -1260,6 +1263,15 @@ if (typeof document !== 'undefined') {
     for (const surface of [...screens, video, canvas, heldFrame].filter(Boolean)) surface.classList.toggle('stale', !value.visible);
     touchSurface.classList.toggle('stale', !live);
     $('waiting').hidden = value.visible;
+    const panel = sourcePanel(sourceControl, value, !!rendererStats.fallbackReason);
+    $('stage').textContent = t(panel.title, panel.name || '');
+    $('source-action').hidden = !panel.action;
+    $('source-action').disabled = sourceRequest !== null;
+    $('source-action').textContent = t(panel.label || 'web_source_connect', panel.name || '');
+    $('source-message').textContent = sourceReply || (!sourceControl?.activeId && sourceControl?.notice) || t(panel.hint, panel.name || '');
+    $('media-retry').hidden = !panel.retry;
+    $('source-stop').hidden = !value.visible || sourceControl?.action !== 'stop';
+    $('source-stop').disabled = sourceRequest !== null;
     $('desktop-back').disabled = !live;
     if (!live && (pointers.size || desktop.active)) release();
     const rtcVisible = rtc && value.visible && value.frame?.transport === 'rtc';
@@ -1269,7 +1281,7 @@ if (typeof document !== 'undefined') {
     const transport = rtcVisible ? `${rtc.codec === 'H265' ? 'HEVC' : 'H.264'} / WebRTC / ${rendererLabel}${rtcFps === null ? '' : ` · ${rtcFps} fps`}` : `${value.frame?.mime === 'image/webp' ? 'WebP' : 'JPEG'}${fallbackLabel}`;
     $('status').textContent = value.state === 'recovering' ? t('web_video_recovering', transport) :
       value.visible ? value.interactive ? t('web_transport_touch_connected', transport, rtc?.recovering ? t('web_waiting_for_recovery') : '') :
-        t('web_video_input_unavailable', transport) : t('web_connected_waiting_for_iphone_video');
+        t('web_video_input_unavailable', transport) : t('web_source_waiting');
     $('media-message').hidden = !value.visible || value.interactive;
     $('media-message').textContent = value.visible && !value.interactive ? $('status').textContent : '';
     renderDebug();
@@ -1429,8 +1441,9 @@ if (typeof document !== 'undefined') {
         },
       });
       $('message').textContent = '';
-      $('phone-connect').disabled = false;
-      $('phone-connect-message').textContent = t("web_keep_wheelplay_in_the_foreground_on_android_tap_connect");
+      sourceControl = null; sourceRequest = null; sourceReply = ''; clearTimeout(sourceRequestTimer);
+      $('media-retry').disabled = false;
+      presentation.refresh();
       $('pairing').hidden = true; $('display').hidden = false;
       $('topbar').hidden = true;
       lastViewportSignature = '';
@@ -1464,15 +1477,22 @@ if (typeof document !== 'undefined') {
           }
           rtc.receive(data); return;
         }
-        if (data.type === 'phone-connect-result') {
-          $('phone-connect').disabled = false;
-          $('phone-connect-message').textContent = data.message;
-          return;
+        if (data.type === 'source-action-result') {
+          if (data.requestId !== sourceRequest) return;
+          sourceRequest = null; clearTimeout(sourceRequestTimer);
+          const messages = { requested: 'web_source_request_sent', configure: 'web_source_android_help',
+            stopped: 'web_source_stopped', pending: 'web_source_pending', stale: 'web_source_changed', failed: 'web_source_failed' };
+          sourceReply = t(messages[data.result] || 'web_source_failed');
+          presentation.refresh(); send({ type: 'ping' }); return;
         }
         if (data.type === 'busy') {
           const message = data.message; disconnect(); $('message').textContent = message; return;
         }
         if (data.type === 'status') {
+          if (sourceControl?.revision !== data.sourceControl?.revision) {
+            sourceReply = ''; sourceRequest = null; clearTimeout(sourceRequestTimer);
+          }
+          sourceControl = data.sourceControl?.version === 1 ? data.sourceControl : null;
           performanceStats.source = data.performance?.source ?? null;
           performanceStats.transport = data.performance?.transport ?? null;
           performanceStats.image = data.performance?.image ?? null;
@@ -1490,7 +1510,8 @@ if (typeof document !== 'undefined') {
             jpeg.cancelPending();
             if (rtcMedia.revision !== presentation.current.revision) { rtc.close(); rtcRequested = false; }
           }
-          $('stage').textContent = data.stage || t("web_waiting_for_iphone_video");
+          $('source-detail').textContent = data.sourceError ? data.stage || '' : '';
+          $('source-detail').hidden = !data.sourceError;
           rtc.progress(data.rtcFrames || 0);
           if (data.rtcAvailable && !rtcRequested && !rtc.active && typeof RTCPeerConnection !== 'undefined' &&
               (mode !== 'track-canvas' || processorSupported())) {
@@ -1527,6 +1548,7 @@ if (typeof document !== 'undefined') {
       clearTimeout(connectTimer);
       if (socket !== ws) return;
       if (settingsDialog.open) settingsDialog.close();
+      clearTimeout(sourceRequestTimer); sourceRequest = null; sourceControl = null; sourceReply = '';
       if (outbox) { outbox.close(); outbox = null; }
       cancelMove();
       socket = null; pointers.clear(); desktop.release(false); pointerInput = false; keyboardInput = false; backButton = false; $('desktop-back').hidden = true;
@@ -1597,13 +1619,23 @@ if (typeof document !== 'undefined') {
       }
     })();
   });
-  $('phone-connect').addEventListener('click', () => {
-    if (!paired || !send({ type: 'phone-connect' })) {
-      $('phone-connect-message').textContent = t("web_browser_connection_interrupted_pair_again_and_retry");
-      return;
-    }
-    $('phone-connect').disabled = true;
-    $('phone-connect-message').textContent = t("web_requesting_iphone_connection");
+  function requestSourceAction() {
+    if (!sourceControl?.action || sourceRequest || !socket || socket.readyState !== WebSocket.OPEN) return;
+    const requestId = String(++sourceSequence);
+    if (!send({ type: 'source-action', requestId, action: sourceControl.action,
+      sourceId: sourceControl.activeId || sourceControl.selectedId, revision: sourceControl.revision })) return;
+    sourceRequest = requestId; sourceReply = t('web_source_pending'); presentation.refresh();
+    sourceRequestTimer = setTimeout(() => {
+      if (sourceRequest !== requestId) return;
+      sourceRequest = null; sourceReply = t('web_source_failed'); presentation.refresh();
+    }, 10000);
+  }
+  $('source-action').addEventListener('click', requestSourceAction);
+  $('source-stop').addEventListener('click', requestSourceAction);
+  $('media-retry').addEventListener('click', () => {
+    // Reopen only the browser transport. The Android source and its SDK keep running.
+    $('media-retry').disabled = true;
+    socket?.close();
   });
   async function toggleFullscreen() {
     try {

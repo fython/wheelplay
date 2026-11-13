@@ -174,3 +174,27 @@ cleanup acknowledgement, dedicated-process death when required, and output teard
 binding a fresh session with the latest viewport. A user stop or source switch cancels automatic
 reopening; a cleanup failure retains quarantine. Surface and encoded outputs are recreated together
 with touch mapping rather than changing dimensions underneath an active producer.
+
+## Browser source controls
+
+The web display uses `status.sourceControl` (version 1) to distinguish selected and active sources,
+lifecycle phase, cleanup state, foreground requirements and the currently allowed action.
+`source-action` carries a monotonically increasing per-WebSocket `requestId`, the advertised
+`revision`, `sourceId`, and `action` (`connect`, `configure`, or `stop`). The host validates the
+current selection/session again before execution; replies use `source-action-result` with the
+same request ID. Duplicate request IDs are ignored. Stop is also guarded by the runtime session
+generation, including during asynchronous acquisition. Missing or disabled default plugins fall back to CarPlay with a visible notice, without
+starting a connection (including startup auto-connect and Activity recreation). The fallback
+changes the control revision; requests still targeting the old plugin are rejected rather than
+executed as CarPlay. Native home and browser startup share the same source dispatcher;
+configuration/device permission UI stays on Android.
+
+The browser distinguishes source readiness from local media presentation. A ready source with
+no current frame offers a transport-only retry and stop, never another source connect. The retry
+reopens the browser WebSocket without stopping Android projection. Connecting sources offer
+cancel; stopping/failed-cleanup states suppress startup. During display-size reconfiguration,
+stop cancels automatic reopening. Raw SDK status text is not interpreted as capabilities.
+
+Old `phone-connect` requests are accepted only for an idle, explicitly selected CarPlay source
+with a foreground connection handler. Other selections receive a refresh message. New pages
+connected to old hosts do not guess a source action and ask for an update/refresh instead.

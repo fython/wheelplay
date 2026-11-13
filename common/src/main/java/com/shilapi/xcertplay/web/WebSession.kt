@@ -259,8 +259,7 @@ internal object WebSession {
         )
     }
 
-    private var phoneConnectHandler: (() -> String)? = null
-    private var lastPhoneConnectAt: Long? = null
+    val sourceControl = BrowserSourceControl(projectionSessions)
 
     private var browserDevices: RememberedBrowsers? = null
     private var browserDevicesContext: Context? = null
@@ -295,38 +294,22 @@ internal object WebSession {
         secureServer?.disconnectViewer()
     }
 
-    // Accessed on the main thread so lifecycle changes and connection requests are ordered.
-    fun setPhoneConnectHandler(handler: (() -> String)?) {
-        phoneConnectHandler = handler
+    fun requestSourceAction(action: String, sourceId: String, revision: Long, reply: (String) -> Unit) {
+        mainHandler.post { sourceControl.execute(action, sourceId, revision, SystemClock.elapsedRealtime(), reply) }
     }
 
+    // Old pages must never turn a plugin selection into a CarPlay connection.
     fun requestPhoneConnection(context: Context, reply: (String) -> Unit) {
         mainHandler.post {
-            val now = SystemClock.elapsedRealtime()
-            val message =
-                when {
-                    projectionSessions.hasSession() ->
-                        context.getString(
-                            UiR.string.projection_busy
-                        )
-                    phoneConnectHandler == null ->
-                        context.getString(
-                            UiR.string.ui_bring_wheelplay_to_the_foreground_on_android_then_tap
-                        )
-                    lastPhoneConnectAt?.let { now - it < 3000 } == true ->
-                        context.getString(UiR.string.ui_connection_requested_please_wait)
-                    else -> {
-                        lastPhoneConnectAt = now
-                        runCatching { phoneConnectHandler!!.invoke() }
-                            .getOrElse {
-                                context.getString(
-                                    UiR.string
-                                        .ui_could_not_start_connection_check_connection_settings_on_android
-                                )
-                            }
-                    }
-                }
-            reply(message)
+            val state = sourceControl.snapshot()
+            if (state.optString("selectedId") != com.shilapi.xcertplay.projection.ProjectionSourceIds.CARPLAY ||
+                state.optString("action") != "connect" || !state.isNull("notice")) reply(context.getString(UiR.string.web_source_refresh))
+            else sourceControl.execute("connect", state.getString("selectedId"), state.getLong("revision"),
+                SystemClock.elapsedRealtime()) { result -> reply(context.getString(when (result) {
+                    "requested" -> UiR.string.web_source_request_sent
+                    "pending" -> UiR.string.web_source_pending
+                    else -> UiR.string.web_source_failed
+                })) }
         }
     }
 
