@@ -7,6 +7,7 @@ class FramePublishSchedulerTest {
     private class Fixture {
         var time = 0L
         var viewing = true
+        var interval = 66L
         var latest = 0
         val published = mutableListOf<Int>()
         val tasks = linkedMapOf<Runnable, Long>()
@@ -14,6 +15,7 @@ class FramePublishSchedulerTest {
             now = { time }, wanted = { viewing },
             post = { task, delay -> tasks[task] = time + delay }, remove = { tasks.remove(it) },
             publish = { published.add(latest) },
+            currentIntervalMillis = { interval },
         )
         fun frame(value: Int) { latest = value; scheduler.request() }
         fun advance(to: Long) {
@@ -74,5 +76,16 @@ class FramePublishSchedulerTest {
         assertEquals(listOf(1, 2), f.published)
         repeat(10) { f.scheduler.resume(); f.advance(400L + it * 200) }
         assertEquals(2, f.published.size)
+    }
+    @Test fun changedOutputLimitAppliesWithoutRecreatingSurface() {
+        val f = Fixture()
+        f.frame(1); f.advance(0)
+        f.interval = 100
+        f.frame(2); f.advance(99)
+        assertEquals(listOf(1), f.published)
+        f.advance(100)
+        f.interval = 33
+        f.frame(3); f.advance(133)
+        assertEquals(listOf(1, 2, 3), f.published)
     }
 }

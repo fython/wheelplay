@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.projection.plugin
 
 import android.content.*
+import com.shilapi.xcertplay.web.WebSession
 import android.os.*
 import android.content.res.Configuration
 import moe.feng.wheelplay.AirPlayPersistence
@@ -55,6 +56,31 @@ internal class RemotePluginSession(
     private var processExitRequired = false
     private var awaitingProcessExit = false
     private var output: CompletableFuture<AutoCloseable>? = null
+    private var viewportSubscription: AutoCloseable? = null
+    private var displaySizeSupported = false
+    private var sentDisplaySize = 1280 to 720
+    private var desiredDisplaySize = sentDisplaySize
+    private var displayRequestId = 0L
+    private val displayUpdate = Runnable {
+        if (!closing && !stopping && startSent && displaySizeSupported && desiredDisplaySize != sentDisplaySize) {
+            sentDisplaySize = desiredDisplaySize
+            val size = sentDisplaySize
+            val request = ++displayRequestId
+            enqueue { it.updateDisplaySize(token, request, size.first, size.second) }
+        }
+    }
+    private fun observeDisplaySize() {
+        viewportSubscription = WebSession.subscribeBrowserViewport { width, height -> main.post {
+            if (closing || stopping) return@post
+            desiredDisplaySize = if (width != null && height != null) width to height else 1280 to 720
+            main.removeCallbacks(displayUpdate)
+            main.postDelayed(displayUpdate, 800)
+        } }
+    }
+    private fun stopObservingDisplaySize() {
+        viewportSubscription?.close(); viewportSubscription = null
+        main.removeCallbacks(displayUpdate)
+    }
     private val deadline = Runnable { fail(context.getString(UiR.string.plugin_timeout)) }
     private val stopDeadline = Runnable { finish(false, context.getString(UiR.string.plugin_cleanup_failed)) }
     private val death = IBinder.DeathRecipient { main.post {
@@ -83,6 +109,8 @@ internal class RemotePluginSession(
                 val video = PluginVideoInfo.fromBundle(info)
                 infoReceived = true
                 processExitRequired = video.processExitRequired
+                displaySizeSupported = video.displaySizeVersion == ProjectionPlugin.DISPLAY_SIZE_VERSION
+                if (displaySizeSupported) observeDisplaySize()
                 main.removeCallbacks(deadline)
                 main.postDelayed(deadline, startupTimeoutMs)
                 capabilities = ProjectionCapabilities(setOf(if (video.encodedVideoVersion != 0) VideoIngressKind.ENCODED else VideoIngressKind.SURFACE), video.maxTouchContacts, video.nightMode,
@@ -98,6 +126,8 @@ internal class RemotePluginSession(
                         if (stopping) { beginStop(); return@post }
                         if (!stillAllowed()) { fail(context.getString(UiR.string.plugin_disabled)); return@post }
                         startSent = true
+                        main.removeCallbacks(displayUpdate)
+                        main.postDelayed(displayUpdate, 800)
                         enqueue {
                             if (port is EncodedPluginVideo) port.sendTo(it, this@RemotePluginSession.token)
                             else it.start(this@RemotePluginSession.token, (port as ProjectionVideoOutput).surface)
@@ -105,6 +135,15 @@ internal class RemotePluginSession(
                     } }
                 }
             } catch (failure: Exception) { fail(failure.message ?: "Invalid plugin information") }
+        }
+        override fun onDisplaySizeResult(token: String, requestId: Long, restartRequired: Boolean) = callback(token) {
+            if (stopping || !startSent || !displaySizeSupported || requestId <= 0 || requestId != displayRequestId ||
+                desiredDisplaySize != sentDisplaySize || !restartRequired) return@callback
+            runtime.restart(this@RemotePluginSession).whenComplete { _, failure ->
+                if (failure != null && generateSequence(failure) { it.cause }.none { it is CancellationException }) {
+                    main.post { onFailure(failure.message ?: "Cannot restart plugin for display size") }
+                }
+            }
         }
         override fun onState(token: String, state: Int, message: String) = callback(token) {
             if (stopping) return@callback
@@ -175,8 +214,14 @@ internal class RemotePluginSession(
             if (!stillAllowed()) { fail(context.getString(UiR.string.plugin_disabled)); return@post }
             main.postDelayed(deadline, connectTimeoutMs)
             try {
+                val viewport = WebSession.currentBrowserViewport
+                    .takeIf { WebSession.adaptiveBrowserSize } ?: (1280 to 720)
+                sentDisplaySize = viewport; desiredDisplaySize = viewport
                 val intent = Intent(ProjectionPlugin.ACTION).setComponent(plugin.component)
+                .putExtra(ProjectionPlugin.EXTRA_DISPLAY_SIZE_VERSION, ProjectionPlugin.DISPLAY_SIZE_VERSION)
                     .putExtra(ProjectionPlugin.EXTRA_ENCODED_VIDEO_VERSION, ProjectionPlugin.ENCODED_VIDEO_VERSION)
+                    .putExtra(ProjectionPlugin.EXTRA_DISPLAY_WIDTH, viewport.first)
+                    .putExtra(ProjectionPlugin.EXTRA_DISPLAY_HEIGHT, viewport.second)
                 bound = context.bindService(intent, connection, Context.BIND_AUTO_CREATE)
                 if (!bound) fail(context.getString(UiR.string.plugin_unavailable))
             } catch (failure: Exception) { fail(failure.message ?: "Cannot bind plugin") }
@@ -224,6 +269,7 @@ internal class RemotePluginSession(
         notifyStatus(reason)
     }
     private fun beginStop() {
+        stopObservingDisplaySize()
         if (closing || completion.isDone || stopSent) return
         notifyStatus(context.getString(UiR.string.plugin_stopping))
         main.removeCallbacks(deadline)
@@ -243,6 +289,7 @@ internal class RemotePluginSession(
         }
     }
     private fun finish(clean: Boolean, message: String) {
+        stopObservingDisplaySize()
         if (closing) return
         closing = true
         synchronized(admission) { stopping = true; ready = false }

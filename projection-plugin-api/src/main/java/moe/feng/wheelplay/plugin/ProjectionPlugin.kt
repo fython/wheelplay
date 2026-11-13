@@ -11,8 +11,15 @@ object ProjectionPlugin {
     const val META_SOURCE_ID = "moe.feng.wheelplay.plugin.SOURCE_ID"
     const val SOURCE_ICCOA_CARLINK = "iccoa-carlink"
     const val META_SETTINGS_ACTIVITY = "moe.feng.wheelplay.plugin.SETTINGS_ACTIVITY"
+    /** Optional bind-time pixel size; plugins may constrain it and return their actual size in onInfo. */
+    const val EXTRA_DISPLAY_WIDTH = "moe.feng.wheelplay.plugin.DISPLAY_WIDTH"
+    const val EXTRA_DISPLAY_HEIGHT = "moe.feng.wheelplay.plugin.DISPLAY_HEIGHT"
+    /** Optional ResultReceiver capability granted only when the host opens plugin settings. */
+    const val EXTRA_SETTINGS_BRIDGE = "moe.feng.wheelplay.plugin.SETTINGS_BRIDGE"
     const val EXTRA_ENCODED_VIDEO_VERSION = "moe.feng.wheelplay.plugin.ENCODED_VIDEO_VERSION"
     const val ENCODED_VIDEO_VERSION = 1
+    const val EXTRA_DISPLAY_SIZE_VERSION = "moe.feng.wheelplay.plugin.DISPLAY_SIZE_VERSION"
+    const val DISPLAY_SIZE_VERSION = 1
     const val CONNECTING = 0
     const val READY = 1
     const val ERROR = 2
@@ -27,11 +34,14 @@ data class PluginVideoInfo(
     val nativeCancelInput: Boolean = false,
     /** 0: Surface; 1: complete H.264 Annex-B access units through EncodedVideoWire. */
     val encodedVideoVersion: Int = 0,
+    /** 1: accepts viewport requests and replies whether a clean session restart is needed. */
+    val displaySizeVersion: Int = 0,
 ) {
     init {
         require(width in 1..4096 && height in 1..4096 && width.toLong() * height <= 8_388_608)
         require(maxTouchContacts in 0..10)
         require(encodedVideoVersion in 0..ProjectionPlugin.ENCODED_VIDEO_VERSION)
+        require(displaySizeVersion in 0..ProjectionPlugin.DISPLAY_SIZE_VERSION)
     }
     fun toBundle() = Bundle().apply {
         putInt("apiVersion", ProjectionPlugin.API_VERSION)
@@ -39,12 +49,13 @@ data class PluginVideoInfo(
         putInt("maxTouchContacts", maxTouchContacts); putBoolean("nightMode", nightMode)
         putBoolean("processExitRequired", processExitRequired); putBoolean("nativeCancelInput", nativeCancelInput)
         putInt("encodedVideoVersion", encodedVideoVersion)
+        putInt("displaySizeVersion", displaySizeVersion)
     }
     companion object {
         fun fromBundle(bundle: Bundle): PluginVideoInfo {
             require(bundle.getInt("apiVersion") == ProjectionPlugin.API_VERSION) { "Unsupported plugin API" }
             return PluginVideoInfo(bundle.getInt("width"), bundle.getInt("height"),
-                bundle.getInt("maxTouchContacts"), bundle.getBoolean("nightMode"), bundle.getBoolean("processExitRequired"), bundle.getBoolean("nativeCancelInput"), bundle.getInt("encodedVideoVersion"))
+                bundle.getInt("maxTouchContacts"), bundle.getBoolean("nightMode"), bundle.getBoolean("processExitRequired"), bundle.getBoolean("nativeCancelInput"), bundle.getInt("encodedVideoVersion"), bundle.getInt("displaySizeVersion"))
         }
     }
 }
@@ -56,3 +67,13 @@ fun validPluginContacts(contacts: List<PluginContact>, maximum: Int): Boolean =
     contacts.size <= maximum && contacts.map { it.id }.distinct().size == contacts.size && contacts.all {
         it.id in 0..31 && it.x.isFinite() && it.y.isFinite() && it.x in 0.0..1.0 && it.y in 0.0..1.0
     }
+
+/** Strip the local subclass name before crossing an APK class-loader boundary. */
+fun android.os.ResultReceiver.forRemoteProcess(): android.os.ResultReceiver {
+    val parcel = android.os.Parcel.obtain()
+    return try {
+        writeToParcel(parcel, 0)
+        parcel.setDataPosition(0)
+        android.os.ResultReceiver.CREATOR.createFromParcel(parcel)
+    } finally { parcel.recycle() }
+}

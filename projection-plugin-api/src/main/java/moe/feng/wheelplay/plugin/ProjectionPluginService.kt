@@ -21,8 +21,15 @@ import java.util.concurrent.atomic.AtomicLong
  * A failed cleanup keeps this service quarantined until its process is restarted.
  */
 abstract class ProjectionPluginService : Service() {
+    /** Snapshot for the next handshake. Older hosts omit it; never changes a running Surface. */
+    @Volatile protected var requestedDisplaySize: Pair<Int, Int>? = null
+        private set
     @Volatile protected var hostEncodedVideoVersion: Int = 0
         private set
+    @Volatile private var hostDisplaySizeVersion: Int = 0
+    /** Return true when applying this size requires the host to stop and recreate the session.
+     * Do not mutate active video dimensions or release resources here. */
+    protected open fun onDisplaySizeChanged(width: Int, height: Int): Boolean = false
     protected open fun onStartEncodedProjection(output: ParcelFileDescriptor, events: Events): Unit =
         error("Encoded video is not implemented by this plugin")
     protected abstract fun videoInfo(): PluginVideoInfo
@@ -79,6 +86,7 @@ abstract class ProjectionPluginService : Service() {
         var stopping = false
         var ready = false
         var cleanupComplete = false
+        var displayRequestId = 0L
         val death = IBinder.DeathRecipient { handler.post { finish(this, "Host disconnected", notifyHost = false) } }
     }
 
@@ -173,6 +181,16 @@ abstract class ProjectionPluginService : Service() {
                 if (it.started && (it.ready || contacts.isEmpty()) && validPluginContacts(contacts, it.info.maxTouchContacts)) onTouch(contacts)
             }
         }
+        override fun updateDisplaySize(token: String, requestId: Long, width: Int, height: Int) {
+            if (requestId <= 0 || !validDisplaySize(width, height)) return
+            dispatch(token) {
+                if (!it.started || hostDisplaySizeVersion != ProjectionPlugin.DISPLAY_SIZE_VERSION ||
+                    it.info.displaySizeVersion != ProjectionPlugin.DISPLAY_SIZE_VERSION || requestId <= it.displayRequestId) return@dispatch
+                it.displayRequestId = requestId
+                val restart = onDisplaySizeChanged(width, height)
+                it.host.onDisplaySizeResult(token, requestId, restart)
+            }
+        }
         override fun setNightMode(token: String, night: Boolean) = dispatch(token) {
             if (it.started && it.info.nightMode) onNightMode(night)
         }
@@ -237,9 +255,17 @@ abstract class ProjectionPluginService : Service() {
         } }
     }
 
+    private fun validDisplaySize(width: Int, height: Int) =
+        width in 1..8192 && height in 1..8192 && width.toLong() * height <= 33_554_432
+
     override fun onBind(intent: Intent): IBinder? = if (intent.action == ProjectionPlugin.ACTION) {
+        hostDisplaySizeVersion = intent.getIntExtra(ProjectionPlugin.EXTRA_DISPLAY_SIZE_VERSION, 0)
+            .takeIf { it == ProjectionPlugin.DISPLAY_SIZE_VERSION } ?: 0
         hostEncodedVideoVersion = intent.getIntExtra(ProjectionPlugin.EXTRA_ENCODED_VIDEO_VERSION, 0)
             .takeIf { it == ProjectionPlugin.ENCODED_VIDEO_VERSION } ?: 0
+        val width = intent.getIntExtra(ProjectionPlugin.EXTRA_DISPLAY_WIDTH, 0)
+        val height = intent.getIntExtra(ProjectionPlugin.EXTRA_DISPLAY_HEIGHT, 0)
+        requestedDisplaySize = if (validDisplaySize(width, height)) width to height else null
         bindingGeneration.incrementAndGet()
         unbound = false
         lifecycleHandler.removeCallbacks(abandonedProcess)

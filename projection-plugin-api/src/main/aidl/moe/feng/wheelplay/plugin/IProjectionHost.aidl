@@ -7,4 +7,6 @@ oneway interface IProjectionHost {
     void onState(String token, int state, String message);
     /** clean=true only after ALL producers and platform resources are released. */
     void onStopped(String token, boolean clean, String message);
+    // Reply only to a negotiated updateDisplaySize request.
+    void onDisplaySizeResult(String token, long requestId, boolean restartRequired);
 }

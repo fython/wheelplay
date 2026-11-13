@@ -146,3 +146,31 @@ API v2 的 `PluginVideoInfo` 新增可选 `nativeCancelInput`（缺省 false）�
 视频宽高取编码格式，触控仍使用握手画布上的归一化坐标。此扩展未声明按需关键帧能力；
 宿主不伪造请求成功。每个新 WebRTC 消费者可使用有界完整 GOP 首播，同一消费者不回放旧时间戳。
 模式切换需要停止并重连，不在活动会话中改配置或同时运行两种输出。扩展不提供音频或 framebuffer IPC。
+
+### Optional browser display hint
+
+API v2 hosts may include `ProjectionPlugin.EXTRA_DISPLAY_WIDTH` and `EXTRA_DISPLAY_HEIGHT`
+in the explicit service bind Intent. These are a snapshot of the browser pixel canvas (1280×720
+when adaptation is disabled or unavailable). `ProjectionPluginService.requestedDisplaySize`
+exposes a validated optional hint to `videoInfo()`. Plugins constrain it to their protocol limits
+and return the actual size through the existing `onInfo` handshake. Older hosts/plugins remain
+compatible; the base API version is unchanged. The hint alone does not resize an active Surface.
+
+### Optional display-size updates v1
+
+The host advertises `EXTRA_DISPLAY_SIZE_VERSION=1` at bind time. Plugins opt in with
+`PluginVideoInfo.displaySizeVersion=1`. Only after both sides negotiate and startup has been sent,
+the host calls the appended `updateDisplaySize(token, requestId, width, height)` transaction.
+`ProjectionPluginService.onDisplaySizeChanged()` returns whether a clean restart is required;
+the base service replies through the appended `onDisplaySizeResult(token, requestId, restartRequired)`.
+Do not advertise this extension unless the hook handles it. Old transaction numbers remain stable;
+old hosts/plugins keep the bind-time-only behavior and receive no new transactions.
+
+The service validates UID/token, positive monotonic request IDs, dimensions and lifecycle state.
+The host coalesces changes for 800 ms, ignores stale replies, and honors the adaptive-size setting
+(disabled means 1280×720). Plugins compare their constrained effective size, so a viewport change
+that does not alter output need not restart. A restart releases input and awaits the existing
+cleanup acknowledgement, dedicated-process death when required, and output teardown before
+binding a fresh session with the latest viewport. A user stop or source switch cancels automatic
+reopening; a cleanup failure retains quarantine. Surface and encoded outputs are recreated together
+with touch mapping rather than changing dimensions underneath an active producer.

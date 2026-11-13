@@ -453,6 +453,14 @@ object AirPlayPersistence {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_IMAGE_FORMAT, value.name).apply()
     }
 
+    fun loadBrowserImageFps(context: Context): Int =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt("browser_image_fps", 15).coerceIn(5, 30)
+
+    fun saveBrowserImageFps(context: Context, value: Int) {
+        require(value in listOf(10, 15, 20, 30))
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putInt("browser_image_fps", value).apply()
+    }
+
     fun loadImageQuality(context: Context): Int = com.shilapi.xcertplay.web.ImageEncodingOptions.sanitizeQuality(
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getInt(KEY_IMAGE_QUALITY, com.shilapi.xcertplay.web.ImageEncodingOptions.DEFAULT_QUALITY),

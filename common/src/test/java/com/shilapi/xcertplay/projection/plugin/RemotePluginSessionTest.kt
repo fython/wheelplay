@@ -49,15 +49,21 @@ class RemotePluginSessionTest {
         override fun start(token: String, surface: Surface) { starts++; host.onState(token, ProjectionPlugin.READY, "Ready") }
         override fun startEncoded(token: String, output: ParcelFileDescriptor) { starts++; output.close(); host.onState(token, ProjectionPlugin.READY, "Ready") }
         override fun touch(token: String, ids: IntArray, xs: DoubleArray, ys: DoubleArray, down: BooleanArray) { touches.offer(ids) }
+        val displayRequests = LinkedBlockingQueue<Triple<Long, Int, Int>>()
+        override fun updateDisplaySize(token: String, requestId: Long, width: Int, height: Int) {
+            displayRequests.add(Triple(requestId, width, height))
+        }
         override fun setNightMode(token: String, night: Boolean) = Unit
         override fun stop(token: String) { stops++ }
         fun acknowledge(clean: Boolean = true) = host.onStopped(token, clean, "Stopped")
     }
     private inner class Binding(val peer: Peer) : ContextWrapper(RuntimeEnvironment.getApplication()) {
         lateinit var connection: ServiceConnection
+        var bindIntent: Intent? = null
         var binds = 0
         var unbinds = 0
         override fun bindService(intent: Intent, conn: ServiceConnection, flags: Int): Boolean {
+            bindIntent = intent
             assertEquals(component, intent.component)
             connection = conn; binds++
             Handler(Looper.getMainLooper()).post { conn.onServiceConnected(component, peer) }
@@ -70,6 +76,112 @@ class RemotePluginSessionTest {
         while (!predicate() && System.nanoTime() < deadline) { shadowOf(Looper.getMainLooper()).idle(); Thread.sleep(5) }
         assertTrue("Timed out", predicate())
     }
+    @Test fun viewportChangesCoalesceAndRestartOnlyAfterMatchingReplyAndCleanup() {
+        val web = com.shilapi.xcertplay.web.WebSession
+        val oldAdaptive = web.adaptiveBrowserSize; val oldViewport = web.currentBrowserViewport
+        val runtime = ProjectionRuntime()
+        val peers = mutableListOf<Peer>(); val bindings = mutableListOf<Binding>()
+        fun newSession(): RemotePluginSession {
+            val peer = Peer().apply { info = PluginVideoInfo(640, 360, processExitRequired = true, displaySizeVersion = 1).toBundle() }
+            val binding = Binding(peer); peers.add(peer); bindings.add(binding)
+            return RemotePluginSession(binding, plugin, runtime, { true }, { _, _ -> Output() })
+        }
+        runtime.register(object : ProjectionSourceProvider {
+            override val descriptor = SourceDescriptor(plugin.id, "Plugin")
+            override val resources = setOf(ProjectionResource.DISPLAY)
+            override fun probe() = SourceAvailability.Ready
+            override fun open() = CompletableFuture.completedFuture<ProjectionSession>(newSession())
+        })
+        try {
+            web.setAdaptiveBrowserSize(true); web.reportBrowserViewport(1200, 800)
+            val session = runtime.open(plugin.id).join(); until { session.inputReady }
+            val peer = peers.single()
+            assertEquals(1, bindings.single().bindIntent!!.getIntExtra(ProjectionPlugin.EXTRA_DISPLAY_SIZE_VERSION, 0))
+            web.reportBrowserViewport(1400, 900); web.reportBrowserViewport(1600, 900)
+            shadowOf(Looper.getMainLooper()).idle(); assertTrue(peer.displayRequests.isEmpty())
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(800))
+            until { peer.displayRequests.size == 1 }
+            val first = peer.displayRequests.remove(); assertEquals(1600, first.second)
+            peer.host.onDisplaySizeResult(peer.token, first.first, false)
+            shadowOf(Looper.getMainLooper()).idle(); assertEquals(0, peer.stops)
+            web.reportBrowserViewport(1800, 1000)
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(800))
+            until { peer.displayRequests.size == 1 }
+            val second = peer.displayRequests.remove()
+            peer.host.onDisplaySizeResult("foreign", second.first, true)
+            peer.host.onDisplaySizeResult(peer.token, first.first, true)
+            shadowOf(Looper.getMainLooper()).idle(); assertEquals(0, peer.stops)
+            peer.host.onDisplaySizeResult(peer.token, second.first, true)
+            until { peer.stops == 1 }; assertEquals(1, peers.size)
+            web.reportBrowserViewport(1900, 1000) // Latest value wins even during shutdown.
+            peer.acknowledge()
+            until { bindings.first().unbinds == 1 }; assertEquals(1, peers.size)
+            peer.deathRecipient!!.binderDied()
+            until { peers.size == 2 && runtime.snapshot()?.inputReady == true }
+            assertEquals(1900, bindings.last().bindIntent!!.getIntExtra(ProjectionPlugin.EXTRA_DISPLAY_WIDTH, 0))
+            assertEquals(1000, bindings.last().bindIntent!!.getIntExtra(ProjectionPlugin.EXTRA_DISPLAY_HEIGHT, 0))
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(800))
+            assertTrue(peer.displayRequests.isEmpty()) // Old subscription was removed.
+            val stopped = runtime.stop(); until { peers.last().stops == 1 }; peers.last().acknowledge()
+            until { bindings.last().unbinds == 1 }; peers.last().deathRecipient!!.binderDied()
+            until { stopped.isDone }; stopped.join()
+        } finally {
+            oldViewport?.let { web.reportBrowserViewport(it.first, it.second) }
+            web.setAdaptiveBrowserSize(oldAdaptive)
+        }
+    }
+
+    @Test fun adaptiveToggleNotifiesPluginWithoutReplacingCarPlayListener() {
+        val web = com.shilapi.xcertplay.web.WebSession
+        val oldAdaptive = web.adaptiveBrowserSize; val oldViewport = web.currentBrowserViewport
+        val legacy = mutableListOf<Pair<Int?, Int?>>()
+        val peer = Peer().apply { info = PluginVideoInfo(640, 360, displaySizeVersion = 1).toBundle() }
+        val runtime = ProjectionRuntime(); val binding = Binding(peer)
+        try {
+            web.setAdaptiveBrowserSize(true); web.reportBrowserViewport(1400, 900)
+            web.setBrowserViewportListener { w, h -> legacy.add(w to h) }
+            val session = RemotePluginSession(binding, plugin, runtime, { true }, { _, _ -> Output() })
+            runtime.adopt(session, setOf(ProjectionResource.DISPLAY)); session.activate(); until { session.inputReady }
+            web.setAdaptiveBrowserSize(false)
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(800)); until { peer.displayRequests.size == 1 }
+            assertEquals(1280 to 720, peer.displayRequests.remove().let { it.second to it.third })
+            web.reportBrowserViewport(1600, 1000)
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1)); assertTrue(peer.displayRequests.isEmpty())
+            web.setAdaptiveBrowserSize(true)
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(800)); until { peer.displayRequests.size == 1 }
+            assertEquals(1600 to 1000, peer.displayRequests.remove().let { it.second to it.third })
+            assertEquals(listOf(1400 to 900, null to null, 1600 to 1000), legacy)
+            val stopped = runtime.stop(); until { peer.stops == 1 }; peer.acknowledge(); until { stopped.isDone }
+        } finally {
+            web.setBrowserViewportListener(null)
+            oldViewport?.let { web.reportBrowserViewport(it.first, it.second) }; web.setAdaptiveBrowserSize(oldAdaptive)
+        }
+    }
+
+    @Test fun browserSizeIsPassedAtBindAndPluginStillChoosesOutputSize() {
+        val web = com.shilapi.xcertplay.web.WebSession
+        val oldAdaptive = web.adaptiveBrowserSize
+        val oldViewport = web.currentBrowserViewport
+        try {
+            web.setAdaptiveBrowserSize(true)
+            assertTrue(web.reportBrowserViewport(1440, 900))
+            val peer = Peer(); val context = Binding(peer); val runtime = ProjectionRuntime(); val output = Output()
+            val session = RemotePluginSession(context, plugin, runtime, { true }, { w, h ->
+                assertEquals(640, w); assertEquals(360, h); output
+            })
+            runtime.adopt(session, setOf(ProjectionResource.DISPLAY)); session.activate(); until { session.inputReady }
+            assertEquals(1440, context.bindIntent!!.getIntExtra(ProjectionPlugin.EXTRA_DISPLAY_WIDTH, 0))
+            assertEquals(900, context.bindIntent!!.getIntExtra(ProjectionPlugin.EXTRA_DISPLAY_HEIGHT, 0))
+            web.reportBrowserViewport(1600, 1000)
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+            assertTrue(peer.displayRequests.isEmpty()) // Older v2 plugin never receives the new transaction.
+            val stopped = runtime.stop(); until { peer.stops == 1 }; peer.acknowledge(); until { stopped.isDone }; stopped.join()
+        } finally {
+            oldViewport?.let { web.reportBrowserViewport(it.first, it.second) }
+            web.setAdaptiveBrowserSize(oldAdaptive)
+        }
+    }
+
     @Test fun nativeCancelIsCapabilityGatedAndLegacyPluginsReceiveOnlyRelease() {
         for (native in listOf(false, true)) {
             val peer = Peer().apply { info = PluginVideoInfo(640, 360, 5, nativeCancelInput = native).toBundle() }

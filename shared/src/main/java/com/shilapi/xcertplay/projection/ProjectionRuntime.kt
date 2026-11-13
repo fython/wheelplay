@@ -24,6 +24,9 @@ class ProjectionRuntime(private val startupTimeoutMs: Long = 60_000, private val
     private var held = emptySet<ProjectionResource>()
     private var stopFailed = false
     private var quarantined = false
+    private var pendingRestart: Any? = null
+    @Volatile var sessionGeneration: Long = 0
+        private set
 
     fun register(provider: ProjectionSourceProvider) = synchronized(lock) {
         require(provider.descriptor.id !in providers) { "Duplicate projection source" }
@@ -38,6 +41,12 @@ class ProjectionRuntime(private val startupTimeoutMs: Long = 60_000, private val
         discovered.forEach { providers[it.descriptor.id] = it }
     }
     fun sources(): List<ProjectionSourceProvider> = synchronized(lock) { providers.values.toList() }
+    data class ControlSnapshot(val state: ProjectionSnapshot, val session: ProjectionSession?,
+        val occupied: Boolean, val generation: Long, val reconfiguring: Boolean)
+    fun controlSnapshot(): ControlSnapshot = synchronized(lock) {
+        ControlSnapshot(stateSnapshot(), current, current != null || opening != null || stopping != null || quarantined,
+            sessionGeneration, pendingRestart != null)
+    }
     fun snapshot(): ProjectionSession? = current
     fun hasSession(): Boolean = synchronized(lock) { current != null || opening != null || stopping != null || quarantined }
     fun resources(): Set<ProjectionResource> = synchronized(lock) { held.toSet() }
@@ -96,6 +105,8 @@ class ProjectionRuntime(private val startupTimeoutMs: Long = 60_000, private val
             if (current === session) return true
             if (current != null || opening != null || stopping != null || quarantined) return false
             current = session
+            sessionGeneration++
+            pendingRestart = null
             activeFailure = null
             stopFailed = false
             held = resources.toSet()
@@ -126,16 +137,21 @@ class ProjectionRuntime(private val startupTimeoutMs: Long = 60_000, private val
         publish()
     }
 
-    fun open(id: String): CompletableFuture<ProjectionSession> {
+    fun open(id: String): CompletableFuture<ProjectionSession> = openInternal(id, null)
+
+    private fun openInternal(id: String, restart: Any?): CompletableFuture<ProjectionSession> {
         val provider: ProjectionSourceProvider
         val attempt: ProjectionStartup
         val result = CompletableFuture<ProjectionSession>()
         synchronized(lock) {
+            if (restart != null && pendingRestart !== restart) return cancelledRestart()
+            pendingRestart = null
             provider = providers[id] ?: return failed("Unknown projection source: $id")
             if (current != null || opening != null || stopping != null || quarantined) return failed("A projection source still owns resources")
             val available = provider.probe()
             if (available is SourceAvailability.Unavailable) return CompletableFuture<ProjectionSession>().also { it.completeExceptionally(ProjectionException(available.failure)) }
             opening = result
+            sessionGeneration++
             openingCancel = null
             startup = ProjectionStartup()
             attempt = startup
@@ -239,11 +255,34 @@ class ProjectionRuntime(private val startupTimeoutMs: Long = 60_000, private val
         if (error == null) cancelled?.complete(Unit) else cancelled?.completeExceptionally(error)
     }
 
-    fun stop(expected: ProjectionSession? = null): CompletableFuture<Unit> {
+    /** Reconfigure only this session; a user stop/open during cleanup cancels the automatic reopen. */
+    fun restart(expected: ProjectionSession): CompletableFuture<ProjectionSession> {
+        val request = Any()
+        synchronized(lock) {
+            if (current !== expected || stopping != null || stopFailed || pendingRestart != null) return cancelledRestart()
+            if (providers[expected.descriptor.id] == null) return failed("Projection source is no longer available")
+            pendingRestart = request
+        }
+        return stopInternal(expected, request).thenCompose { openInternal(expected.descriptor.id, request) }
+            .whenComplete { _, _ -> synchronized(lock) { if (pendingRestart === request) pendingRestart = null } }
+    }
+
+    private fun <T> cancelledRestart() = CompletableFuture<T>().also {
+        it.completeExceptionally(java.util.concurrent.CancellationException("Display reconfiguration superseded"))
+    }
+
+    fun stop(expected: ProjectionSession? = null): CompletableFuture<Unit> = stopInternal(expected, null)
+
+    fun stopIfGeneration(generation: Long): CompletableFuture<Unit> = stopInternal(null, null, generation)
+
+    private fun stopInternal(expected: ProjectionSession?, restart: Any?, expectedGeneration: Long? = null): CompletableFuture<Unit> {
         val session: ProjectionSession
         val result: CompletableFuture<Unit>
         synchronized(lock) {
+            if (expectedGeneration != null && sessionGeneration != expectedGeneration) return cancelledRestart()
+            if (restart != null && pendingRestart !== restart) return cancelledRestart()
             if (expected != null && current !== expected) return CompletableFuture.completedFuture(Unit)
+            if (restart == null) pendingRestart = null
             stopping?.let { return it }
             if (quarantined || stopFailed) return failed("Source resources did not stop; restart the application")
             // An opening provider must finish/cancel its own startup before resources can be released.

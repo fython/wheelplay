@@ -21,6 +21,7 @@ import com.shilapi.xcertplay.projection.vnc.VncEndpoint
 import com.shilapi.xcertplay.shared.R as UiR
 import com.shilapi.xcertplay.i18n.*
 
+import moe.feng.wheelplay.plugin.forRemoteProcess
 import android.Manifest
 import com.shilapi.xcertplay.web.WebSession
 import com.shilapi.xcertplay.web.RootAccess
@@ -385,7 +386,9 @@ class WheelPlayActivity : AppCompatActivity() {
                     }
                     UiAction.PLUGIN_DISABLE -> { registry.setEnabled(plugin, false); refreshUiState() }
                     UiAction.PLUGIN_SETTINGS -> plugin.settings?.let { component ->
-                        runCatching { startActivity(Intent().setComponent(component)) }.onFailure { toast(getString(UiR.string.plugin_unavailable)) }
+                        runCatching { startActivity(Intent().setComponent(component).putExtra(
+                            moe.feng.wheelplay.plugin.ProjectionPlugin.EXTRA_SETTINGS_BRIDGE,
+                            com.shilapi.xcertplay.projection.plugin.PluginSettingsBridge(this).forRemoteProcess())) }.onFailure { toast(getString(UiR.string.plugin_unavailable)) }
                     }
                     UiAction.PLUGIN_CONNECT -> startProjectionSource(plugin.id)
                     else -> Unit

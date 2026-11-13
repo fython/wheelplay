@@ -30,6 +30,44 @@ class ProjectionRuntimeTest {
     private val finger = ProjectionContact(0, .2, .8, true)
     private fun setup() { runtime.adopt(old, setOf(ProjectionResource.DISPLAY)); runtime.register(next) }
 
+    @Test fun displayRestartWaitsForCleanupAndReleasesInput() {
+        val provider = Provider("old"); runtime.register(provider)
+        runtime.adopt(old, setOf(ProjectionResource.DISPLAY))
+        val restarted = runtime.restart(old)
+        assertEquals(0, provider.opens); assertFalse(runtime.inputReady(old))
+        assertTrue(old.reports.last().isEmpty())
+        old.stopped.complete(Unit)
+        assertEquals(1, provider.opens)
+        val replacement = Session("old"); provider.opened.complete(replacement)
+        assertSame(replacement, restarted.join())
+        assertSame(replacement, runtime.snapshot())
+    }
+    @Test fun userStopOrSwitchCancelsDisplayRestartDuringCleanup() {
+        for (switch in listOf(false, true)) {
+            val runtime = ProjectionRuntime(); val old = Session("old")
+            val provider = Provider("old"); val other = Provider("other")
+            runtime.register(provider); runtime.register(other)
+            runtime.adopt(old, setOf(ProjectionResource.DISPLAY))
+            val restarted = runtime.restart(old)
+            val userAction = if (switch) runtime.switchTo("other") else runtime.stop()
+            old.stopped.complete(Unit)
+            assertTrue(restarted.isCompletedExceptionally); assertEquals(0, provider.opens)
+            if (switch) { assertEquals(1, other.opens); other.opened.complete(Session("other")) }
+            userAction.join()
+            assertEquals(if (switch) "other" else null, runtime.snapshot()?.descriptor?.id)
+        }
+    }
+    @Test fun failedCleanupAndStaleSessionCannotRestart() {
+        val provider = Provider("old"); runtime.register(provider)
+        runtime.adopt(old, setOf(ProjectionResource.DISPLAY))
+        assertTrue(runtime.restart(Session("old")).isCompletedExceptionally)
+        assertEquals(0, old.stopCalls)
+        val restarted = runtime.restart(old)
+        old.stopped.completeExceptionally(IllegalStateException("still producing"))
+        assertTrue(restarted.isCompletedExceptionally); assertEquals(0, provider.opens)
+        assertEquals(setOf(ProjectionResource.DISPLAY), runtime.resources())
+    }
+
     @Test fun backCapabilityDoesNotGrantKeyboardAndRejectsPreviousSession() {
         val keys = mutableListOf<ProjectionInput>()
         val desktop = object : ProjectionSession {

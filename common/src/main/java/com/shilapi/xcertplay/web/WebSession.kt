@@ -155,6 +155,7 @@ internal object WebSession {
     val currentBrowserViewport: Pair<Int, Int>?
         get() = browserViewport
 
+    private val browserViewportObservers = java.util.concurrent.CopyOnWriteArrayList<(Int?, Int?) -> Unit>()
     @Volatile private var browserViewportListener: ((Int?, Int?) -> Unit)? = null
     @Volatile private var inputSession: ProjectionSession? = null
     val maxTouchContacts get() = projectionSessions.snapshot()?.capabilities?.maxTouchContacts ?: 0
@@ -723,6 +724,15 @@ internal object WebSession {
         adaptiveBrowserSize = enabled
         val size = if (enabled) browserViewport else null
         browserViewportListener?.invoke(size?.first, size?.second)
+        browserViewportObservers.forEach { it(size?.first, size?.second) }
+    }
+
+    /** Independent subscribers do not replace the built-in CarPlay viewport listener. */
+    fun subscribeBrowserViewport(listener: (Int?, Int?) -> Unit): AutoCloseable {
+        browserViewportObservers.add(listener)
+        val size = if (adaptiveBrowserSize) browserViewport else null
+        listener(size?.first, size?.second)
+        return AutoCloseable { browserViewportObservers.remove(listener) }
     }
 
     fun setBrowserViewportListener(listener: ((Int?, Int?) -> Unit)?) {
@@ -741,7 +751,10 @@ internal object WebSession {
         if (ratio !in MIN_VIEWPORT_ASPECT..MAX_VIEWPORT_ASPECT) return false
         val size = width to height
         browserViewport = size
-        if (adaptiveBrowserSize) browserViewportListener?.invoke(width, height)
+        if (adaptiveBrowserSize) {
+            browserViewportListener?.invoke(width, height)
+            browserViewportObservers.forEach { it(width, height) }
+        }
         return true
     }
 
