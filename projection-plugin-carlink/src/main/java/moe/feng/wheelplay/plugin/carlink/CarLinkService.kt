@@ -41,7 +41,8 @@ class CarLinkService : ProjectionPluginService() {
         // Single touch until the real multi-touch path has been measured on devices.
         return PluginVideoInfo(config.width, config.height, maxTouchContacts = 1,
             encodedVideoVersion = if (encoded) ProjectionPlugin.ENCODED_VIDEO_VERSION else 0,
-            displaySizeVersion = ProjectionPlugin.DISPLAY_SIZE_VERSION, interactionVersion = ProjectionPlugin.INTERACTION_VERSION)
+            displaySizeVersion = ProjectionPlugin.DISPLAY_SIZE_VERSION, interactionVersion = ProjectionPlugin.INTERACTION_VERSION,
+            hostUiVersion = ProjectionPlugin.HOST_UI_VERSION)
     }
     override fun onDisplaySizeChanged(width: Int, height: Int): Boolean {
         val prefs = settingsCall("config")
@@ -94,7 +95,7 @@ class CarLinkService : ProjectionPluginService() {
             events.interaction(moe.feng.wheelplay.plugin.PluginInteraction(phase,
                 pin?.takeIf { phase == "pairing" && it.matches(Regex("[0-9]{6}")) }, session?.pairingDevice.orEmpty()))
             events.state(if (ready) ProjectionPlugin.READY else ProjectionPlugin.CONNECTING, message)
-        }, { events.ended(it) }, connection)
+        }, { events.ended(it) }, connection, requestHostUi = events::requestHostUi)
         queue.post { session?.start() }
     }
     override fun onTouch(contacts: List<PluginContact>) { handler?.post { session?.contacts(contacts) } }

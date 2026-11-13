@@ -41,6 +41,7 @@ class PluginSurfaceIntegrationTest {
         val token = UUID.randomUUID().toString()
         val host = object : IProjectionHost.Stub() {
             override fun onDisplaySizeResult(token: String, requestId: Long, restartRequired: Boolean) = Unit
+            override fun onHostUiRequested(token: String) = Unit
             override fun onInteraction(token: String, interaction: android.os.Bundle) = Unit
         override fun onInfo(id: String, bundle: Bundle) {
                 runCatching {

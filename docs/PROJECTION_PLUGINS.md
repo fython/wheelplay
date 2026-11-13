@@ -216,3 +216,12 @@ connected to old hosts do not guess a source action and ask for an update/refres
 双方支持版本 1 时，插件可调用 `events.interaction(PluginInteraction(...))`，由追加的 `IProjectionHost.onInteraction` 回调传递。
 阶段支持 `preparing`、`waiting-device`、`pairing`、`waiting-video`、`ready`、`failed`；六位数字配对码只允许出现在 `pairing` 阶段。
 配对码仅供本机 UI 使用，不得拼入普通状态、浏览器数据、日志或诊断。宿主在就绪、失败、停止及超时后清除展示；旧宿主不会收到新回调。
+
+
+## 宿主界面请求 v1
+
+宿主通过绑定参数 `EXTRA_HOST_UI_VERSION=1` 声明支持，插件通过 `PluginVideoInfo.hostUiVersion=1` 选择启用。
+投影就绪后，插件可调用 `events.requestHostUi()`，经追加的 `IProjectionHost.onHostUiRequested(token)` 回调请求浏览器设置。
+宿主校验 UID、token、能力协商、插件仍可用且属于当前就绪会话，再调用 `WebSession.requestSettings()`，复用已授权浏览器的 `open-settings` 消息和设置对话框。
+该事件不会停止或重启投影；旧宿主或旧插件未协商时不会发送新回调。
+CarLink 将 SDK `onGoToDesktop` 对应的状态 6 映射到此事件，状态 7（`onBackToForeground`）不触发弹窗。该转发交互已通过 Pixel 接收端实机验证。

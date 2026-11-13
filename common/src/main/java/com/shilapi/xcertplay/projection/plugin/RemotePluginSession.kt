@@ -22,6 +22,7 @@ internal class RemotePluginSession(
     private val stopTimeoutMs: Long = 15_000,
     private val startupTimeoutMs: Long = 60_000,
     private val onFailure: (String) -> Unit = {},
+    private val requestHostUi: () -> Unit = WebSession::requestSettings,
 ) : ProjectionSession {
     override val descriptor = SourceDescriptor(plugin.id, plugin.name)
     @Volatile override var capabilities = ProjectionCapabilities(setOf(VideoIngressKind.SURFACE))
@@ -59,6 +60,7 @@ internal class RemotePluginSession(
     private var viewportSubscription: AutoCloseable? = null
     private var displaySizeSupported = false
     private var interactionSupported = false
+    private var hostUiSupported = false
     private var localInteraction: moe.feng.wheelplay.plugin.PluginInteraction? = null
     private var interactionAt = 0L
     val interaction: moe.feng.wheelplay.plugin.PluginInteraction?
@@ -115,6 +117,7 @@ internal class RemotePluginSession(
                 check(stillAllowed()) { context.getString(UiR.string.plugin_disabled) }
                 val video = PluginVideoInfo.fromBundle(info)
                 infoReceived = true
+                hostUiSupported = video.hostUiVersion == ProjectionPlugin.HOST_UI_VERSION
                 interactionSupported = video.interactionVersion == ProjectionPlugin.INTERACTION_VERSION
                 processExitRequired = video.processExitRequired
                 displaySizeSupported = video.displaySizeVersion == ProjectionPlugin.DISPLAY_SIZE_VERSION
@@ -152,6 +155,11 @@ internal class RemotePluginSession(
                     main.post { onFailure(failure.message ?: "Cannot restart plugin for display size") }
                 }
             }
+        }
+        override fun onHostUiRequested(token: String) = callback(token) {
+            if (stopping || !ready || !startSent || !hostUiSupported || !stillAllowed() ||
+                runtime.snapshot() !== this@RemotePluginSession) return@callback
+            requestHostUi()
         }
         override fun onInteraction(token: String, interaction: android.os.Bundle) = callback(token) {
             if (stopping || ready || !startSent || !interactionSupported) return@callback
@@ -233,6 +241,7 @@ internal class RemotePluginSession(
                     .takeIf { WebSession.adaptiveBrowserSize } ?: (1280 to 720)
                 sentDisplaySize = viewport; desiredDisplaySize = viewport
                 val intent = Intent(ProjectionPlugin.ACTION).setComponent(plugin.component)
+                    .putExtra(ProjectionPlugin.EXTRA_HOST_UI_VERSION, ProjectionPlugin.HOST_UI_VERSION)
                     .putExtra(ProjectionPlugin.EXTRA_INTERACTION_VERSION, ProjectionPlugin.INTERACTION_VERSION)
                 .putExtra(ProjectionPlugin.EXTRA_DISPLAY_SIZE_VERSION, ProjectionPlugin.DISPLAY_SIZE_VERSION)
                     .putExtra(ProjectionPlugin.EXTRA_ENCODED_VIDEO_VERSION, ProjectionPlugin.ENCODED_VIDEO_VERSION)

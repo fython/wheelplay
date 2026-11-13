@@ -76,6 +76,34 @@ class RemotePluginSessionTest {
         while (!predicate() && System.nanoTime() < deadline) { shadowOf(Looper.getMainLooper()).idle(); Thread.sleep(5) }
         assertTrue("Timed out", predicate())
     }
+    @Test fun hostUiRequestsRequireNegotiationCurrentSessionAndValidToken() {
+        for (version in listOf(0, 1)) {
+            val peer = Peer().apply { info = PluginVideoInfo(640, 360, hostUiVersion = version).toBundle() }
+            val binding = Binding(peer); val runtime = ProjectionRuntime()
+            var requests = 0; var allowed = true
+            val session = RemotePluginSession(binding, plugin, runtime, { allowed }, { _, _ -> Output() },
+                requestHostUi = { requests++ })
+            session.activate(); until { session.inputReady }
+            assertEquals(1, binding.bindIntent!!.getIntExtra(ProjectionPlugin.EXTRA_HOST_UI_VERSION, 0))
+            fun request(token: String = peer.token) {
+                peer.host.onHostUiRequested(token); shadowOf(Looper.getMainLooper()).idle()
+            }
+            request(); assertEquals(0, requests) // Not the runtime's active session yet.
+            runtime.adopt(session, setOf(ProjectionResource.DISPLAY))
+            request("retired-session"); assertEquals(0, requests)
+            request(); assertEquals(version, requests)
+            assertTrue(session.inputReady); assertEquals(0, peer.stops)
+            allowed = false; request(); assertEquals(version, requests)
+            allowed = true
+            peer.host.onState(peer.token, ProjectionPlugin.CONNECTING, "Waiting")
+            shadowOf(Looper.getMainLooper()).idle(); request(); assertEquals(version, requests)
+            val stopped = runtime.stop(); until { peer.stops == 1 }
+            request(); assertEquals(version, requests)
+            peer.acknowledge(); until { stopped.isDone }
+            request(); assertEquals(version, requests)
+        }
+    }
+
     @Test fun pairingCodeIsNegotiatedLocalOnlyReplacedAndClearedOnReadyOrStop() {
         for (version in listOf(0, 1)) {
             val peer = Peer().apply { info = PluginVideoInfo(640, 360, interactionVersion = version).toBundle() }

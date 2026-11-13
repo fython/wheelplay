@@ -27,6 +27,7 @@ abstract class ProjectionPluginService : Service() {
     @Volatile protected var hostEncodedVideoVersion: Int = 0
         private set
     @Volatile private var hostInteractionVersion = 0
+    @Volatile private var hostUiVersion = 0
     @Volatile private var hostDisplaySizeVersion: Int = 0
     /** Return true when applying this size requires the host to stop and recreate the session.
      * Do not mutate active video dimensions or release resources here. */
@@ -53,6 +54,7 @@ abstract class ProjectionPluginService : Service() {
     interface Events {
         fun state(state: Int, message: String = "")
         fun interaction(value: PluginInteraction) = Unit
+        fun requestHostUi() = Unit
         /** Request teardown on remote disconnect or an unrecoverable SDK failure. */
         fun ended(message: String = "")
     }
@@ -226,6 +228,13 @@ abstract class ProjectionPluginService : Service() {
             runCatching { current.host.onInteraction(current.token, value.toBundle()) }
                 .onFailure { finish(current, "Host disconnected") }
         } }
+        override fun requestHostUi() { handler.post {
+            if (client !== current || current.stopping || !current.started || !current.ready ||
+                hostUiVersion != ProjectionPlugin.HOST_UI_VERSION ||
+                current.info.hostUiVersion != ProjectionPlugin.HOST_UI_VERSION) return@post
+            runCatching { current.host.onHostUiRequested(current.token) }
+                .onFailure { finish(current, "Host disconnected") }
+        } }
         override fun ended(message: String) { handler.post { finish(current, message) } }
     }
 
@@ -268,6 +277,7 @@ abstract class ProjectionPluginService : Service() {
         width in 1..8192 && height in 1..8192 && width.toLong() * height <= 33_554_432
 
     override fun onBind(intent: Intent): IBinder? = if (intent.action == ProjectionPlugin.ACTION) {
+        hostUiVersion = intent.getIntExtra(ProjectionPlugin.EXTRA_HOST_UI_VERSION, 0)
         hostInteractionVersion = intent.getIntExtra(ProjectionPlugin.EXTRA_INTERACTION_VERSION, 0)
         hostDisplaySizeVersion = intent.getIntExtra(ProjectionPlugin.EXTRA_DISPLAY_SIZE_VERSION, 0)
             .takeIf { it == ProjectionPlugin.DISPLAY_SIZE_VERSION } ?: 0

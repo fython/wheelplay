@@ -44,10 +44,27 @@ class CarLinkSessionTest {
         val engine = Engine()
         val statuses = mutableListOf<Triple<String, String?, Boolean>>()
         val errors = mutableListOf<String>()
-        val session = CarLinkSession(engine, clock, CarLinkConfig(), { a,b,c -> statuses += Triple(a,b,c) }, { errors += it }, connection)
+        var hostUiRequests = 0
+        val session = CarLinkSession(engine, clock, CarLinkConfig(), { a,b,c -> statuses += Triple(a,b,c) }, { errors += it }, connection, requestHostUi = { hostUiRequests++ })
         init { session.start() }
         fun ready() { engine.listener.initialized(); engine.listener.connection(2, -1); engine.listener.connection(4, -1); engine.listener.surfaceReady() }
     }
+    @Test fun goToDesktopOpensHostControlsOnlyDuringReadySessionWithoutStopping() {
+        val f = Fixture()
+        f.engine.listener.connection(6, -1)
+        assertEquals(0, f.hostUiRequests)
+        f.ready()
+        f.engine.listener.connection(6, -1)
+        assertEquals(1, f.hostUiRequests)
+        assertEquals(CarLinkPhase.READY, f.session.phase)
+        assertEquals(0, f.engine.stops)
+        f.engine.listener.connection(7, -1)
+        assertEquals(1, f.hostUiRequests)
+        f.session.stop()
+        f.engine.listener.connection(6, -1)
+        assertEquals(1, f.hostUiRequests)
+    }
+
     @Test fun phasesFollowUsbAuthorizationConfirmationAndActualVideo() {
         val f = Fixture(CarLinkConnection.USB)
         assertEquals(CarLinkPhase.INITIALIZING, f.session.phase)

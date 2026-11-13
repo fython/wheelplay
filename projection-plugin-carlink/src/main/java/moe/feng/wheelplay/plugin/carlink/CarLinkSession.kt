@@ -55,6 +55,7 @@ internal class CarLinkSession(
     private val publishStatus: (String, String?, Boolean) -> Unit,
     private val ended: (String) -> Unit,
     private val connection: CarLinkConnection = CarLinkConnection.P2P,
+    private val requestHostUi: () -> Unit = {},
 ) {
     var pairingDevice = ""
         private set
@@ -149,8 +150,9 @@ internal class CarLinkSession(
                 if (!rendered) status("视频通道已连接，正在等待首帧", null, false, CarLinkPhase.WAITING_VIDEO)
                 tryCast(); reportReady() }
             5 -> fail("视频通道已停止，请重新连接")
-            // Phone desktop/foreground notifications do not terminate a projection.
-            6, 7 -> Unit
+            // SDK onGoToDesktop is a host-controls request, not a disconnect.
+            6 -> if (phase == CarLinkPhase.READY) requestHostUi()
+            7 -> Unit // onBackToForeground must not open controls again.
         }
     }
 

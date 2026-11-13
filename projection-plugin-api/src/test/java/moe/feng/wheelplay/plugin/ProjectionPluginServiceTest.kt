@@ -23,6 +23,7 @@ class ProjectionPluginServiceTest {
         var encoded = false
         var displaySizeVersion = 0
         var interactionVersion = 0
+        var hostUiVersion = 0
         lateinit var sessionEvents: Events
         val displayRequests = LinkedBlockingQueue<Pair<Int, Int>>()
         override fun onDisplaySizeChanged(width: Int, height: Int): Boolean { displayRequests.add(width to height); return true }
@@ -34,7 +35,7 @@ class ProjectionPluginServiceTest {
         val touches = LinkedBlockingQueue<List<PluginContact>>()
         var beforeInfo: (() -> Unit)? = null
         override fun isHostAllowed(uid: Int) = allowHost
-        override fun videoInfo(): PluginVideoInfo { beforeInfo?.invoke(); return PluginVideoInfo(640, 360, 2, true, nativeCancelInput = nativeCancel, encodedVideoVersion = if (encoded) 1 else 0, displaySizeVersion = displaySizeVersion, interactionVersion = interactionVersion) }
+        override fun videoInfo(): PluginVideoInfo { beforeInfo?.invoke(); return PluginVideoInfo(640, 360, 2, true, nativeCancelInput = nativeCancel, encodedVideoVersion = if (encoded) 1 else 0, displaySizeVersion = displaySizeVersion, interactionVersion = interactionVersion, hostUiVersion = hostUiVersion) }
         override fun onStartProjection(surface: Surface, events: Events) {
             sessionEvents = events; started.countDown(); events.state(ProjectionPlugin.READY)
         }
@@ -58,12 +59,38 @@ class ProjectionPluginServiceTest {
         override fun onDisplaySizeResult(token: String, requestId: Long, restartRequired: Boolean) { displayResults.add(requestId to restartRequired) }
         val ready = CountDownLatch(1)
         val stopped = LinkedBlockingQueue<Boolean>()
+        val hostUiRequests = LinkedBlockingQueue<String>()
+        override fun onHostUiRequested(token: String) { hostUiRequests.add(token) }
         val interactions = LinkedBlockingQueue<Bundle>()
         override fun onInteraction(token: String, interaction: android.os.Bundle) { interactions.add(interaction) }
         override fun onInfo(token: String, info: Bundle) { this.info.add(info) }
         override fun onState(token: String, state: Int, message: String) { if (state == ProjectionPlugin.READY) ready.countDown() }
         override fun onStopped(token: String, clean: Boolean, message: String) { stopped.add(clean) }
     }
+    @Test fun hostUiRequiresBothPeersAndReadySession() {
+        for ((hostVersion, pluginVersion) in listOf(0 to 1, 1 to 0, 1 to 1)) {
+            val controller = Robolectric.buildService(Service::class.java).create()
+            val service = controller.get().apply { hostUiVersion = pluginVersion }
+            val host = Host(); val texture = SurfaceTexture(0); val surface = Surface(texture)
+            try {
+                val binder = IProjectionPlugin.Stub.asInterface(service.onBind(Intent(ProjectionPlugin.ACTION)
+                    .putExtra(ProjectionPlugin.EXTRA_HOST_UI_VERSION, hostVersion)))
+                binder.connect("session", 2, host)
+                assertNotNull(host.info.poll(3, TimeUnit.SECONDS))
+                binder.start("session", surface); assertTrue(host.ready.await(3, TimeUnit.SECONDS))
+                service.sessionEvents.requestHostUi()
+                assertEquals(if (hostVersion == 1 && pluginVersion == 1) "session" else null,
+                    host.hostUiRequests.poll(300, TimeUnit.MILLISECONDS))
+                service.sessionEvents.state(ProjectionPlugin.CONNECTING)
+                service.sessionEvents.requestHostUi()
+                assertNull(host.hostUiRequests.poll(100, TimeUnit.MILLISECONDS))
+                binder.stop("session"); assertTrue(service.stopRequested.await(3, TimeUnit.SECONDS))
+                service.sessionEvents.requestHostUi()
+                assertNull(host.hostUiRequests.poll(100, TimeUnit.MILLISECONDS))
+            } finally { service.stopped.complete(Unit); surface.release(); texture.release(); controller.destroy() }
+        }
+    }
+
     @Test fun pairingInteractionRequiresBothPeersAndStopsWithSession() {
         for ((hostVersion, pluginVersion) in listOf(0 to 1, 1 to 0, 1 to 1)) {
             val controller = Robolectric.buildService(Service::class.java).create()

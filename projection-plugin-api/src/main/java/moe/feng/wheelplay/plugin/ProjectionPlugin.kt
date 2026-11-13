@@ -14,6 +14,8 @@ object ProjectionPlugin {
     const val EXTRA_PREPARE_REQUEST = "moe.feng.wheelplay.plugin.PREPARE_REQUEST"
     const val EXTRA_INTERACTION_VERSION = "moe.feng.wheelplay.plugin.INTERACTION_VERSION"
     const val INTERACTION_VERSION = 1
+    const val EXTRA_HOST_UI_VERSION = "moe.feng.wheelplay.plugin.HOST_UI_VERSION"
+    const val HOST_UI_VERSION = 1
     const val META_SETTINGS_ACTIVITY = "moe.feng.wheelplay.plugin.SETTINGS_ACTIVITY"
     /** Optional bind-time pixel size; plugins may constrain it and return their actual size in onInfo. */
     const val EXTRA_DISPLAY_WIDTH = "moe.feng.wheelplay.plugin.DISPLAY_WIDTH"
@@ -41,6 +43,7 @@ data class PluginVideoInfo(
     /** 1: accepts viewport requests and replies whether a clean session restart is needed. */
     val displaySizeVersion: Int = 0,
     val interactionVersion: Int = 0,
+    val hostUiVersion: Int = 0,
 ) {
     init {
         require(width in 1..4096 && height in 1..4096 && width.toLong() * height <= 8_388_608)
@@ -48,6 +51,7 @@ data class PluginVideoInfo(
         require(encodedVideoVersion in 0..ProjectionPlugin.ENCODED_VIDEO_VERSION)
         require(displaySizeVersion in 0..ProjectionPlugin.DISPLAY_SIZE_VERSION)
         require(interactionVersion in 0..ProjectionPlugin.INTERACTION_VERSION)
+        require(hostUiVersion in 0..ProjectionPlugin.HOST_UI_VERSION)
     }
     fun toBundle() = Bundle().apply {
         putInt("apiVersion", ProjectionPlugin.API_VERSION)
@@ -57,12 +61,13 @@ data class PluginVideoInfo(
         putInt("encodedVideoVersion", encodedVideoVersion)
         putInt("displaySizeVersion", displaySizeVersion)
         putInt("interactionVersion", interactionVersion)
+        putInt("hostUiVersion", hostUiVersion)
     }
     companion object {
         fun fromBundle(bundle: Bundle): PluginVideoInfo {
             require(bundle.getInt("apiVersion") == ProjectionPlugin.API_VERSION) { "Unsupported plugin API" }
             return PluginVideoInfo(bundle.getInt("width"), bundle.getInt("height"),
-                bundle.getInt("maxTouchContacts"), bundle.getBoolean("nightMode"), bundle.getBoolean("processExitRequired"), bundle.getBoolean("nativeCancelInput"), bundle.getInt("encodedVideoVersion"), bundle.getInt("displaySizeVersion"), bundle.getInt("interactionVersion"))
+                bundle.getInt("maxTouchContacts"), bundle.getBoolean("nightMode"), bundle.getBoolean("processExitRequired"), bundle.getBoolean("nativeCancelInput"), bundle.getInt("encodedVideoVersion"), bundle.getInt("displaySizeVersion"), bundle.getInt("interactionVersion"), bundle.getInt("hostUiVersion"))
         }
     }
 }
