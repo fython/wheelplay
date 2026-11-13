@@ -894,6 +894,15 @@ if (typeof document !== 'undefined') {
   const performanceStats = { source: null, transport: null, receiver: null, image: null, presentation: rendererStats };
   const imageDebugStats = createImageDebugStats();
   let debugRevision = null;
+  const autoFullscreenOption = $('settings-auto-fullscreen');
+  autoFullscreenOption.checked = false;
+  try { autoFullscreenOption.checked = window.localStorage.getItem('wheelplay.autoFullscreen') === 'true'; } catch (_) {}
+  const launchFullscreenOption = $('auto-fullscreen');
+  launchFullscreenOption.checked = autoFullscreenOption.checked;
+  for (const option of [autoFullscreenOption, launchFullscreenOption]) option.addEventListener('change', () => {
+    autoFullscreenOption.checked = launchFullscreenOption.checked = option.checked;
+    try { window.localStorage.setItem('wheelplay.autoFullscreen', String(option.checked)); } catch (_) {}
+  });
   const debugOption = $('settings-debug');
   try { debugOption.checked = window.localStorage.getItem('wheelplay.debugOverlay') === 'true'; } catch (_) {}
   debugOption.addEventListener('change', () => {
@@ -1347,7 +1356,7 @@ if (typeof document !== 'undefined') {
     try { Promise.resolve(document.exitFullscreen()).catch(() => {}); } catch (_) {}
   }
   function prepareLaunchPresentation() {
-    const presentation = { immersive: true, ownsFullscreen: false, cancelled: false };
+    const presentation = { immersive: autoFullscreenOption.checked || Boolean(document.fullscreenElement), ownsFullscreen: false, cancelled: false };
     launchPresentation = presentation;
     if (!presentation.immersive || document.fullscreenElement || !document.documentElement?.requestFullscreen) return;
     presentation.ownsFullscreen = true;

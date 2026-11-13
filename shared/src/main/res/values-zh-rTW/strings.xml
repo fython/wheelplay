@@ -631,4 +631,6 @@
     <string name="source_fallback_carplay">所選輸入來源已無法使用，預設選擇已恢復為 CarPlay，尚未發起連線。</string>
     <string name="plugin_pairing_code">CarLink 配對碼</string>
     <string name="plugin_pairing_instruction">請在傳送手機的車聯功能中選擇 %1$s，並輸入此驗證碼。這不是瀏覽器配對碼。</string>
+    <string name="web_auto_fullscreen">連線後進入全螢幕</string>
+    <string name="web_auto_fullscreen_help">啟動連線時自動進入全螢幕。下次連線生效，僅儲存於目前瀏覽器。</string>
 </resources>

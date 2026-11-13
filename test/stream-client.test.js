@@ -10,13 +10,14 @@ const source = ['text.js', 'source-control.js', 'desktop-input.js', 'browser-aud
     .replace(/^import .*;$/gm, '').replaceAll('export function', 'function')).join('\n');
 function fixture({ storedCanvas = null, storedMode = null, processorAvailable = true, storedIgnoreZoom = null, storageDisabled = false, canvasAvailable = true, supportsWebp = false,
   geometry = null, visual = null, mediaSession = null, locationBrowser = null, storedDebug = null, rtcStats = null,
-  fullscreen = 'supported', codeDenied = false, resume = () => ({ token: 'session-token', name: 'Chrome' }) } = {}) {
+  storedAutoFullscreen = null, fullscreen = 'supported', codeDenied = false, resume = () => ({ token: 'session-token', name: 'Chrome' }) } = {}) {
   const elements = new Map(), timers = new Map(), raf = new Map(), sockets = [], peers = [], draws = [];
   const preferences = new Map(storedCanvas === null ? [] : [['wheelplay.canvasVideo', storedCanvas]]);
   if (storedIgnoreZoom !== null) preferences.set('wheelplay.ignoreBrowserZoom', storedIgnoreZoom);
   if (storedDebug !== null) preferences.set('wheelplay.debugOverlay', storedDebug);
   const videoCallbacks = new Map(), createdVideos = [], processors = [];
   if (storedMode !== null) preferences.set('wheelplay.videoRenderer', storedMode);
+  if (storedAutoFullscreen !== null) preferences.set('wheelplay.autoFullscreen', storedAutoFullscreen);
   const documentEvents = {}, fullscreenCalls = [];
   const visualEvents = {};
   const visualViewport = visual ? { ...visual, addEventListener(type, fn) { visualEvents[type] = fn; } } : undefined;
@@ -189,7 +190,7 @@ test('OEM settings releases touch, blocks input across status updates, and resto
 });
 
 test('settings options share browser preferences and can disconnect an immersive session', async () => {
-  const f = fixture({ storedIgnoreZoom: 'true' });
+  const f = fixture({ storedIgnoreZoom: 'true', storedAutoFullscreen: 'true' });
   const ws = await f.connect();
   ws.onmessage({ data: JSON.stringify({ type: 'open-settings' }) });
   assert.equal(f.element('settings-ignore-browser-zoom').checked, true);
@@ -290,8 +291,57 @@ test('WebRTC debug separates receive, decode and presentation rates from RTT and
   assert.equal(f.element('debug-buffer-row').hidden, false);
 });
 
-test('default launch requests fullscreen in the submit gesture and hides the bar after connecting', async () => {
+test('launch-page fullscreen setting shares the dialog preference and controls the first connection', async () => {
   const f = fixture();
+  assert.equal(f.element('auto-fullscreen').checked, false);
+  f.element('auto-fullscreen').checked = true;
+  f.element('auto-fullscreen').handlers.change();
+  assert.equal(f.element('settings-auto-fullscreen').checked, true);
+  assert.equal(f.preferences.get('wheelplay.autoFullscreen'), 'true');
+  await f.connect();
+  assert.deepEqual(f.fullscreenCalls, ['request']);
+  f.element('settings-auto-fullscreen').checked = false;
+  f.element('settings-auto-fullscreen').handlers.change();
+  assert.equal(f.element('auto-fullscreen').checked, false);
+  assert.equal(f.preferences.get('wheelplay.autoFullscreen'), 'false');
+  const restored = fixture({ storedAutoFullscreen: 'true' });
+  assert.equal(restored.element('auto-fullscreen').checked, true);
+  assert.equal(restored.element('settings-auto-fullscreen').checked, true);
+});
+
+test('fullscreen defaults off and settings apply to the next connection', async () => {
+  const f = fixture();
+  await f.connect();
+  assert.equal(f.element('settings-auto-fullscreen').checked, false);
+  assert.deepEqual(f.fullscreenCalls, []);
+  f.element('settings-auto-fullscreen').checked = true;
+  f.element('settings-auto-fullscreen').handlers.change();
+  assert.equal(f.preferences.get('wheelplay.autoFullscreen'), 'true');
+  assert.deepEqual(f.fullscreenCalls, [], 'Changing the preference does not interrupt the active display');
+  f.element('settings-disconnect').handlers.click();
+  await f.connect();
+  assert.deepEqual(f.fullscreenCalls, ['request']);
+  f.element('settings-auto-fullscreen').checked = false;
+  f.element('settings-auto-fullscreen').handlers.change();
+  assert.equal(f.preferences.get('wheelplay.autoFullscreen'), 'false');
+  f.element('settings-disconnect').handlers.click();
+  await f.connect();
+  assert.deepEqual(f.fullscreenCalls, ['request', 'exit']);
+});
+
+test('missing, false, invalid, and inaccessible preferences do not request fullscreen', async () => {
+  for (const options of [{}, { storedAutoFullscreen: 'false' }, { storedAutoFullscreen: 'invalid' }, { storageDisabled: true }]) {
+    const f = fixture(options);
+    await f.connect();
+    assert.equal(f.element('settings-auto-fullscreen').checked, false);
+    assert.deepEqual(f.fullscreenCalls, []);
+    await f.element('settings-fullscreen').click();
+    assert.equal(f.document.fullscreenElement, f.document.documentElement, 'Manual fullscreen stays available');
+  }
+});
+
+test('opted-in launch requests fullscreen in the submit gesture and hides the bar after connecting', async () => {
+  const f = fixture({ storedAutoFullscreen: 'true' });
   const connecting = f.connect();
   assert.deepEqual(f.fullscreenCalls, ['request']);
   assert.equal(f.sockets.length, 0, 'Fullscreen must be requested before asynchronous pairing finishes');
@@ -305,7 +355,7 @@ test('default launch requests fullscreen in the submit gesture and hides the bar
 });
 
 test('disconnect exits launch-owned fullscreen and restores the pairing interface', async () => {
-  const f = fixture();
+  const f = fixture({ storedAutoFullscreen: 'true' });
   await f.connect(); f.element('settings-disconnect').handlers.click();
   assert.deepEqual(f.fullscreenCalls, ['request', 'exit']);
   assert.equal(f.document.fullscreenElement, null);
@@ -315,7 +365,7 @@ test('disconnect exits launch-owned fullscreen and restores the pairing interfac
 
 test('unavailable or rejected fullscreen falls back to hiding the bar without preventing launch', async () => {
   for (const fullscreen of ['unsupported', 'denied']) {
-    const f = fixture({ fullscreen });
+    const f = fixture({ storedAutoFullscreen: 'true', fullscreen });
     await f.connect();
     assert.equal(f.document.fullscreenElement, null);
     assert.equal(f.element('topbar').hidden, true);
@@ -327,7 +377,7 @@ test('unavailable or rejected fullscreen falls back to hiding the bar without pr
 });
 
 test('pairing failure exits launch-owned fullscreen without hiding the pairing interface', async () => {
-  const f = fixture({ codeDenied: true });
+  const f = fixture({ storedAutoFullscreen: 'true', codeDenied: true });
   f.element('connect-form').handlers.submit({ preventDefault() {} });
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(f.sockets.length, 0);
@@ -340,7 +390,7 @@ test('pairing failure exits launch-owned fullscreen without hiding the pairing i
 
 test('a fullscreen request that completes after disconnect is released', async () => {
   let complete;
-  const f = fixture({ fullscreen: enter => new Promise(resolve => { complete = () => { enter(); resolve(); }; }) });
+  const f = fixture({ storedAutoFullscreen: 'true', fullscreen: enter => new Promise(resolve => { complete = () => { enter(); resolve(); }; }) });
   await f.connect(); f.element('settings-disconnect').handlers.click();
   complete(); await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(f.fullscreenCalls, ['request', 'exit']);
@@ -356,7 +406,7 @@ test('disconnect leaves fullscreen that was already active before launch intact'
 });
 
 test('automatic reconnect preserves the decision to leave fullscreen through OEM settings', async () => {
-  const f = fixture(), ws = await f.connect();
+  const f = fixture({ storedAutoFullscreen: 'true' }), ws = await f.connect();
   ws.onmessage({ data: JSON.stringify({ type: 'open-settings' }) });
   await f.element('settings-fullscreen').click();
   ws.close();
@@ -539,7 +589,7 @@ test('ignore browser zoom defaults off and restores the saved choice', () => {
   option.handlers.change({ target: option });
   assert.equal(f.element('ignore-browser-zoom').checked, true);
   assert.equal(f.preferences.get('wheelplay.ignoreBrowserZoom'), 'true');
-  const restored = fixture({ storedIgnoreZoom: 'true' });
+  const restored = fixture({ storedIgnoreZoom: 'true', storedAutoFullscreen: 'true' });
   assert.equal(restored.element('ignore-browser-zoom').checked, true);
   const denied = fixture({ storageDisabled: true });
   const primary = denied.element('ignore-browser-zoom');

@@ -44,6 +44,7 @@
 <label id="renderer-video-canvas-card" class="renderer-card" for="renderer-video-canvas"><input id="renderer-video-canvas" type="radio" name="video-renderer" value="video-canvas"><span><strong>{{web_video_renderer_compat}}</strong><em>{{web_video_renderer_experimental}}</em><small>{{web_video_renderer_compat_description}}</small></span></label>
 <label id="renderer-track-canvas-card" class="renderer-card" for="renderer-track-canvas"><input id="renderer-track-canvas" type="radio" name="video-renderer" value="track-canvas"><span><strong>{{web_video_renderer_direct}}</strong><em>{{web_video_renderer_experimental}}</em><small>{{web_video_renderer_direct_description}}</small></span></label>
 </div><p id="renderer-hint" class="renderer-hint" role="status" hidden>{{web_video_renderer_hint}}</p></fieldset>
+<label class="launch-option" for="auto-fullscreen"><input id="auto-fullscreen" type="checkbox"><span><strong>{{web_auto_fullscreen}}</strong><small>{{web_auto_fullscreen_help}}</small></span></label>
 <label class="launch-option" for="ignore-browser-zoom"><input id="ignore-browser-zoom" type="checkbox"><span><strong>{{web_ignore_browser_zoom}}</strong><small>{{web_ignore_browser_zoom_help}}</small></span></label>
 <label class="launch-option" for="browser-location"><input id="browser-location" type="checkbox" autocomplete="off" aria-describedby="location-status"><span><strong>{{web_location_title}}</strong><small>{{web_location_help}}</small></span></label>
 <p id="location-status" class="hint" role="status" aria-live="polite"></p>
@@ -56,6 +57,7 @@
 <section id="display" hidden aria-label="{{web_carplay_display}}">
 <dialog id="settings-dialog" aria-labelledby="settings-title">
 <div class="settings-heading"><h2 id="settings-title">{{ui_settings}}</h2><button id="settings-close" type="button" autofocus>{{ui_close}}</button></div>
+<label class="launch-option" for="settings-auto-fullscreen"><input id="settings-auto-fullscreen" type="checkbox"><span><strong>{{web_auto_fullscreen}}</strong><small>{{web_auto_fullscreen_help}}</small></span></label>
 <label class="launch-option" for="settings-debug"><input id="settings-debug" type="checkbox"><span><strong>{{web_debug_title}}</strong><small>{{web_debug_help}}</small></span></label>
 <label class="launch-option" for="settings-ignore-browser-zoom"><input id="settings-ignore-browser-zoom" type="checkbox"><span><strong>{{web_ignore_browser_zoom}}</strong><small>{{web_ignore_browser_zoom_help}}</small></span></label>
 <label class="launch-option" for="settings-browser-location"><input id="settings-browser-location" type="checkbox" autocomplete="off" aria-describedby="settings-location-status"><span><strong>{{web_location_title}}</strong><small>{{web_location_help}}</small></span></label>
