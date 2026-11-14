@@ -1,4 +1,5 @@
 import java.util.zip.ZipFile
+import org.gradle.work.DisableCachingByDefault
 
 plugins {
     alias(libs.plugins.android.application)
@@ -10,6 +11,53 @@ val localAuthenticationAssets = providers.environmentVariable("WHEELPLAY_AUTH_AS
     .orElse(providers.environmentVariable("DIPLAY_AUTH_ASSETS_DIR"))
     .orNull?.let { file(it).canonicalFile }
     ?: rootProject.file(".local/auth-assets").takeIf { it.exists() }?.canonicalFile
+
+// mitmproxy-style combined PEM: one unencrypted CA key, then an ordered certificate path.
+// Only this explicit file is copied; the containing directory is never added to assets.
+val localHttpsCa = providers.environmentVariable("WHEELPLAY_HTTPS_CA_PEM")
+    .orNull?.let { rootProject.file(it).canonicalFile }
+    ?: rootProject.file(".local/https-ca/emudhra-ca.pem").takeIf { it.exists() }?.canonicalFile
+
+@DisableCachingByDefault(because = "Contains locally provisioned CA private key material")
+abstract class BundleHttpsCa : DefaultTask() {
+    @get:InputFile @get:Optional @get:PathSensitive(PathSensitivity.NONE)
+    abstract val sourcePem: RegularFileProperty
+
+    @get:OutputDirectory
+    abstract val outputDirectory: DirectoryProperty
+
+    @TaskAction
+    fun bundle() {
+        val destination = outputDirectory.get().asFile
+        check(!destination.exists() || destination.deleteRecursively()) {
+            "Could not clear generated HTTPS CA assets"
+        }
+        destination.mkdirs()
+        val source = sourcePem.orNull?.asFile ?: return
+        check(source.length() in 1..(2 * 1024 * 1024).toLong()) {
+            "HTTPS CA PEM must be nonempty and at most 2 MiB"
+        }
+        val bytes = source.readBytes()
+        try {
+            val text = bytes.toString(Charsets.UTF_8)
+            check(Regex("-----BEGIN (?:RSA |EC )?PRIVATE KEY-----").findAll(text).count() == 1 &&
+                "-----BEGIN CERTIFICATE-----" in text && "ENCRYPTED" !in text) {
+                "HTTPS CA PEM must contain one unencrypted RSA/EC private key and a CA certificate chain"
+            }
+            destination.resolve("web-tls/emudhra-ca.pem").apply {
+                parentFile.mkdirs()
+                writeBytes(bytes)
+            }
+        } finally { bytes.fill(0) }
+    }
+}
+
+val bundleHttpsCa by tasks.registering(BundleHttpsCa::class) {
+    group = "build"
+    description = "Bundle an optional locally provisioned HTTPS signing CA."
+    localHttpsCa?.let { sourcePem.set(it) }
+    outputDirectory.set(layout.buildDirectory.dir("generated/https-ca/assets"))
+}
 
 android {
     namespace = "com.shilapi.xcertplay"
@@ -66,6 +114,10 @@ android {
     }
 }
 
+androidComponents.onVariants { variant ->
+    variant.sources.assets?.addGeneratedSourceDirectory(bundleHttpsCa, BundleHttpsCa::outputDirectory)
+}
+
 dependencies {
     androidTestImplementation(project(":projection-plugin-api"))
     androidTestImplementation("androidx.test:runner:1.6.2")
@@ -83,7 +135,7 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
 }
 
-// Only the two provisioned local runtime assets are allowed.
+// Only explicitly provisioned authentication assets and the generated HTTPS CA are allowed.
 val credentialAssets = files(android.sourceSets.flatMap { source ->
     source.assets.directories.map { directory ->
         fileTree(directory) {
@@ -91,17 +143,21 @@ val credentialAssets = files(android.sourceSets.flatMap { source ->
                 "**/*.pem", "**/*.p12", "**/*.pfx", "**/*.jks", "**/*.keystore")
         }
     }
-})
+}, bundleHttpsCa.map { it.outputDirectory.asFileTree })
 val rejectBundledCredentials by tasks.registering {
     group = "verification"
     description = "Reject unexpected credential files in APK assets."
     val filesToCheck = credentialAssets
-    val allowed = localAuthenticationAssets?.let { dir ->
+    val allowedAuthentication = localAuthenticationAssets?.let { dir ->
         listOf("identity.pk8", "certificate.p7b").map { dir.resolve("offline-mfi/$it").canonicalFile }.toSet()
     } ?: emptySet()
+    val allowed = allowedAuthentication + if (localHttpsCa != null) setOf(
+        bundleHttpsCa.get().outputDirectory.get().asFile.resolve("web-tls/emudhra-ca.pem").canonicalFile
+    ) else emptySet()
+    dependsOn(bundleHttpsCa)
     inputs.files(filesToCheck)
     doLast {
-        check(allowed.all { it.isFile }) { "Explicit local authentication assets are incomplete" }
+        check(allowed.all { it.isFile }) { "Explicit local runtime assets are incomplete" }
         val unexpected = filesToCheck.files.filter { it.canonicalFile !in allowed }
         check(unexpected.isEmpty()) { "Unexpected credential files in APK assets" }
     }

@@ -151,6 +151,9 @@ internal class SettingsViewModel(
             mdnsHostname = WebListenSettings.mdnsHostname(app),
             certificateType = WebListenSettings.certificateType(app),
             customCertificate = LanTls.hasCustom(app),
+            signingCa = runCatching { LanTls.hasSigningCa(app) }.getOrDefault(false),
+            bundledCaAvailable = LanTls.hasBundledCa(app),
+            bundledCertificate = LanTls.usesBundledCa(app),
             navigationAvailable = BydOutputSettings.available(app),
             tesla = TeslaHttpCompatibility.config(app),
             browsers = WebSession.rememberedBrowsers(app).list(),
@@ -247,6 +250,12 @@ internal class SettingsViewModel(
                             app.getString(R.string.settings_default_certificate_restored)
                         ) {
                             WebSession.restoreDefaultCertificate(app).also {
+                                if (it == null) WebListenSettings.saveCertificateType(app, type)
+                            }
+                        }
+                    else if (type == WebListenSettings.CertificateType.BUNDLED_CA)
+                        SettingsEffect.WebUpdate(app.getString(R.string.settings_bundled_ca_applied)) {
+                            WebSession.useBundledCertificate(app).also {
                                 if (it == null) WebListenSettings.saveCertificateType(app, type)
                             }
                         }

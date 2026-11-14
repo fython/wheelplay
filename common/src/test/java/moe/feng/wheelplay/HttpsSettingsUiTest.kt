@@ -179,7 +179,8 @@ class HttpsSettingsUiTest : ComposeSettingsTest() {
         try {
             val activity = controller.get()
             SettingsNavigation.open(activity, "Web 服务", compose)
-            for ((type, title) in listOf("PEM" to "选择 PEM 证书与私钥", "PKCS12" to "选择 PKCS#12 文件")) {
+            for ((type, title) in listOf("PEM" to "选择 PEM 证书与私钥", "PKCS12" to "选择 PKCS#12 文件",
+                "EMUDHRA_CA" to "选择 CA 证书链与私钥")) {
                 clickTag("certificate:$type")
                 compose.onNodeWithText(title).performScrollTo().performClick()
                 val intent = shadowOf(activity).nextStartedActivity

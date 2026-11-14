@@ -85,6 +85,7 @@ class WheelPlayActivity : AppCompatActivity() {
         }
     }
     private var pendingPemCertificate: ByteArray? = null
+    private var importingSigningCa = false
     private val pemCertificatePicker = registerForActivityResult(CertificateDocument()) { uri ->
         if (uri != null) {
             webBusy = true
@@ -101,6 +102,8 @@ class WheelPlayActivity : AppCompatActivity() {
     }
     private val pemKeyPicker = registerForActivityResult(CertificateDocument()) { uri ->
         val certificate = pendingPemCertificate
+        val signingCa = importingSigningCa
+        importingSigningCa = false
         pendingPemCertificate = null
         if (uri == null || certificate == null) certificate?.fill(0)
         else textInput(getString(UiR.string.ui_pem_private_key_password_leave_blank_if_unencrypted), "", true, onCancel = { certificate.fill(0) }) { value ->
@@ -108,7 +111,10 @@ class WheelPlayActivity : AppCompatActivity() {
             configureWeb(getString(UiR.string.ui_https_certificate_imported_reconnect_your_browser)) {
                 try {
                     val key = readCertificateFile(uri)
-                    try { LanTls.preparePem(certificate, key, password).use { WebSession.installCertificate(this, it) } }
+                    try {
+                        if (signingCa) WebSession.installSigningCa(this, certificate, key, password)
+                        else LanTls.preparePem(certificate, key, password).use { WebSession.installCertificate(this, it) }
+                    }
                     finally { key.fill(0) }
                 } finally { certificate.fill(0); password.fill('\u0000') }
             }
@@ -610,7 +616,10 @@ class WheelPlayActivity : AppCompatActivity() {
             SettingsCommand.SELECT_ICON -> oemImagePicker.launch("image/*")
             SettingsCommand.IMPORT_APK -> if (canImportAuthentication()) launchAuthenticationPicker { selectAuthenticationApk.launch(arrayOf("*/*")) }
             SettingsCommand.IMPORT_FILES -> if (canImportAuthentication()) launchAuthenticationPicker { selectAuthenticationKey.launch(arrayOf("*/*")) }
-            SettingsCommand.SELECT_PEM -> pemCertificatePicker.launch(arrayOf("*/*"))
+            SettingsCommand.SELECT_PEM, SettingsCommand.SELECT_SIGNING_CA -> {
+                importingSigningCa = command == SettingsCommand.SELECT_SIGNING_CA
+                pemCertificatePicker.launch(arrayOf("*/*"))
+            }
             SettingsCommand.SELECT_PKCS12 -> pkcs12Picker.launch(arrayOf("*/*"))
             SettingsCommand.APP_PERMISSIONS -> openSystem(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
             SettingsCommand.BLUETOOTH_SETTINGS -> openSystem(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
