@@ -80,7 +80,19 @@ jobs:
             "cmake;$ANDROID_CMAKE_VERSION"
 
       - name: Build and lint Debug artifacts
-        run: ./gradlew --no-daemon --build-cache :projection-plugin-api:assembleRelease :projection-plugin-sample:lintDebug :projection-plugin-sample:assembleDebug :common:assembleDebugAndroidTest :mobile:lintDebug :mobile:assembleDebug :mobile:assembleDebugAndroidTest
+        env:
+          USE_RELEASE_SIGNING: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
+          ANDROID_KEYSTORE_BASE64: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && secrets.ANDROID_KEYSTORE_BASE64 || '' }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && secrets.ANDROID_KEYSTORE_PASSWORD || '' }}
+          ANDROID_KEY_ALIAS: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && secrets.ANDROID_KEY_ALIAS || '' }}
+          ANDROID_KEY_PASSWORD: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && secrets.ANDROID_KEY_PASSWORD || '' }}
+        run: |
+          tasks=( :projection-plugin-api:assembleRelease :projection-plugin-sample:lintDebug :projection-plugin-sample:assembleDebug :common:assembleDebugAndroidTest :mobile:lintDebug :mobile:assembleDebug :mobile:assembleDebugAndroidTest )
+          if [[ "$USE_RELEASE_SIGNING" == true ]]; then
+            bash .github/scripts/build-signed-android.sh "${tasks[@]}"
+          else
+            ./gradlew --no-daemon --build-cache "${tasks[@]}"
+          fi
 
       # Native compilation and time-sensitive socket tests must not compete for runner CPU.
       - name: Run unit tests
