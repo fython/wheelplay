@@ -18,6 +18,8 @@ internal object WebListenSettings {
         DEFAULT(UiR.string.ui_default_local_certificate),
         PEM(UiR.string.host_pem),
         PKCS12(UiR.string.host_pkcs_12),
+        EMUDHRA_CA(R.string.settings_emudhra_ca),
+        BUNDLED_CA(R.string.settings_bundled_ca),
     }
 
     @Synchronized
@@ -80,6 +82,19 @@ internal object WebListenSettings {
 
     fun httpsEnabled(context: Context) = preferences(context).getBoolean("https_enabled", true)
 
+    // A provisioned build opts in on first use; an explicit choice of the local CA stays local.
+    fun bundledCaEnabled(context: Context): Boolean {
+        val prefs = preferences(context)
+        return prefs.getBoolean("bundled_ca_enabled",
+            prefs.getString("certificate_type", null) != "DEFAULT" && LanTls.hasBundledCa(context))
+    }
+
+    fun saveBundledCaEnabled(context: Context, enabled: Boolean) {
+        check(preferences(context).edit().putBoolean("bundled_ca_enabled", enabled).commit()) {
+            context.getString(R.string.settings_bundled_ca_save_failed)
+        }
+    }
+
     fun hostname(context: Context) =
         preferences(context)
             .getString("hostname", "")
@@ -106,7 +121,8 @@ internal object WebListenSettings {
                     preferences(context)
                         .getString(
                             "certificate_type",
-                            if (LanTls.hasCustom(context)) "PEM" else "DEFAULT",
+                            if (LanTls.hasCustom(context)) "PEM"
+                            else if (LanTls.usesBundledCa(context)) "BUNDLED_CA" else "DEFAULT",
                         )!!
                 )
             }

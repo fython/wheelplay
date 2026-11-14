@@ -78,6 +78,7 @@ internal enum class SettingsCommand {
     IMPORT_FILES,
     SELECT_PEM,
     SELECT_PKCS12,
+    SELECT_SIGNING_CA,
     APP_PERMISSIONS,
     BLUETOOTH_SETTINGS,
     WIRELESS_HELP,
@@ -110,6 +111,9 @@ internal data class SettingsState(
     val certificateType: WebListenSettings.CertificateType =
         WebListenSettings.CertificateType.DEFAULT,
     val customCertificate: Boolean = false,
+    val signingCa: Boolean = false,
+    val bundledCaAvailable: Boolean = false,
+    val bundledCertificate: Boolean = false,
     val navigationAvailable: Boolean = false,
     val tesla: TeslaHttpConfig = TeslaHttpConfig(),
     val browsers: List<RememberedBrowsers.Device> = emptyList(),

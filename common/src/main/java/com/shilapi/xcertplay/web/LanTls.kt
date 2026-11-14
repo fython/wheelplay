@@ -8,6 +8,7 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
 import java.io.StringReader
+import java.io.StringWriter
 import java.math.BigInteger
 import java.security.KeyFactory
 import java.security.KeyPairGenerator
@@ -44,8 +45,10 @@ import org.bouncycastle.openssl.jcajce.JceOpenSSLPKCS8DecryptorProviderBuilder
 import org.bouncycastle.openssl.jcajce.JcePEMDecryptorProviderBuilder
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
 import org.bouncycastle.pkcs.PKCS8EncryptedPrivateKeyInfo
+import org.bouncycastle.util.io.pem.PemReader
+import org.bouncycastle.util.io.pem.PemWriter
 
-/** Local CA or imported server identity, stored only in private non-backup storage. */
+/** Local CA, imported server identity, or imported signer in private non-backup storage. */
 internal object LanTls {
     data class Endpoint(
         val sockets: SSLServerSocketFactory,
@@ -53,6 +56,8 @@ internal object LanTls {
         val fingerprint: String,
         val custom: Boolean = false,
         val subject: String = "",
+        val signingCa: Boolean = false,
+        val bundledCa: Boolean = false,
     )
 
     class Prepared(val encoded: ByteArray, val endpoint: Endpoint) : AutoCloseable {
@@ -62,6 +67,7 @@ internal object LanTls {
     }
 
     const val MAX_IMPORT_BYTES = 2 * 1024 * 1024
+    const val BUNDLED_CA_ASSET = "web-tls/emudhra-ca.pem"
     private val provider = BouncyCastleProvider()
 
     fun readImport(input: InputStream): ByteArray =
@@ -85,15 +91,64 @@ internal object LanTls {
 
     fun hasCustom(context: Context) = customFile(context).baseFile.exists()
 
+    fun hasBundledCa(context: Context) =
+        try { context.assets.open(BUNDLED_CA_ASSET).use { true } }
+        catch (_: java.io.FileNotFoundException) { false }
+
+    fun usesBundledCa(context: Context) = !hasCustom(context) && WebListenSettings.bundledCaEnabled(context)
+
+    private fun loadCustom(context: Context): KeyStore =
+        KeyStore.getInstance("PKCS12").apply {
+            customFile(context).openRead().use { load(it, CharArray(0)) }
+        }
+
+    @Synchronized
+    fun hasSigningCa(context: Context) =
+        hasCustom(context) && loadCustom(context).isKeyEntry("signer")
+
+    fun generatesCertificates(context: Context) = !hasCustom(context) || hasSigningCa(context)
+
     @Synchronized
     fun create(context: Context, addresses: List<String>, hostname: String = ""): Endpoint {
         val file = customFile(context)
         if (file.baseFile.exists()) {
-            val store = KeyStore.getInstance("PKCS12")
-            file.openRead().use { store.load(it, CharArray(0)) }
+            val store = loadCustom(context)
+            if (store.isKeyEntry("signer")) return signingEndpoint(store, addresses, hostname)
             return endpoint(store, "server", true)
         }
+        if (usesBundledCa(context)) return createBundled(context, addresses, hostname)
         return createDefault(context, addresses, hostname)
+    }
+
+    fun createBundled(context: Context, addresses: List<String>, hostname: String = ""): Endpoint {
+        val pem = context.assets.open(BUNDLED_CA_ASSET).use(::readImport)
+        return try {
+            prepareSigningCaBundle(pem, addresses, hostname).use {
+                it.endpoint.copy(bundledCa = true)
+            }
+        } finally { pem.fill(0) }
+    }
+
+    /** Combined key + certificate PEM, like mitmproxy's embedded CA bundle. */
+    fun prepareSigningCaBundle(pem: ByteArray, addresses: List<String>, hostname: String = ""): Prepared {
+        require(pem.size in 1..MAX_IMPORT_BYTES) { "Invalid HTTPS CA bundle size" }
+        val certificates = StringWriter()
+        val privateKey = StringWriter()
+        PemWriter(certificates).use { certWriter ->
+            PemWriter(privateKey).use { keyWriter ->
+                PemReader(StringReader(pem.toString(Charsets.UTF_8))).use { reader ->
+                    while (true) {
+                        val value = reader.readPemObject() ?: break
+                        if (value.type == "CERTIFICATE") certWriter.writeObject(value)
+                        else keyWriter.writeObject(value)
+                    }
+                }
+            }
+        }
+        val chain = certificates.toString().toByteArray(Charsets.UTF_8)
+        val key = privateKey.toString().toByteArray(Charsets.UTF_8)
+        return try { prepareSigningCaPem(chain, key, addresses = addresses, hostname = hostname) }
+        finally { chain.fill(0); key.fill(0) }
     }
 
     @Synchronized
@@ -141,7 +196,12 @@ internal object LanTls {
         return endpoint(leafStore, "server", false)
     }
 
-    private fun endpoint(store: KeyStore, alias: String, custom: Boolean): Endpoint {
+    private fun endpoint(
+        store: KeyStore,
+        alias: String,
+        custom: Boolean,
+        signingCa: Boolean = false,
+    ): Endpoint {
         val chain = store.getCertificateChain(alias).map { it as X509Certificate }
         chain.forEach { it.checkValidity() }
         val managers =
@@ -161,6 +221,7 @@ internal object LanTls {
             fingerprint,
             custom,
             chain.first().subjectX500Principal.name,
+            signingCa,
         )
     }
 
@@ -169,6 +230,41 @@ internal object LanTls {
         privateKey: ByteArray,
         password: CharArray = CharArray(0),
     ): Prepared {
+        val (key, chain) = readPemIdentity(certificates, privateKey, password)
+        return prepare(key, chain)
+    }
+
+    /** The first certificate is the signing CA, followed by its ordered issuer chain. */
+    fun prepareSigningCaPem(
+        certificates: ByteArray,
+        privateKey: ByteArray,
+        password: CharArray = CharArray(0),
+        addresses: List<String>,
+        hostname: String = "",
+    ): Prepared {
+        val (parsedKey, chain) = readPemIdentity(certificates, privateKey, password)
+        val key = normalizeKey(parsedKey)
+        SigningCa.validate(key, chain)
+        val store = KeyStore.getInstance("PKCS12").apply {
+            load(null, CharArray(0))
+            setKeyEntry("signer", key, CharArray(0), chain.toTypedArray())
+        }
+        val endpoint = signingEndpoint(store, addresses, hostname)
+        return Prepared(encode(store), endpoint)
+    }
+
+    private fun signingEndpoint(store: KeyStore, addresses: List<String>, hostname: String): Endpoint {
+        val key = store.getKey("signer", CharArray(0)) as PrivateKey
+        val chain = store.getCertificateChain("signer").map { it as X509Certificate }
+        val identity = SigningCa.issue(key, chain, addresses, hostname)
+        return endpoint(identity, "server", true, signingCa = true)
+    }
+
+    private fun readPemIdentity(
+        certificates: ByteArray,
+        privateKey: ByteArray,
+        password: CharArray,
+    ): Pair<PrivateKey, List<X509Certificate>> {
         requireUi(
             certificates.size in 1..MAX_IMPORT_BYTES && privateKey.size in 1..MAX_IMPORT_BYTES
         ) {
@@ -212,7 +308,7 @@ internal object LanTls {
                 }
                 converter.getPrivateKey(info)
             }
-        return prepare(key, chain)
+        return key to chain
     }
 
     private fun loadPkcs12(bytes: ByteArray, password: CharArray): KeyStore {
@@ -266,14 +362,16 @@ internal object LanTls {
         return prepare(key, chain)
     }
 
-    private fun prepare(privateKey: PrivateKey, chain: List<X509Certificate>): Prepared {
+    private fun normalizeKey(privateKey: PrivateKey): PrivateKey =
         // PEM converters may name an EC key "ECDSA". Conscrypt's PrivateKeyEntry
         // requires the same "EC" algorithm name as the certificate's public key.
-        val key =
-            if (privateKey.algorithm.equals("ECDSA", ignoreCase = true))
-                KeyFactory.getInstance("EC", provider)
-                    .generatePrivate(PKCS8EncodedKeySpec(privateKey.encoded))
-            else privateKey
+        if (privateKey.algorithm.equals("ECDSA", ignoreCase = true))
+            KeyFactory.getInstance("EC", provider)
+                .generatePrivate(PKCS8EncodedKeySpec(privateKey.encoded))
+        else privateKey
+
+    private fun prepare(privateKey: PrivateKey, chain: List<X509Certificate>): Prepared {
+        val key = normalizeKey(privateKey)
         requireUi(chain.isNotEmpty() && chain.first().basicConstraints < 0) {
             UiText(UiR.string.ui_a_server_certificate_is_required_a_ca_certificate_cannot)
         }
@@ -320,12 +418,12 @@ internal object LanTls {
                 load(null, CharArray(0))
                 setKeyEntry("server", key, CharArray(0), chain.toTypedArray())
             }
-        val bytes =
-            ByteArrayOutputStream().use {
-                store.store(it, CharArray(0))
-                it.toByteArray()
-            }
-        return Prepared(bytes, endpoint(store, "server", true))
+        return Prepared(encode(store), endpoint(store, "server", true))
+    }
+
+    private fun encode(store: KeyStore) = ByteArrayOutputStream().use {
+        store.store(it, CharArray(0))
+        it.toByteArray()
     }
 
     @Synchronized
