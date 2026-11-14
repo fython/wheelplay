@@ -72,3 +72,5 @@
 5. 拒绝/撤销 Root，确认失败时不展示共享地址、不反复弹授权；恢复权限后手动重试。
 
 在「设置 → Web 服务」打开「启用 HTTPS」后，可修改 Web HTTPS 端口及证书；关闭后停止 HTTPS 监听并撤下 HTTPS 映射，HTTP 继续可用。默认本地证书包含配置的共享 IP 与可选域名，修改地址后会刷新。导入自定义证书时需由证书本身覆盖实际访问的 IP/域名。详见 [BROWSER_AUDIO.md](BROWSER_AUDIO.md)。
+
+如需提供 eMudhra CA 并按访问 IP / 域名签发服务器证书，可编译时内置，也可使用「eMudhra CA 签发（手动导入）」入口，见 [HTTPS_SIGNING_CA.md](HTTPS_SIGNING_CA.md)。

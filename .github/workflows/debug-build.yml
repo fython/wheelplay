@@ -71,6 +71,9 @@ jobs:
       - name: Verify SDK installation helper
         run: node --test test/ci-android-*.test.js
 
+      - name: Verify HTTPS CA provisioning helper
+        run: node --test test/ci-https-ca.test.js
+
       - name: Install missing Android packages
         run: |
           bash .github/scripts/install-android-packages.sh \
@@ -78,6 +81,14 @@ jobs:
             "build-tools;$ANDROID_BUILD_TOOLS" \
             "ndk;$ANDROID_NDK_VERSION" \
             "cmake;$ANDROID_CMAKE_VERSION"
+
+      - name: Provision bundled HTTPS signing CA
+        env:
+          WHEELPLAY_HTTPS_CA_PEM_BASE64: ${{ secrets.WHEELPLAY_HTTPS_CA_PEM_BASE64 }}
+          # Same defaults as the Release build: always bundle a CA, secret first.
+          WHEELPLAY_HTTPS_CA_REQUIRED: ${{ vars.WHEELPLAY_HTTPS_CA_REQUIRED || '1' }}
+          WHEELPLAY_HTTPS_CA_FALLBACK: ${{ vars.WHEELPLAY_HTTPS_CA_FALLBACK || 'mitmproxy' }}
+        run: bash .github/scripts/provision-https-ca-env.sh
 
       - name: Build and lint Debug artifacts
         env:
@@ -150,6 +161,11 @@ jobs:
           name: wheelplay-lint-results
           path: mobile/build/reports/lint-results-debug.*
           if-no-files-found: warn
+
+      # The provisioned CA is job-scoped; remove it once every artifact is uploaded.
+      - name: Remove provisioned HTTPS signing CA
+        if: always()
+        run: rm -rf -- "$RUNNER_TEMP"/wheelplay-https-ca.*
 
   browser-runtime:
     name: Browser HTTP on Android ${{ matrix.api-level }}

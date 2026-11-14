@@ -38,12 +38,36 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          # Optional bundled HTTPS signing CA; see docs/HTTPS_SIGNING_CA.md.
+          WHEELPLAY_HTTPS_CA_PEM_BASE64: ${{ secrets.WHEELPLAY_HTTPS_CA_PEM_BASE64 }}
+          # Defaults: a CA is always bundled, taken from the pinned mitmproxy source
+          # when the secret is absent. Override with 0 / none to disable.
+          WHEELPLAY_HTTPS_CA_REQUIRED: ${{ vars.WHEELPLAY_HTTPS_CA_REQUIRED || '1' }}
+          WHEELPLAY_HTTPS_CA_FALLBACK: ${{ vars.WHEELPLAY_HTTPS_CA_FALLBACK || 'mitmproxy' }}
         run: bash .github/scripts/build-signed-android.sh :mobile:assembleRelease :mobile:bundleRelease
       - name: Verify APK signature
         run: '"$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose mobile/build/outputs/apk/release/mobile-release.apk'
+      - name: Verify bundled HTTPS signing CA
+        id: bundled-ca
+        env:
+          WHEELPLAY_HTTPS_CA_PEM_BASE64: ${{ secrets.WHEELPLAY_HTTPS_CA_PEM_BASE64 }}
+          WHEELPLAY_HTTPS_CA_FALLBACK: ${{ vars.WHEELPLAY_HTTPS_CA_FALLBACK || 'mitmproxy' }}
+        run: |
+          if [[ -z $WHEELPLAY_HTTPS_CA_PEM_BASE64 && $WHEELPLAY_HTTPS_CA_FALLBACK != mitmproxy ]]; then
+            echo 'No HTTPS CA secret or fallback; this Release has no bundled HTTPS signing CA.'
+            exit 0
+          fi
+          apk=mobile/build/outputs/apk/release/mobile-release.apk
+          unzip -p "$apk" assets/web-tls/emudhra-ca.pem > /dev/null
+          if [[ -z $WHEELPLAY_HTTPS_CA_PEM_BASE64 ]]; then
+            echo 'fallback=true' >> "$GITHUB_OUTPUT"
+            echo '::notice::Bundled CA comes from the mitmproxy source; see docs/HTTPS_SIGNING_CA.md.'
+          else
+            echo 'Bundled HTTPS signing CA is present in the Release APK.'
+          fi
       - uses: actions/upload-artifact@v4
         with:
-          name: wheelplay-release
+          name: wheelplay-release${{ steps.bundled-ca.outputs.fallback == 'true' && '-MITMPROXY-CA' || '' }}
           path: |
             mobile/build/outputs/apk/release/mobile-release.apk
             mobile/build/outputs/bundle/release/mobile-release.aab

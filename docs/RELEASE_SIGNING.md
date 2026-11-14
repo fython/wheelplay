@@ -44,9 +44,28 @@ Base64 只是二进制到文本的编码，**不是加密**。安全存储由 Gi
 提供。不要把 Base64 值放入 YAML、Variables、日志、Issue 或聊天。
 公开证书 `.pem` 和本地加载脚本无需上传；本地路径也无需配置为 Secret。
 
+## 可选的 HTTPS 签发 CA Secret
+
+编译内置的 HTTPS 签发 CA 与 keystore 分开，使用另一个 Secret：
+
+| Secret 名称 | 值 |
+| --- | --- |
+| `WHEELPLAY_HTTPS_CA_PEM_BASE64` | `.local/https-ca/emudhra-ca.pem`（组合 PEM）的 Base64 内容 |
+
+```powershell
+Set-Clipboard ([Convert]::ToBase64String([IO.File]::ReadAllBytes('.local/https-ca/emudhra-ca.pem')))
+```
+
+未设置时 Release 仍会内置 CA：默认 `WHEELPLAY_HTTPS_CA_FALLBACK=mitmproxy`，从固定 commit 读取
+mitmproxy 公开源码中的组合 PEM，并给 artifact 加 `-MITMPROXY-CA` 后缀。该私钥是公开材料，
+签出的证书可以被复现，只适合冒烟；正式分发请配置上面的 Secret 或按
+[HTTPS_SIGNING_CA.md](HTTPS_SIGNING_CA.md) 生成自有 CA。把 `WHEELPLAY_HTTPS_CA_FALLBACK`
+设为其他值可关闭回退，此时 `WHEELPLAY_HTTPS_CA_REQUIRED`（默认 `1`）决定缺 Secret 时失败还是跳过。
+Android Debug Build 工作流使用同一组默认值，因此 PR 与分支构建的 Debug APK 也会内置 CA。
+
 ## 触发构建
 
-先配置上述四个 Secrets，再提交并推送 workflow 和构建配置变更。
+先配置上述四个签名 Secrets（以及可选的 CA Secret），再提交并推送 workflow 和构建配置变更。
 
 - **Android Debug Build**：推送到 `main`、推送标签或在 `main`/标签上手动运行时，
   使用 Secrets 中的密钥。PR 和其他分支的手动运行使用默认 Debug 密钥。
