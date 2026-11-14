@@ -36,13 +36,12 @@ Import happens locally on Android. Assets stay in the app's private directory an
 
 ## Why does downloading open GitHub?
 
-The [download entry](/download?lang=en) selects `wheelplay-debug-apk` from the latest successful `main` run of the specified workflow, then redirects to its GitHub artifact page. This website does not store or proxy installation files.
+The [download entry](/download) always redirects to the [GitHub Releases](https://github.com/fython/wheelplay/releases) page. This website does not store or proxy installation files, and it no longer resolves GitHub Actions build artifacts.
 
-- GitHub may require you to sign in before downloading artifacts.
-- Artifacts expire; expired or deleted files cannot be downloaded.
-- If the latest successful run has no matching artifact, the entry does not select an older run.
-- Results are cached for up to five minutes, so a new build may take a little time to appear.
-- If GitHub is temporarily unavailable or rate-limited, try again later or open the [workflow runs](https://github.com/fython/wheelplay/actions/workflows/debug-build.yml) directly.
+- Older versions stay on the releases page, and published downloads never expire.
+- Release downloads from a public repository need no GitHub sign-in.
+- The redirect is cached for up to five minutes, so a new release may take a moment to appear.
+- If GitHub is temporarily unavailable, try again later or open the releases page directly.
 
 ## Where do audio and microphone input go?
 

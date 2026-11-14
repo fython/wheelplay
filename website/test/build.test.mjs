@@ -21,7 +21,7 @@ for (const page of ["index.html", "404.html", "docs/index.html", "docs/faq/index
       assert.match(
         html,
         /href="\/download"/,
-        "Download button must use the resolver",
+        "Download button must use the download entry",
       );
     const sources = [];
     for (const [, attributes, content] of scripts) {
@@ -71,7 +71,7 @@ for (const page of ["index.html", "404.html", "docs/index.html", "docs/faq/index
       if (english) {
         assert.match(html, /Switch to dark theme/);
         assert.match(html, /Skip to content/);
-        if (page === "en/index.html") assert.match(html, /href="\/download\?lang=en"/);
+        if (page === "en/index.html") assert.match(html, /href="\/download"/);
       }
     }
   });

@@ -17,9 +17,9 @@ WheelPlay 安装在 Android 宿主上，通过局域网向车机浏览器提供�
 
 ## 下载与安装
 
-在 Android 设备上打开[下载最新开发构建](/download)，前往 GitHub 下载 `wheelplay-debug-apk`，解压后安装其中的 APK。
+在 Android 设备上打开[下载最新版本](/download)，会跳转到 [GitHub Releases](https://github.com/fython/wheelplay/releases) 发布页，下载最新的 `wheelplay-release-*.apk` 并安装。
 
-下载入口选择 `debug-build.yml` 工作流中 `main` 分支最新成功构建的产物，结果最多缓存 5 分钟。GitHub 下载可能需要登录；构建产物过期或最新构建没有对应产物时，可稍后再试或查看[构建列表](https://github.com/fython/wheelplay/actions/workflows/debug-build.yml)。
+下载入口是固定重定向：不查询 GitHub API，也不再解析 Actions 构建产物。安装包由 GitHub 托管，公开仓库的发布资源无需登录即可下载，历史版本保留在发布页。入口的重定向最多缓存 5 分钟，新版本发布后可能需要稍等再试。
 
 需要自行编译时，请阅读项目的[源码构建说明](https://github.com/fython/wheelplay/blob/main/README.zh-CN.md#构建)。
 

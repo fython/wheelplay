@@ -36,13 +36,12 @@ VNC 不支持 TLS／VeNCrypt，请使用可信局域网或 VPN；浏览器入口
 
 ## 为什么下载时会跳转到 GitHub？
 
-[下载入口](/download)会选择指定工作流 `main` 分支最新成功构建中的 `wheelplay-debug-apk`，然后跳转到 GitHub 的产物页面。官网不存储或转发安装包。
+[下载入口](/download)固定跳转到 [GitHub Releases](https://github.com/fython/wheelplay/releases) 发布页。官网不存储或转发安装包，也不再自动解析 GitHub Actions 的构建产物。
 
-- GitHub 下载构建产物可能要求先登录账户。
-- 构建产物有有效期；过期或已删除的产物无法下载。
-- 最新成功构建没有对应产物时，入口不会自动选择更旧的构建。
-- 下载结果最多缓存 5 分钟，新构建完成后可能需要稍等才会更新。
-- GitHub 暂时不可用或限流时，请稍后重试，也可手动打开[构建列表](https://github.com/fython/wheelplay/actions/workflows/debug-build.yml)。
+- 发布页同时提供历史版本，已发布的安装包不会过期。
+- 从公开仓库的发布页下载无需登录 GitHub。
+- 下载入口的重定向最多缓存 5 分钟，新版本发布后可能需要稍等再试。
+- GitHub 暂时不可用时，请稍后重试，或直接打开发布页。
 
 ## 声音和麦克风从哪里走？
 

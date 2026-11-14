@@ -4,7 +4,7 @@
 
 Run CarPlay on an Android device and use it from your car's browser. WheelPlay hosts the display, touch controls, and pairing service on your local network; the car needs no additional app or server.
 
-[Website](https://wheelplay.gwo.app/en/) · [Download development build](https://wheelplay.gwo.app/download?lang=en) · [User guide](https://wheelplay.gwo.app/en/docs/) · [FAQ](https://wheelplay.gwo.app/en/docs/faq/)
+[Website](https://wheelplay.gwo.app/en/) · [Download](https://github.com/fython/wheelplay/releases) · [User guide](https://wheelplay.gwo.app/en/docs/) · [FAQ](https://wheelplay.gwo.app/en/docs/faq/)
 
 ## What it supports
 
@@ -35,7 +35,7 @@ One projection source and one browser control session can be active at a time. F
 
 You need an **Android 9 or newer** host, a supported phone, and a modern car browser that can reach the host over the local network. Ordinary LAN operation does not require root.
 
-[Download the latest development build](https://wheelplay.gwo.app/download?lang=en), then extract and install the APK from `wheelplay-debug-apk`. The link redirects to the artifact from the latest successful `main` run of [Android Debug Build](https://github.com/fython/wheelplay/actions/workflows/debug-build.yml); results are cached for up to five minutes. GitHub may require sign-in, and artifacts can expire. These are development builds, not stable releases.
+[Download the latest release](https://github.com/fython/wheelplay/releases) and install the `wheelplay-release-*.apk` asset. The website's [download entry](https://wheelplay.gwo.app/download) redirects to the same page; the site does not host installers or resolve GitHub Actions artifacts. Release assets need no sign-in and do not expire.
 
 ### 2. Set up your input source
 
@@ -121,7 +121,7 @@ npm run site:build
 npm run site:test
 ```
 
-The static output is `website/dist/`. Chinese and English documentation lives in Markdown. Cloudflare Workers or Pages Functions handle `/download` through a shared cached GitHub artifact resolver; Astro's development server does not run that endpoint. See the [website guide](website/README.md) for deployment configuration.
+The static output is `website/dist/`. Chinese and English documentation lives in Markdown. Cloudflare Workers or Pages Functions serve `/download` as a fixed redirect to GitHub Releases; Astro's development server does not run that endpoint. See the [website guide](website/README.md) for deployment configuration.
 
 ## Repository and documentation
 

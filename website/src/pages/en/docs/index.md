@@ -17,9 +17,9 @@ Compatibility varies across vehicles, software versions, and networks. Complete 
 
 ## Download and install
 
-On your Android device, open [Download the latest build](/download?lang=en) to get `wheelplay-debug-apk` from GitHub. Extract the downloaded archive and install the APK inside.
+On your Android device, open [Download the latest release](/download) to reach [GitHub Releases](https://github.com/fython/wheelplay/releases), then install the latest `wheelplay-release-*.apk`.
 
-The download entry selects the artifact from the latest successful `main` run of the `debug-build.yml` workflow. Results are cached for up to five minutes. GitHub may require you to sign in. If the artifact has expired or is missing from the latest build, try again later or check the [workflow runs](https://github.com/fython/wheelplay/actions/workflows/debug-build.yml).
+The download entry is a fixed redirect: it neither queries the GitHub API nor resolves Actions build artifacts. GitHub hosts the packages, release assets of this public repository need no sign-in, and older versions stay on the releases page. The redirect is cached for up to five minutes, so a new release may take a moment to appear.
 
 To compile your own APK, see the [source build instructions](https://github.com/fython/wheelplay/blob/main/README.md#build).
 

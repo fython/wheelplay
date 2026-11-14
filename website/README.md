@@ -1,6 +1,6 @@
 # WheelPlay 官网（Astro）
 
-独立于 Android 内置浏览器客户端的 Astro 静态产品官网。页面由 Astro 组件在构建时生成，浏览器仅加载全局 CSS 和少量 TypeScript 编译出的主题、语言、标签页交互脚本，无需 React/Vue hydration 或服务端运行时。没有远程字体、分析 SDK 或设备连接请求；深浅主题及手动选择的语言偏好会写入 localStorage。下载按钮通过 `/download` 的 Cloudflare Worker 查询 GitHub Actions 元数据，再重定向到 GitHub 产物页面。
+独立于 Android 内置浏览器客户端的 Astro 静态产品官网。页面由 Astro 组件在构建时生成，浏览器仅加载全局 CSS 和少量 TypeScript 编译出的主题、语言、标签页交互脚本，无需 React/Vue hydration 或服务端运行时。没有远程字体、分析 SDK 或设备连接请求；深浅主题及手动选择的语言偏好会写入 localStorage。下载按钮通过 `/download` 固定重定向到 GitHub Releases，不再查询 GitHub API 或解析构建产物。
 
 ## 本地开发
 
@@ -18,7 +18,7 @@ npm run site:dev
 ```sh
 npm run site:check    # Astro 模板和 TypeScript 检查
 npm run site:build    # 输出 website/dist/
-npm run site:test     # 构建产物、CSP、下载与缓存行为测试
+npm run site:test     # 构建产物、CSP 与下载入口测试
 npm run site:preview  # Astro 预览已构建产物
 ```
 
@@ -50,15 +50,15 @@ npx wrangler@4.152.0 dev --config website/wrangler.worker.jsonc --port 4174
 | `src/pages/assets/` | 构建时生成的图标和许可证静态资源路由 |
 | `public/_headers` | 原样复制到构建目录的静态资源响应头 |
 | `public/_routes.json` | 只让 Pages 的下载路径进入 Functions |
-| `worker/download.ts` | GitHub 构建解析、内存／边缘缓存、302 重定向 |
+| `worker/download.ts` | `/download` 的固定重定向与请求校验 |
 | `worker/index.ts` | Workers 下载入口和 ASSETS 静态资源绑定 |
-| `functions/download.ts` | Pages Functions 入口，复用同一解析器 |
-| `test/download.test.mjs` | 下载选择、缓存、并发、限流和错误回归测试 |
+| `functions/download.ts` | Pages Functions 入口，复用同一下载入口 |
+| `test/download.test.mjs` | 重定向目标、请求方法和路径的回归测试 |
 | `test/build.test.mjs` | 构建产物和 CSP 回归检查 |
 | `wrangler.jsonc` | Pages 默认配置 |
 | `wrangler.worker.jsonc` | Workers Static Assets 配置 |
 
-共享图标与许可证由静态资源路由直接导入 `docs/` 中的原文件，保留 `/assets/app-icon.svg` 和 `/assets/Material-Symbols-Apache-2.0.txt` 地址。这两条资源路由构建后是静态文件，不需要运行时 API，也不维护重复素材或额外拷贝脚本。下载解析则由独立 Worker／Pages Function 处理；应保留完整仓库供构建和部署使用。
+共享图标与许可证由静态资源路由直接导入 `docs/` 中的原文件，保留 `/assets/app-icon.svg` 和 `/assets/Material-Symbols-Apache-2.0.txt` 地址。这两条资源路由构建后是静态文件，不需要运行时 API，也不维护重复素材或额外拷贝脚本。下载入口则由独立 Worker／Pages Function 处理；应保留完整仓库供构建和部署使用。
 
 Astro 组件中的 `<script>` 由框架打包为带哈希的外部文件。配置禁用小脚本及 CSS 内联，以满足 `_headers` 中的 `script-src 'self'` 和 `style-src 'self'`；不要为迁就构建输出加入 `unsafe-inline`。构建回归检查会验证这一点。
 
@@ -76,7 +76,7 @@ Astro 组件中的 `<script>` 由框架打包为带哈希的外部文件。配�
 | 环境变量 | `NODE_VERSION=24` |
 | 生产分支 | 官网代码所在分支；合并后可设为 `main` |
 
-Pages 会部署 `website/functions/download.ts`，并通过 `_routes.json` 只在下载路径调用 Functions。Git 集成或从 `website` 目录执行 Wrangler 可以同时部署静态文件与函数；仅拖拽上传 `dist/` 不包含下载解析器。
+Pages 会部署 `website/functions/download.ts`，并通过 `_routes.json` 只在下载路径调用 Functions。Git 集成或从 `website` 目录执行 Wrangler 可以同时部署静态文件与函数；仅拖拽上传 `dist/` 不包含下载入口。
 
 Pages 读取默认 `wrangler.jsonc` 中的 `pages_build_output_dir`。Pages 不支持自定义配置路径，因此将默认文件名留给 Pages，Workers 使用独立命名的配置。
 
@@ -117,56 +117,31 @@ Workers Git 构建设置：
 
 `wrangler.worker.jsonc` 包含 `previews: {}`，用于启用分支预览。此网站没有需要单独配置的数据绑定；`assets`（包括 `ASSETS`）及兼容性设置保留在顶层，预览上传当前分支构建出的静态文件。不要将生产部署命令用于 PR 预览，否则会发布到生产环境。
 
-预览不会自动继承生产 `GITHUB_TOKEN`。如需提高预览下载入口的 GitHub API 限额，在 Worker 设置的 **Previews Base → Variables and Secrets** 中配置同名 Secret，供之后新建的预览使用；已存在的预览需要单独更新 Secret。无需把 token 写入配置文件，也不要只设置 Build 环境变量。详见 [Cloudflare Previews 配置](https://developers.cloudflare.com/workers/previews/configuration/)。
-
-Pages Functions 和独立 Workers 共用同一个下载解析器，是两种独立托管方式，任选其一即可，无需同时部署。若未来增加按需服务端渲染，再引入对应 Astro adapter 并调整输出方式。部署凭据只配置在 Cloudflare 账户或 CI Secrets 中。
+Pages Functions 和独立 Workers 共用同一下载入口，是两种独立托管方式，任选其一即可，无需同时部署。若未来增加按需服务端渲染，再引入对应 Astro adapter 并调整输出方式。部署凭据只配置在 Cloudflare 账户或 CI Secrets 中。
 
 官方参考：[Astro 部署到 Cloudflare](https://docs.astro.build/en/guides/deploy/cloudflare/)、[Workers Static Assets](https://developers.cloudflare.com/workers/static-assets/get-started/)。
 
-## 自动下载入口与缓存
+## 下载入口
 
-点击「下载最新开发构建」访问 `GET /download`（也支持 `HEAD`）：
+点击「下载最新版本」访问 `GET /download`（也支持 `HEAD` 和 `/download/`）：Worker／Pages Function 固定返回无响应体的 `302`，`Location` 为 `https://github.com/fython/wheelplay/releases`。
 
-1. 调用 `GET /repos/fython/wheelplay/actions/workflows/debug-build.yml/runs?branch=main&status=success&per_page=1`，选择该工作流 main 分支最新成功运行。
-2. 在该 run 的 artifacts API 中按 `name=wheelplay-debug-apk` 查询，最多读取 100 条返回记录，并检查精确名称、ID、`expired` 和 `expires_at`。
-3. 返回无响应体的 `302`，例如 `Location: https://github.com/fython/wheelplay/actions/runs/39951112470/artifacts/12501440441`。只查询元数据，不请求 `archive_download_url`，不代理、解压或转发 ZIP/APK 文件。GitHub 下载仍可能要求用户登录。
+入口不查询 GitHub API，不解析 Actions 构建产物，也不代理、解压或转发安装包；发布包和历史版本都由 GitHub Releases 托管，公开仓库的发布资源无需登录即可下载。
 
-最新成功运行没有有效产物时返回 `404` 和工作流列表地址，不回退到旧运行。GitHub API 超时、限流或返回异常时返回 `503` 和 `Retry-After`；单次 API 请求超时为 5 秒，不进行即时重试。错误响应不暴露 GitHub 原始错误或 token。
-
-缓存策略：
-
-- **成功结果：5 分钟。** 缓存有效期不会超过产物的 `expires_at`，因此新成功构建可能在 5 分钟后被发现，提前删除的产物也可能暂时仍被缓存。
-- **两层缓存。** 优先返回同一 isolate 的内存记录，其次读取 `caches.default` 的小型元数据结果。缓存命中不请求 GitHub，也不重复解析大体积 API 响应。
-- **合并并发。** 同一 isolate 同一时刻只执行一次解析。普通冷查询最多请求 GitHub 两次，不扫描历史构建，不循环分页。
-- **失败缓存。** 无构建／无产物缓存 60 秒；API 错误至少缓存 60 秒，并按 `Retry-After` 或已耗尽的速率限制重置时间退避，最长 1 小时。失败也缓存到边缘，减少不同 isolate 对同一错误的重复查询。
-- **统一缓存键。** `/download` 的查询参数、Cookie、请求缓存头和 GET／HEAD 不影响缓存键，避免通过随机参数反复查询 API。浏览器收到 `Cache-Control: no-store`，缓存有效期由 Worker 控制。
-- **范围限制。** Cloudflare Cache API 按数据中心保存，内存和并发合并按 isolate 生效；不是全球共享锁，也不保证所有节点总共只查询两次。不同边缘节点首次访问、缓存淘汰或实例重建仍可能回源。
-
-网络等待一般不计入 Worker CPU time；这里主要减少脚本执行、重复 JSON 解析和 API 请求次数。没有做线上 CPU 基准测试，也不承诺固定 CPU 数值。
-
-公开仓库可匿名查询。生产环境建议配置只对 `fython/wheelplay` 授予 **Actions: Read-only** 的 GitHub fine-grained token，以提高 API 限额：
-
-```sh
-# 独立 Worker
-npx wrangler@4.152.0 secret put GITHUB_TOKEN --config website/wrangler.worker.jsonc
-# Pages 项目
-npx wrangler@4.152.0 pages secret put GITHUB_TOKEN --project-name wheelplay-website
-```
-
-也可在 Cloudflare 项目设置中添加加密的 `GITHUB_TOKEN`。该 secret 只发送到固定 GitHub API 地址，不进入 HTML、重定向 URL 或缓存。本地测试可在忽略的 `website/.dev.vars` 中配置；不要提交 token。静态构建不需要此 token。
-
-缓存与 API 参考：[Cloudflare Cache API](https://developers.cloudflare.com/workers/runtime-apis/cache/)、[GitHub workflow runs](https://docs.github.com/en/rest/actions/workflow-runs#list-workflow-runs-for-a-workflow)、[GitHub run artifacts](https://docs.github.com/en/rest/actions/artifacts#list-workflow-run-artifacts)。
+- **请求校验。** 其他方法返回 `405` 并带 `Allow: GET, HEAD`；`/download` 以外的路径返回 `404`。查询参数（包括旧的 `?lang=en`）、Cookie 和请求缓存头都不影响目标地址。
+- **缓存。** 重定向带 `Cache-Control: public, max-age=300`，更换目标后最多 5 分钟内所有访客生效。
+- **无需 Secret。** 入口不再读取 `GITHUB_TOKEN`；Cloudflare 项目中若仍保留该 Secret，可以删除。
+- **修改目标。** 目标地址集中在 `worker/download.ts` 的 `RELEASES_URL`；更换发布页时同步更新 `test/download.test.mjs` 与页面说明。
 
 ## 内容维护
 
 - **中英文路由。** 中文使用 `/`、`/docs/`、`/docs/faq/`，英文使用 `/en/`、`/en/docs/`、`/en/docs/faq/`。导航中的语言链接切换到对应页面，无 JavaScript 时同样可用。脚本记住手动选择的语言；再次访问 `/` 时，已选择英文的用户会进入 `/en/`。明确的文档链接始终以 URL 的语言为准，不根据浏览器语言强制跳转。禁用存储不会影响语言链接。
 - **界面翻译。** `src/i18n/en.ts` 以中文原文为键存放英文翻译，共用组件通过 `useTranslations(Astro.url.pathname)` 获取 `t` 和 `local`。修改中文原文时同步更新翻译键及所有调用；缺失键由类型检查发现。品牌名、协议名及装饰性英文标语可共用。页面元数据、无障碍标签、主题按钮也需要翻译。
 - **英文文档。** `src/pages/en/docs/*.md` 与中文文档成对维护，英文文档的布局路径为 `../../../layouts/DocsLayout.astro`，站内链接使用 `/en/docs/`。新增页面时同时更新 `DocsLayout.astro` 的导航与 `LanguageSwitch.astro` 的页面映射。高级仓库文档仍可能为中文，英文站内指南已注明。
-- **下载与错误页。** 英文下载链接使用 `/download?lang=en`，只在输出错误消息时翻译，仍与中文共用内存、边缘缓存和 GitHub 查询。静态 404 包含两种语言，在脚本可用时按实际请求路径选择语言。
+- **下载与错误页。** 中英文下载链接都指向 `/download`，由固定重定向统一处理，官网不再输出下载错误页。静态 404 包含两种语言，在脚本可用时按实际请求路径选择语言。
 - **文档页面使用 Markdown。** 使用指南位于 `src/pages/docs/index.md`，常见问题位于 `src/pages/docs/faq.md`；正文、标题、说明均在 Markdown 中维护，不在 Astro 布局中编写文档正文。首页仍由产品展示组件组成。
 - 新增文档时，在 `src/pages/docs/` 添加 `.md` 文件，frontmatter 填写 `layout: ../../layouts/DocsLayout.astro`、`title` 和 `description`；文件名决定路径。在 `DocsLayout.astro` 的 `pages` 中添加导航入口即可。正文从 `##` 开始，页面主标题由布局读取 `title` 生成，二级标题自动生成本页目录。
 - 使用标准 Markdown 编写段落、列表、链接、表格和代码块，无需内嵌 HTML。代码块关闭内联样式高亮以兼容 CSP；导航、主题与响应式排版由布局负责。Astro 原生支持 Markdown，无需新增运行时依赖。
-- `GettingStarted.astro` 中的下载入口为 `/download`，仓库、工作流和产物名集中定义于 `worker/download.ts`。更换下载来源时同步修改解析器、缓存键版本、测试与页面说明。
+- `GettingStarted.astro` 中的下载入口为 `/download`，目标发布页集中定义于 `worker/download.ts` 的 `RELEASES_URL`。更换下载来源时同步修改入口、测试与页面说明。
 - `ExperiencePreview.astro` 中的导航、音乐、配对是明确标注的示意，不是真实 CarPlay 截图，不播放音频，也不连接设备。
 - 页面默认中文，提供内置英文首页及使用文档。
 - 绿色 App 图标与 Material Symbols 许可证沿用仓库文件，来源见 [`docs/APP_ICON.md`](../docs/APP_ICON.md)。
@@ -175,6 +150,6 @@ npx wrangler@4.152.0 pages secret put GITHUB_TOKEN --project-name wheelplay-webs
 
 ## 验证
 
-网站 CI 使用 Node.js 24 和锁文件安装依赖，依次执行 Astro 检查、静态构建、产物测试与下载解析器测试，然后上传 `dist/`（该产物仅含静态页面，部署下载功能还需要仓库中的 Worker／Functions 源码）。产物测试确认首页、404 和文档页面使用有效的本地外部资源、文档目录指向实际标题、404 带 `noindex`，以及共享图标／许可证／响应头没有丢失。
+网站 CI 使用 Node.js 24 和锁文件安装依赖，依次执行 Astro 检查、静态构建、产物测试与下载入口测试，然后上传 `dist/`（该产物仅含静态页面，部署下载功能还需要仓库中的 Worker／Functions 源码）。产物测试确认首页、404 和文档页面使用有效的本地外部资源、文档目录指向实际标题、404 带 `noindex`，以及共享图标／许可证／响应头没有丢失。
 
 浏览器回归检查应覆盖桌面和手机布局、三个标签页、方向键与 Home/End、主题保存、禁止存储、FAQ、无 JavaScript 阅读，以及 Cloudflare 本地运行器下的 CSP 和 404 响应。

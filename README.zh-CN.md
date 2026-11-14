@@ -4,7 +4,7 @@
 
 在 Android 设备上运行 CarPlay，通过车机浏览器查看和操控。WheelPlay 在局域网内提供画面、触控与配对服务，车机无需安装额外 App，也无需部署独立服务器。
 
-[官网](https://wheelplay.gwo.app/) · [下载开发版](https://wheelplay.gwo.app/download) · [使用指南](https://wheelplay.gwo.app/docs/) · [常见问题](https://wheelplay.gwo.app/docs/faq/)
+[官网](https://wheelplay.gwo.app/) · [下载](https://github.com/fython/wheelplay/releases) · [使用指南](https://wheelplay.gwo.app/docs/) · [常见问题](https://wheelplay.gwo.app/docs/faq/)
 
 ## 支持范围
 
@@ -35,7 +35,7 @@
 
 准备一台 **Android 9 或更高版本**的宿主设备、一部受支持的手机，以及能够通过局域网访问宿主的现代车机浏览器。普通局域网使用不需要 Root。
 
-打开[下载最新开发版](https://wheelplay.gwo.app/download)，下载 `wheelplay-debug-apk` 并解压安装其中的 APK。该入口跳转到 [Android Debug Build](https://github.com/fython/wheelplay/actions/workflows/debug-build.yml) 工作流中 `main` 分支最新成功构建的产物，结果最多缓存五分钟。GitHub 下载可能需要登录，构建产物也可能过期。这些安装包是开发构建，并非稳定发行版。
+打开[下载最新版本](https://github.com/fython/wheelplay/releases)，下载最新的 `wheelplay-release-*.apk` 安装包并安装。官网的[下载入口](https://wheelplay.gwo.app/download)同样跳转到该发布页；官网不存储安装包，也不再解析 GitHub Actions 构建产物。公开仓库的发布资源无需登录 GitHub，也不会过期。
 
 ### 2. 配置输入源
 
@@ -121,7 +121,7 @@ npm run site:build
 npm run site:test
 ```
 
-静态产物输出到 `website/dist/`，中英文文档正文使用 Markdown 维护。Cloudflare Worker 或 Pages Functions 通过共用的缓存解析器处理 `/download`，跳转到 GitHub 构建产物；Astro 开发服务器不运行该接口。部署配置见[官网维护指南](website/README.md)。
+静态产物输出到 `website/dist/`，中英文文档正文使用 Markdown 维护。Cloudflare Worker 或 Pages Functions 用固定重定向处理 `/download`，跳转到 GitHub Releases；Astro 开发服务器不运行该接口。部署配置见[官网维护指南](website/README.md)。
 
 ## 仓库结构与文档
 
