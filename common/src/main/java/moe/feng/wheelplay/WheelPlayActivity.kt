@@ -8,6 +8,7 @@ import com.shilapi.xcertplay.projection.ProjectionSourceIds
 import com.shilapi.xcertplay.projection.projectionSessions
 import com.shilapi.xcertplay.projection.plugin.projectionPlugins
 import com.shilapi.xcertplay.projection.plugin.RemotePluginSession
+import com.shilapi.xcertplay.projection.plugin.InstalledProjectionPlugin
 import com.shilapi.xcertplay.projection.ProjectionSession
 import moe.feng.wheelplay.plugin.ProjectionPlugin
 import com.shilapi.xcertplay.projection.registerProjectionSources
@@ -72,6 +73,7 @@ class WheelPlayActivity : AppCompatActivity() {
     private val settingsModel by lazy { ViewModelProvider(this)[SettingsViewModel::class.java] }
     private val settingsDialogs = SettingsDialogHost()
     private var webBusy = false
+    private var embeddedPlugin by mutableStateOf<InstalledProjectionPlugin?>(null)
     private var awaitingTeslaVpnConsent = false
     private val localAndroidAutoSettings = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (!isFinishing && !isDestroyed) showLocalAndroidAutoSetup()
@@ -330,6 +332,15 @@ class WheelPlayActivity : AppCompatActivity() {
         refreshSettings()
         setContent {
             WheelPlayScreen(page, aaConnection, uiState, settingsModel, settingsActions, settingsDialogs, dialogs, snackbar, ::dispatch)
+            embeddedPlugin?.let { plugin -> key(plugin) {
+                PluginSettingsDialog(plugin, lifecycle, onDismiss = { embeddedPlugin = null },
+                    onExternal = plugin.settings?.let { component -> {
+                        embeddedPlugin = null
+                        if (projectionPlugins(this).entries().contains(plugin))
+                            runCatching { startActivity(Intent().setComponent(component)) }
+                                .onFailure { toast(getString(UiR.string.plugin_unavailable)) }
+                    } })
+            } }
         }
     }
 
@@ -390,9 +401,10 @@ class WheelPlayActivity : AppCompatActivity() {
                         refreshUiState()
                     }
                     UiAction.PLUGIN_DISABLE -> { registry.setEnabled(plugin, false); refreshUiState() }
-                    UiAction.PLUGIN_SETTINGS -> plugin.settings?.let { component ->
-                        runCatching { startActivity(Intent().setComponent(component)) }.onFailure { toast(getString(UiR.string.plugin_unavailable)) }
-                    }
+                    UiAction.PLUGIN_SETTINGS -> if (plugin.settingsProvider != null) embeddedPlugin = plugin
+                        else plugin.settings?.let { component ->
+                            runCatching { startActivity(Intent().setComponent(component)) }.onFailure { toast(getString(UiR.string.plugin_unavailable)) }
+                        }
                     UiAction.PLUGIN_CONNECT -> startProjectionSource(plugin.id)
                     else -> Unit
                 }
@@ -479,7 +491,8 @@ class WheelPlayActivity : AppCompatActivity() {
         val plugins = registry.entries().map { plugin -> PluginUi(
             plugin.id, plugin.name, plugin.component.packageName, plugin.sourceId == ProjectionPlugin.SOURCE_ICCOA_CARLINK,
             registry.enabled(plugin), plugin.problem, registry.lastFailure(plugin.id)?.let { getString(UiR.string.projection_failed, it) },
-            plugin.settings != null, !(running && (state.source?.id == plugin.id || active?.descriptor?.id == plugin.id)),
+            plugin.settings != null || plugin.settingsProvider != null,
+            !(running && (state.source?.id == plugin.id || active?.descriptor?.id == plugin.id)),
         ) }
         val addresses = if (WebSession.running && WebSession.error == null) WebSession.addresses(this) else emptyList()
         val primary = addresses.firstOrNull()

@@ -218,4 +218,17 @@
     <string name="settings_safe_area_increase">%1$s增加 1%%</string>
     <string name="settings_safe_area_decrease">%1$s減少 1%%</string>
     <string name="settings_safe_area_slot">解析度：%1$d × %2$d · 獨立儲存</string>
+    <string name="plugin_settings_busy">設定正在更新，請稍後重試</string>
+    <string name="plugin_settings_conflict">設定已在其他位置修改，已載入最新值。</string>
+    <string name="plugin_settings_timeout">外掛程式未回應，請重試或開啟外掛程式獨立設定頁。</string>
+    <string name="plugin_settings_changed">外掛程式已更新或移除，請關閉此頁並重新開啟設定。</string>
+    <string name="plugin_settings_close">關閉</string>
+    <string name="plugin_settings_external">在外掛程式中開啟</string>
+    <string name="plugin_settings_retry">重試</string>
+    <string name="plugin_settings_schema">標準設定</string>
+    <string name="plugin_settings_remote">外掛程式版面</string>
+    <string name="plugin_settings_run">執行</string>
+    <string name="plugin_settings_edit">修改</string>
+    <string name="plugin_settings_reconnect">下次連線時生效</string>
+    <string name="plugin_settings_save">儲存</string>
 </resources>

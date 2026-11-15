@@ -15,8 +15,14 @@ class SampleProjectionService : ProjectionPluginService() {
     private var worker: ScheduledExecutorService? = null
     @Volatile private var contacts = emptyList<PluginContact>()
     @Volatile private var night = false
-    override fun videoInfo() = PluginVideoInfo(640, 360, 10, nightMode = true)
+    private val preferences get() = getSharedPreferences("sample-settings", 0)
+    override fun videoInfo() = if (preferences.getString("resolution", "360p") == "720p")
+        PluginVideoInfo(1280, 720, 10, nightMode = true)
+        else PluginVideoInfo(640, 360, 10, nightMode = true)
     override fun onStartProjection(surface: Surface, events: Events) {
+        val caption = preferences.getString("caption", "Independent APK · Surface plugin").orEmpty()
+        val counter = preferences.getBoolean("counter", true)
+        val period = 1000L / preferences.getInt("fps", 15).coerceIn(5, 30)
         var frame = 0L
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         worker = Executors.newSingleThreadScheduledExecutor().also { executor ->
@@ -26,19 +32,19 @@ class SampleProjectionService : ProjectionPluginService() {
                     try {
                         canvas.drawColor(if (night) Color.rgb(16, 20, 32) else Color.rgb(25, 70, 100))
                         paint.color = Color.WHITE; paint.textSize = 28f
-                        canvas.drawText("Independent APK · Surface plugin", 24f, 48f, paint)
+                        canvas.drawText(caption, 24f, 48f, paint)
                         paint.textSize = 20f
-                        canvas.drawText("Frame $frame · ${contacts.count { it.down }} contacts", 24f, 80f, paint)
+                        canvas.drawText("${if (counter) "Frame $frame · " else ""}${contacts.count { it.down }} contacts", 24f, 80f, paint)
                         canvas.drawText("Touch the car browser to draw circles", 24f, 330f, paint)
                         paint.color = Color.CYAN
                         canvas.drawRect((frame % 580).toFloat(), 120f, (frame % 580 + 50).toFloat(), 150f, paint)
                         contacts.filter { it.down }.forEach {
-                            canvas.drawCircle((it.x * 639).toFloat(), (it.y * 359).toFloat(), 20f, paint)
+                            canvas.drawCircle((it.x * (canvas.width - 1)).toFloat(), (it.y * (canvas.height - 1)).toFloat(), 20f, paint)
                         }
                     } finally { surface.unlockCanvasAndPost(canvas) }
                     if (frame++ == 0L) events.state(ProjectionPlugin.READY, "Separate APK connected")
                 } catch (failure: Exception) { events.ended(failure.message ?: "Surface failed") }
-            }, 0, 66, TimeUnit.MILLISECONDS)
+            }, 0, period, TimeUnit.MILLISECONDS)
         }
     }
     override fun onTouch(contacts: List<PluginContact>) { this.contacts = contacts }

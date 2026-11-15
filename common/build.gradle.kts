@@ -33,6 +33,9 @@ android {
 }
 
 dependencies {
+    implementation(libs.androidx.remote.core)
+    implementation(libs.androidx.remote.player.core)
+    implementation(libs.androidx.remote.player.view)
     implementation("dev.rikka.shizuku:api:13.1.5")
     implementation("dev.rikka.shizuku:provider:13.1.5")
     implementation(project(":projection-plugin-api"))
@@ -57,6 +60,8 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.6.1")
     implementation("androidx.lifecycle:lifecycle-viewmodel-savedstate:2.6.1")
     testImplementation(libs.junit)
+    testImplementation(libs.androidx.remote.creation.android)
+    testImplementation(libs.androidx.remote.creation.core)
     testImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     debugImplementation(libs.androidx.compose.ui.tooling)

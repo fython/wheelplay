@@ -218,4 +218,17 @@
     <string name="settings_safe_area_increase">Increase %1$s by 1%%</string>
     <string name="settings_safe_area_decrease">Decrease %1$s by 1%%</string>
     <string name="settings_safe_area_slot">Resolution: %1$d × %2$d · Saved separately</string>
+    <string name="plugin_settings_busy">Settings are busy; try again</string>
+    <string name="plugin_settings_conflict">Settings changed elsewhere. The latest values have been loaded.</string>
+    <string name="plugin_settings_timeout">The plugin did not respond. Retry or open its separate settings page.</string>
+    <string name="plugin_settings_changed">The plugin was updated or removed. Close this page and reopen settings.</string>
+    <string name="plugin_settings_close">Close</string>
+    <string name="plugin_settings_external">Open in plugin</string>
+    <string name="plugin_settings_retry">Retry</string>
+    <string name="plugin_settings_schema">Standard settings</string>
+    <string name="plugin_settings_remote">Plugin layout</string>
+    <string name="plugin_settings_run">Run</string>
+    <string name="plugin_settings_edit">Edit</string>
+    <string name="plugin_settings_reconnect">Applies on the next connection</string>
+    <string name="plugin_settings_save">Save</string>
 </resources>

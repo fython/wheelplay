@@ -15,4 +15,18 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
 }
-dependencies { implementation(project(":projection-plugin-api")) }
+dependencies {
+    implementation(project(":projection-plugin-api"))
+    implementation(libs.androidx.remote.creation.android)
+    implementation(libs.androidx.remote.creation.core)
+    testImplementation(libs.junit)
+    testImplementation("org.robolectric:robolectric:4.17")
+    testImplementation(libs.androidx.remote.player.core)
+    testImplementation(libs.androidx.remote.player.view)
+}
+
+android.testOptions.unitTests.isIncludeAndroidResources = true
+
+tasks.withType<Test>().configureEach {
+    jvmArgs("--add-exports=java.base/jdk.internal.access=ALL-UNNAMED")
+}
