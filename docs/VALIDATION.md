@@ -579,3 +579,18 @@ run-1 捕获的第 12 个访问单元（索引 11）为：
 结果：shared 全量 556 项、common 全量 545 项测试全部通过，均无失败、错误或跳过。Debug APK 构建通过；`lintDebug` 为 0 errors、24 warnings；`git diff --check` 通过。
 
 本轮未连接 iPhone 或车机，未测量实际触控延迟或验证真实 App 录音；上游设备报告不作为 WheelPlay 真机验证结果。
+
+## 首批同步的 CI 仪器测试编译补验（2026-11-15）
+
+[PR #61 首次构建](https://github.com/fython/wheelplay/actions/runs/43681265193/job/132712212254) 在 `:common:compileDebugAndroidTestKotlin` 失败：`ScreenStream` 增加必填的 `expectedPeer` 后，`NativeVideoDecoderTest` 仍使用旧的位置参数，导致两个 lambda 分别被解析为错误的参数类型。此前的 APK/lint 和 JVM 单元测试验证没有包含仪器测试 APK 的编译。
+
+测试现在通过命名参数提供预期的 IPv4 loopback 对端和原生解码器工厂，并使用同一个地址建立发送 socket。先在本地运行 `:common:compileDebugAndroidTestKotlin` 复现两处类型错误，再按 `.github/workflows/debug-build.yml` 的完整构建任务补验，全部通过：
+
+```sh
+./gradlew --build-cache :projection-plugin-api:assembleRelease \
+  :projection-plugin-sample:lintDebug :projection-plugin-sample:assembleDebug \
+  :common:assembleDebugAndroidTest :mobile:lintDebug :mobile:assembleDebug \
+  :mobile:assembleDebugAndroidTest
+```
+
+结果包含插件 SDK、示例 APK、mobile APK、common/mobile 仪器测试 APK 及两项 lint；这是编译和打包验证，仪器测试的 Android 运行结果由远端 CI 单独记录。
