@@ -153,6 +153,8 @@ internal object BrowserStrings {
                 UiR.string.web_display_video_with_canvas_experimental,
             "web_decode_video_offscreen_then_draw_it_on_a_canvas" to
                 UiR.string.web_decode_video_offscreen_then_draw_it_on_a_canvas,
+            "web_canvas_webgl_title" to UiR.string.web_canvas_webgl_title,
+            "web_canvas_webgl_help" to UiR.string.web_canvas_webgl_help,
             "web_video_renderer_title" to UiR.string.web_video_renderer_title,
             "web_video_renderer_native" to UiR.string.web_video_renderer_native,
             "web_video_renderer_native_description" to UiR.string.web_video_renderer_native_description,

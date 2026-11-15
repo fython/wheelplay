@@ -602,4 +602,6 @@
     <string name="carplay_connection_settings">连接设置</string>
     <string name="carplay_connection_stopping">正在取消连接</string>
     <string name="carplay_connection_stopping_hint">正在释放连接资源，请稍候。</string>
+    <string name="web_canvas_webgl_title">Canvas 使用 WebGL（实验性）</string>
+    <string name="web_canvas_webgl_help">默认关闭。适用于两种 Canvas 模式，下次连接生效。性能因设备而异，播放效果变差时请关闭。</string>
 </resources>

@@ -602,4 +602,6 @@
     <string name="carplay_connection_settings">Connection settings</string>
     <string name="carplay_connection_stopping">Cancelling connection</string>
     <string name="carplay_connection_stopping_hint">Releasing the connection. Please wait.</string>
+    <string name="web_canvas_webgl_title">Use WebGL for Canvas (experimental)</string>
+    <string name="web_canvas_webgl_help">Off by default. Applies to both Canvas modes on your next connection. Performance depends on your device; turn off if playback worsens.</string>
 </resources>

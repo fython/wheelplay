@@ -8,6 +8,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import WebSocket, { WebSocketServer } from 'ws';
 import ffmpeg from 'ffmpeg-static';
 import { resourceStrings, renderBrowserTemplate } from './resource-strings.mjs';
+import { verifyCanvasWebgl } from './browser-webgl-checks.mjs';
 
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 const messages = resourceStrings('values-zh-rCN');
@@ -15,6 +16,7 @@ const root = new URL('../common/src/main/assets/web/', import.meta.url);
 const androidServer = await readFile(new URL('../common/src/main/java/com/shilapi/xcertplay/web/LanWebServer.kt', import.meta.url), 'utf8');
 const csp = androidServer.match(/"(default-src 'self';[^"\n]+)"/)[1];
 const profile = await mkdtemp(join(tmpdir(), 'wheelplay-media-'));
+const webglOnly = process.argv.includes('--webgl-only');
 function image(width, height, codec = 'mjpeg') {
   const result = spawnSync(ffmpeg, ['-v', 'error', '-f', 'lavfi', '-i', `testsrc=size=${width}x${height}:rate=1`,
     '-frames:v', '1', '-f', 'image2pipe', '-vcodec', codec, 'pipe:1']);
@@ -97,7 +99,8 @@ wss.on('connection', ws => {
   });
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-const browser = spawn(process.env.BROWSER_BIN || 'chromium', [...(process.env.WHEELPLAY_BROWSER_HEADFUL === '1' ? [] : ['--headless']), '--no-sandbox', '--disable-gpu',
+const browser = spawn(process.env.BROWSER_BIN || 'chromium', [...(process.env.WHEELPLAY_BROWSER_HEADFUL === '1' ? [] : ['--headless']), '--no-sandbox',
+  ...(webglOnly ? ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : ['--disable-gpu']),
   '--disable-background-networking', '--no-first-run', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'],
 { stdio: ['ignore', 'ignore', 'ignore'] });
 let devtools;
@@ -150,6 +153,19 @@ try {
   await command('Runtime.enable');
   await command('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/` });
   await wait(`!!window.wheelplayStats && !!document.getElementById('connect') && !document.getElementById('connect').disabled`);
+  if (webglOnly) {
+    const webgl = await evaluate(`(${verifyCanvasWebgl.toString()})()`);
+    await command('Page.reload');
+    await wait(`!!window.wheelplayStats && document.getElementById('renderer-video-canvas').checked &&
+      document.getElementById('canvas-webgl').checked && !document.getElementById('canvas-webgl').disabled`);
+    await evaluate(`document.getElementById('canvas-webgl').click(); document.getElementById('renderer-native').click()`);
+    await command('Page.reload');
+    await wait(`!!window.wheelplayStats && document.getElementById('renderer-native').checked &&
+      !document.getElementById('canvas-webgl').checked && document.getElementById('canvas-webgl').disabled`);
+    webgl.checks.push('saved opt-in and opt-out after page reload');
+    assert.deepEqual(errors, []);
+    console.log(JSON.stringify({ passed: true, webgl }, null, 2));
+  } else {
   await wait(`!document.getElementById('pair-qr').hidden && document.getElementById('pair-qr').naturalWidth > 0`);
   assert.equal(await evaluate(`document.getElementById('hide-toolbar') === null && document.getElementById('fullscreen-on-start') === null`), true);
   const screenshot = async name => {
@@ -490,6 +506,7 @@ try {
       'decode without overlay flashes', 'gap releases touch', 'deadline without status', 'cancelled deadline',
       'same-size rebuild', 'cancelled mouse drag cannot cross video epochs', 'old frame rejection', 'rotation', 'real socket reconnect', 'native browser Media Session metadata and cover',
       'media action roundtrip', 'desktop right drag, scroll and versioned keyboard', 'desktop blur releases modifiers', 'phone-authoritative pause', 'capability-gated seek and final drag position', 'media cleanup and retired callback isolation'] }, null, 2));
+  }
 } finally {
   devtools?.close(); browser.kill('SIGTERM');
   for (const client of wss.clients) client.terminate();
