@@ -5,6 +5,7 @@ import android.content.pm.*
 import android.os.Bundle
 import com.shilapi.xcertplay.projection.*
 import moe.feng.wheelplay.plugin.ProjectionPlugin
+import moe.feng.wheelplay.plugin.ProjectionSettings
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -106,5 +107,39 @@ class ProjectionPluginRegistryTest {
         install(installedAt = 20) // No intermediate refresh or package broadcast was observed by the host.
         registry.refresh()
         assertFalse(registry.enabled(registry.entries().single()))
+    }
+
+    @Test fun embeddedSettingsOnlyAcceptAnAccessibleProviderFromTheSamePluginUid() {
+        val registry = ProjectionPluginRegistry(context, ProjectionRuntime())
+        install()
+        val pkg = context.packageManager.getPackageInfo(component.packageName, PackageManager.GET_SERVICES or PackageManager.GET_META_DATA)
+        pkg.services!!.single().metaData.putString(ProjectionSettings.META_PROVIDER, "test.plugin.settings")
+        val provider = ProviderInfo().apply {
+            name = "test.plugin.Settings"; packageName = component.packageName
+            authority = "test.plugin.settings"; applicationInfo = pkg.applicationInfo
+            exported = true; enabled = true
+        }
+        pkg.providers = arrayOf(provider)
+        pm.installPackage(pkg)
+        pm.setResolveInfosForIntent(Intent(ProjectionPlugin.ACTION), listOf(ResolveInfo().apply {
+            serviceInfo = pkg.services!!.single()
+        }))
+        registry.refresh()
+        assertEquals("test.plugin.settings", registry.entries().single().settingsProvider)
+        assertFalse(registry.enabled(registry.entries().single()))
+        provider.exported = false; pkg.providers = arrayOf(provider); pm.installPackage(pkg); registry.refresh()
+        assertNull(registry.entries().single().settingsProvider)
+        provider.exported = true
+        // An authority owned by another installed APK must not become a settings entry.
+        pm.removeProvider(ComponentName(component.packageName, provider.name))
+        val foreignApp = ApplicationInfo(pkg.applicationInfo).apply { packageName = "other.plugin"; uid += 1 }
+        pm.installPackage(PackageInfo().apply {
+            packageName = foreignApp.packageName; applicationInfo = foreignApp
+            providers = arrayOf(ProviderInfo(provider).apply {
+                packageName = foreignApp.packageName; applicationInfo = foreignApp
+            })
+        })
+        registry.refresh()
+        assertNull(registry.entries().single().settingsProvider)
     }
 }

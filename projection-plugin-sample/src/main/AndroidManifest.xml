@@ -6,7 +6,10 @@
             </intent-filter>
             <meta-data android:name="moe.feng.wheelplay.plugin.API_VERSION" android:value="2" />
             <meta-data android:name="moe.feng.wheelplay.plugin.SETTINGS_ACTIVITY" android:value=".SampleSettingsActivity" />
+            <meta-data android:name="moe.feng.wheelplay.plugin.SETTINGS_PROVIDER" android:value="${applicationId}.settings" />
         </service>
+        <provider android:name=".SampleSettingsProvider" android:authorities="${applicationId}.settings"
+            android:exported="true" android:grantUriPermissions="false" />
         <activity android:name=".SampleSettingsActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

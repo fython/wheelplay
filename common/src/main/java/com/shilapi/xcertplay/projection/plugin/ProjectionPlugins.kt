@@ -7,6 +7,7 @@ import android.os.Looper
 import android.os.Build
 import com.shilapi.xcertplay.projection.*
 import moe.feng.wheelplay.plugin.ProjectionPlugin
+import moe.feng.wheelplay.plugin.ProjectionSettings
 import java.security.MessageDigest
 import java.util.concurrent.CompletableFuture
 import com.shilapi.xcertplay.shared.R as UiR
@@ -22,6 +23,7 @@ internal data class InstalledProjectionPlugin(
     val problem: String?,
     val installedAt: Long = 0,
     val sourceId: String? = null,
+    val settingsProvider: String? = null,
 ) {
     val id get() = PREFIX + component.flattenToString()
     val consentKey get() = "$signer@$installedAt"
@@ -117,9 +119,19 @@ internal class ProjectionPluginRegistry(private val context: Context, private va
                             (it.permission == null || pm.checkPermission(it.permission, context.packageName) == PackageManager.PERMISSION_GRANTED)
                     }?.let { activity }
                 }
+                val settingsProvider = service.metaData?.getString(ProjectionSettings.META_PROVIDER)?.takeIf {
+                    Regex("[A-Za-z][A-Za-z0-9_.]*").matches(it)
+                }?.takeIf { authority ->
+                    pm.resolveContentProvider(authority, 0)?.let {
+                        it.packageName == service.packageName && it.applicationInfo.uid == service.applicationInfo.uid &&
+                            it.exported && it.enabled && it.applicationInfo.enabled &&
+                            (it.readPermission == null || pm.checkPermission(it.readPermission, context.packageName) == PackageManager.PERMISSION_GRANTED) &&
+                            (it.writePermission == null || pm.checkPermission(it.writePermission, context.packageName) == PackageManager.PERMISSION_GRANTED)
+                    } == true
+                }
                 InstalledProjectionPlugin(component, service.loadLabel(pm).toString().take(120),
                     service.applicationInfo.uid, signer, pkg.lastUpdateTime, pkg.longVersionCode, settings, problem, pkg.firstInstallTime,
-                    service.metaData?.getString(ProjectionPlugin.META_SOURCE_ID))
+                    service.metaData?.getString(ProjectionPlugin.META_SOURCE_ID), settingsProvider)
             }.getOrNull()
         }.distinctBy { it.id }.sortedBy { it.name }
         failures.entries.removeAll { it.value.plugin !in installed }

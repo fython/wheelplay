@@ -27,7 +27,7 @@ WheelPlay 可以发现独立安装的第三方插件 APK，通过显式绑定的
 | 分辨率 | 握手声明，单边 1–4096 像素，总像素不超过 8,388,608；变更需重连 |
 | 触控 | 0–10 点，稳定 ID 0–31，内容区域归一化坐标；空快照释放全部触点 |
 | 夜间模式 | 可选，必须实际实现后声明 |
-| 设置 | 同一 APK 内可导出的设置 Activity |
+| 设置 | 同 APK ContentProvider schema / Jetpack Remote Compose 内嵌设置，以及可导出的独立设置 Activity |
 | 音频/麦克风、媒体信息、桌面键盘/鼠标 | 暂未开放插件端口；不能声明浏览器音频能力 |
 | 编码帧/framebuffer IPC、多显示器 | 暂不支持；需要后续版本协商及有界媒体通道 |
 
@@ -61,7 +61,9 @@ adb install -r projection-plugin-sample/build/outputs/apk/debug/projection-plugi
 
 可选元数据 `SOURCE_ID` 用于关联内置输入源页面。ICCOA CarLink 插件声明 `iccoa-carlink`（SDK 常量 `SOURCE_ICCOA_CARLINK`）后，内置 ICCOA 卡片会显示已安装插件，其详情页提供插件设置、启用、连接和会话停止操作；未安装时显示安装引导。安装或从插件设置返回后会重新发现。多个插件声明同一 ID 时逐个列出，由用户选择；不兼容插件显示具体原因。缺省或未知 ID 仍可在通用插件页使用。
 
-该 ID 仅用于界面关联，不替代组件生成的运行时 ID，不授予权限或自动启用，也不按名称或包名猜测匹配。设置入口仍只接受插件同包内可访问的 Activity，浏览页面不会执行插件代码。
+该 ID 仅用于界面关联，不替代组件生成的运行时 ID，不授予权限或自动启用，也不按名称或包名猜测匹配。设置入口接受插件同包内可访问的 Activity 或设置 Provider；发现插件时只读取元数据，打开设置后才调用 Provider。
+
+插件也可声明 `moe.feng.wheelplay.plugin.SETTINGS_PROVIDER`，通过独立的设置协议 v1 在宿主 Activity 内显示标准 schema 表单或 Jetpack Remote Compose 页面。旧的 Activity 入口继续兼容，不改变投影 Binder API v2。完整协议、示例和生命周期见 [插件内嵌设置](PLUGIN_SETTINGS.md)。
 
 建议继承 `ProjectionPluginService`，实现：
 

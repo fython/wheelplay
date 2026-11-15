@@ -218,4 +218,17 @@
     <string name="settings_safe_area_increase">%1$s增加 1%%</string>
     <string name="settings_safe_area_decrease">%1$s减少 1%%</string>
     <string name="settings_safe_area_slot">分辨率：%1$d × %2$d · 独立保存</string>
+    <string name="plugin_settings_busy">设置正在更新，请稍后重试</string>
+    <string name="plugin_settings_conflict">设置已在其他位置修改，已载入最新值。</string>
+    <string name="plugin_settings_timeout">插件未响应，请重试或打开插件独立设置页。</string>
+    <string name="plugin_settings_changed">插件已更新或移除，请关闭此页并重新打开设置。</string>
+    <string name="plugin_settings_close">关闭</string>
+    <string name="plugin_settings_external">在插件中打开</string>
+    <string name="plugin_settings_retry">重试</string>
+    <string name="plugin_settings_schema">标准设置</string>
+    <string name="plugin_settings_remote">插件布局</string>
+    <string name="plugin_settings_run">执行</string>
+    <string name="plugin_settings_edit">修改</string>
+    <string name="plugin_settings_reconnect">下次连接时生效</string>
+    <string name="plugin_settings_save">保存</string>
 </resources>
