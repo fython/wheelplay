@@ -557,3 +557,12 @@ run-1 捕获的第 12 个访问单元（索引 11）为：
 - `npm run test:browser:media`：真实 Chromium 在生产 CSP 下通过 seek 能力切换、最后一次拖动位置（42.123 秒 → 42123 毫秒）、暂停状态保持、切歌后的旧 seek 回调隔离，以及既有画面／触控／重连检查。回调由测试脚本触发，未验证车机的实体按键或系统进度条 UI。
 - `:mobile:lintDebug`：0 错误、18 警告；`git diff --check` 通过。
 - 未安装或操作真实车机／iPhone。手机音乐应用是否执行跳转、进度回报及本地／浏览器输出的声音连续性仍需实机验收。本次复用现有 CarPlay 音频链路，未根据猜测注入 AirPlay 缓冲清空命令。
+
+## Canvas WebGL 绘制（2026-11-15）
+
+兼容 Canvas 与直接 Canvas 默认使用 Canvas 2D；连接页提供默认关闭的 WebGL 实验开关，偏好在当前浏览器保存，下次手动连接生效，自动重连沿用本次选择。原生 Video 下禁用开关。WebGL 不可用时使用 Canvas 2D，已取得 WebGL 后的失败沿用图片回退。为避免上下文类型冲突，2D 和 WebGL 实验使用独立的空画布。纹理、顶点缓冲及程序在会话内复用，停止时释放；保留新帧去重、回调停滞补绘、VideoFrame 释放和会话代次隔离。`wheelplayStats.presentation.renderBackend` 及 receiver 同名字段在采样后区分 webgl / 2d / native。
+
+- `npm run check`、`npm test`：同步至最新 main 后通过，232 项 Node 测试。包含 GL 资源复用／释放、旋转、着色器失败、纹理尺寸限制、首次上传错误、上下文丢失与恢复许可、2D 回退，以及错误回调保帧和重启隔离；覆盖默认关闭、原生模式禁用、偏好存储失败、两个 Canvas 模式启用、同页开关和自动重连的选择隔离。
+- `npm run test:browser:webgl`：真实 Chromium / ANGLE SwiftShader 验证四象限颜色与方向、横竖屏、跨动画帧保留画面、HTMLVideoElement 上传、真实 VideoFrame 上传与 close、同一画布切换模式、上下文丢失与恢复及真实 2D 回退；验证页面两个画布上的 2D → WebGL → 2D 切换、开关默认状态和启用／关闭后刷新页面的偏好恢复。输入为合成色块，轨道消费使用测试 reader；未验证手机 WebRTC 吞吐或硬件 GPU 帧率。
+- `npm run test:browser:media`：同步至最新 main 后通过，包含图片回退、触控、重连、配对键盘、设置弹窗与 Media Session 回归。原生全屏未在当前浏览器环境进入，对应 OEM 全屏切换检查未执行。
+- 未操作车机／iPhone；未测量目标设备帧率、功耗或上传耗时。`preserveDrawingBuffer=true` 为沿用断线保帧契约，额外缓冲开销应纳入设备对比；此前 Canvas 2D 的耗时数据不代表 WebGL 性能。

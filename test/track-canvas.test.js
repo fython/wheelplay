@@ -6,7 +6,7 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
 function fixture({ contextAvailable = true, constructError = false, onError = () => {} } = {}) {
   const draws = [], ready = [], sizes = [], errors = [], readers = [], configurations = [];
   const context = { drawImage: (...args) => draws.push(args) };
-  const canvas = { hidden: true, width: 0, height: 0, getContext: () => contextAvailable ? context : null };
+  const canvas = { hidden: true, width: 0, height: 0, getContext: type => type === '2d' && contextAvailable ? context : null };
   const renderer = createTrackCanvasRenderer(canvas, {
     onReady: size => ready.push(size), onResize: size => sizes.push(size),
     onError: reason => { errors.push(reason); onError(reason); },
@@ -41,7 +41,7 @@ test('processor bounds its queue, waits for valid output, and reports first draw
   assert.equal(f.ready.length, 1); assert.equal(f.canvas.hidden, false);
   await f.frame(720, 1280);
   assert.deepEqual(f.sizes, [{ width: 720, height: 1280 }]);
-  assert.deepEqual(f.renderer.snapshot(), { width: 720, height: 1280, renderedFrames: 2, presentedFrames: null });
+  assert.deepEqual(f.renderer.snapshot(), { width: 720, height: 1280, renderedFrames: 2, presentedFrames: null, renderBackend: '2d' });
 });
 
 test('stop cancels without waiting; a late frame is released without drawing into a new session', async () => {

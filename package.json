@@ -18,6 +18,7 @@
     "demo": "node scripts/preview.mjs --demo",
     "test": "node --test test/*.test.js",
     "test:browser:media": "node scripts/test-media-presentation.mjs",
+    "test:browser:webgl": "node scripts/test-media-presentation.mjs --webgl-only",
     "check": "node --check common/src/main/assets/web/app.js",
     "android:build": "./gradlew :mobile:assembleDebug",
     "android:test": "./gradlew :common:testDebugUnitTest"

@@ -390,15 +390,111 @@ export function createControlOutbox(socket, {
   };
 }
 
+// Both Canvas modes must use the same context type: a canvas cannot switch
+// between WebGL and 2D, even after its dimensions are reset on disconnect.
+const restorableCanvases = new WeakSet();
+export function createCanvasFramePainter(canvas, { webgl = false, onError = () => {} } = {}) {
+  const gl = webgl && canvas.getContext('webgl', {
+    alpha: false, antialias: false, depth: false, stencil: false,
+    // Recovery copies the last picture in a later task, before clearing it.
+    preserveDrawingBuffer: true,
+  });
+  if (!gl) {
+    const context = canvas.getContext('2d', { alpha: false });
+    if (!context) throw Object.assign(new Error('Canvas rendering unavailable'), { name: 'NotSupportedError' });
+    return { backend: '2d', draw: (source, width, height) => context.drawImage(source, 0, 0, width, height), dispose() {} };
+  }
+  if (!restorableCanvases.has(canvas)) {
+    // Keep restoration enabled even if draw notices loss and disposes the
+    // painter before the browser dispatches its asynchronous loss event.
+    canvas.addEventListener('webglcontextlost', event => event.preventDefault());
+    restorableCanvases.add(canvas);
+  }
+  let program = null, buffer = null, texture = null, disposed = false, width = 0, height = 0;
+  const shaders = [];
+  const lost = event => {
+    event.preventDefault(); // Permit restoration for a subsequent receiver retry.
+    if (!disposed) onError(new Error('WebGL context lost'));
+  };
+  function dispose() {
+    if (disposed) return;
+    disposed = true;
+    canvas.removeEventListener('webglcontextlost', lost);
+    if (texture) gl.deleteTexture(texture);
+    if (buffer) gl.deleteBuffer(buffer);
+    if (program) gl.deleteProgram(program);
+    for (const shader of shaders) gl.deleteShader(shader);
+  }
+  try {
+    if (gl.isContextLost()) throw new Error('WebGL context lost');
+    const compile = (type, source) => {
+      const shader = gl.createShader(type);
+      if (!shader) throw new Error('WebGL shader allocation failed');
+      shaders.push(shader); gl.shaderSource(shader, source); gl.compileShader(shader);
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) throw new Error('WebGL shader compilation failed');
+      return shader;
+    };
+    program = gl.createProgram();
+    if (!program) throw new Error('WebGL program allocation failed');
+    // Keep texel coordinates precise for high-resolution dashboard text.
+    const precision = gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT)?.precision > 0 ? 'highp' : 'mediump';
+    gl.attachShader(program, compile(gl.VERTEX_SHADER, `
+      attribute vec2 position;
+      varying ${precision} vec2 uv;
+      void main() {
+        uv = position * vec2(0.5, -0.5) + 0.5;
+        gl_Position = vec4(position, 0.0, 1.0);
+      }`));
+    gl.attachShader(program, compile(gl.FRAGMENT_SHADER, `
+      precision ${precision} float;
+      varying ${precision} vec2 uv;
+      uniform sampler2D frame;
+      void main() { gl_FragColor = vec4(texture2D(frame, uv).rgb, 1.0); }`));
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error('WebGL program linking failed');
+    buffer = gl.createBuffer(); texture = gl.createTexture();
+    if (!buffer || !texture) throw new Error('WebGL buffer allocation failed');
+    gl.useProgram(program);
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+    const position = gl.getAttribLocation(program, 'position');
+    gl.enableVertexAttribArray(position); gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.uniform1i(gl.getUniformLocation(program, 'frame'), 0);
+    const maxSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+    canvas.addEventListener('webglcontextlost', lost);
+    return {
+      backend: 'webgl', dispose,
+      draw(source, w, h) {
+        if (disposed || gl.isContextLost()) throw new Error('WebGL context lost');
+        const resized = width !== w || height !== h;
+        if (resized && (w > maxSize || h > maxSize)) throw Object.assign(new Error('Video exceeds WebGL texture size'), { name: 'NotSupportedError' });
+        gl.viewport(0, 0, w, h);
+        // Upload the browser-owned source directly, without JS pixel readback.
+        // texImage2D also permits the browser's optimized video upload path.
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        // Check the first upload and size changes, not every steady-state frame.
+        if (resized && gl.getError() !== gl.NO_ERROR) throw new Error('WebGL frame upload failed');
+        width = w; height = h;
+      },
+    };
+  } catch (error) { dispose(); throw error; }
+}
+
 // Keep the decoder in the DOM, outside the viewport. display:none/hidden can
-// suppress video frame callbacks on embedded browsers. drawImage copies decoded
-// frames directly; it does not read pixels back through getImageData.
+// suppress video frame callbacks on embedded browsers.
 export function createVideoCanvasRenderer(video, canvas, {
   onFrame = () => {}, onDraw = () => {}, onError = () => {},
+  webgl = false,
   requestFrame = callback => requestAnimationFrame(callback), cancelFrame = id => cancelAnimationFrame(id),
   now = () => performance.now(),
 } = {}) {
-  let context = null, running = false, generation = 0, videoCallback = null, animationCallback = null;
+  let painter = null, running = false, generation = 0, videoCallback = null, animationCallback = null;
   let lastVideoCallbackAt = 0, lastFrameKey = null;
   function prepare() {
     video.classList.toggle('offscreen-video', true);
@@ -408,11 +504,15 @@ export function createVideoCanvasRenderer(video, canvas, {
     running = false; generation++;
     if (videoCallback !== null && video.cancelVideoFrameCallback) video.cancelVideoFrameCallback(videoCallback);
     if (animationCallback !== null) cancelFrame(animationCallback);
-    videoCallback = animationCallback = null; context = null; lastFrameKey = null;
+    videoCallback = animationCallback = null; painter?.dispose(); painter = null; lastFrameKey = null;
     video.hidden = true; video.classList.toggle('offscreen-video', false);
     canvas.hidden = true; canvas.width = canvas.height = 0;
   }
-  function fail(error) { stop(); onError(error); }
+  function fail(error) {
+    const token = generation;
+    try { onError(error); }
+    finally { if (generation === token) stop(); }
+  }
   function draw(metadata = null, stalled = false) {
     if (!running || video.readyState < 2 || !video.videoWidth || !video.videoHeight) return;
     try {
@@ -425,7 +525,7 @@ export function createVideoCanvasRenderer(video, canvas, {
       const key = !stalled && frames > 0 ? `frame:${frames}` : Number.isFinite(time) ? `time:${time}` : null;
       if (!resized && key !== null && key === lastFrameKey) return;
       if (resized) { canvas.width = width; canvas.height = height; }
-      context.drawImage(video, 0, 0, width, height);
+      painter.draw(video, width, height);
       onDraw();
       lastFrameKey = key;
       const first = canvas.hidden;
@@ -436,8 +536,7 @@ export function createVideoCanvasRenderer(video, canvas, {
   function start() {
     stop(); prepare();
     try {
-      context = canvas.getContext('2d', { alpha: false });
-      if (!context) throw Object.assign(new Error('Canvas 2D unavailable'), { name: 'NotSupportedError' });
+      painter = createCanvasFramePainter(canvas, { webgl, onError: fail });
       running = true; lastVideoCallbackAt = now();
       const token = generation, current = () => running && token === generation;
       const observe = (_, metadata) => {
@@ -459,7 +558,7 @@ export function createVideoCanvasRenderer(video, canvas, {
       animationCallback = requestFrame(refresh);
     } catch (error) { fail(error); }
   }
-  return { prepare, start, stop };
+  return { prepare, start, stop, get backend() { return painter?.backend ?? null; } };
 }
 
 function isRtcErrorRetryable(error) {
@@ -473,16 +572,24 @@ export function videoRendererPreference(value, legacy) {
 // A reader owns each VideoFrame until it is drawn or discarded, including after stop.
 export function createTrackCanvasRenderer(canvas, {
   onReady = () => {}, onResize = () => {}, onError = () => {},
+  webgl = false,
   createProcessor = init => new MediaStreamTrackProcessor(init),
 } = {}) {
-  let generation = 0, reader = null, running = false, width = 0, height = 0, renderedFrames = 0;
+  let generation = 0, reader = null, painter = null, running = false, width = 0, height = 0, renderedFrames = 0;
   function stop() {
     generation++; running = false;
     const old = reader; reader = null;
     if (old) { try { Promise.resolve(old.cancel()).catch(() => {}); } catch (_) {} }
+    painter?.dispose(); painter = null;
     canvas.hidden = true; canvas.width = canvas.height = 0;
   }
-  async function consume(activeReader, context, token) {
+  function fail(error, token) {
+    if (!running || generation !== token) return;
+    // Let the receiver freeze the last picture before stop clears the canvas.
+    try { onError(error.message === 'track-ended' ? 'track-ended' : 'renderer-error', isRtcErrorRetryable(error)); }
+    finally { if (generation === token) stop(); }
+  }
+  async function consume(activeReader, activePainter, token) {
     const current = () => running && generation === token;
     try {
       while (current()) {
@@ -493,7 +600,7 @@ export function createTrackCanvasRenderer(canvas, {
           if (!frame || !(frame.displayWidth > 0) || !(frame.displayHeight > 0)) continue;
           const resized = width !== frame.displayWidth || height !== frame.displayHeight;
           if (resized) { canvas.width = frame.displayWidth; canvas.height = frame.displayHeight; }
-          context.drawImage(frame, 0, 0, frame.displayWidth, frame.displayHeight);
+          activePainter.draw(frame, frame.displayWidth, frame.displayHeight);
           width = frame.displayWidth; height = frame.displayHeight; renderedFrames++;
           canvas.hidden = false;
           if (renderedFrames === 1) onReady({ width, height });
@@ -501,11 +608,7 @@ export function createTrackCanvasRenderer(canvas, {
         } finally { frame?.close(); }
       }
     } catch (error) {
-      if (current()) {
-        // Let the receiver freeze the last picture before stop clears the canvas.
-        try { onError(error.message === 'track-ended' ? 'track-ended' : 'renderer-error', isRtcErrorRetryable(error)); }
-        finally { if (generation === token) stop(); }
-      }
+      fail(error, token);
     } finally {
       try { activeReader.releaseLock(); } catch (_) {}
       if (reader === activeReader) reader = null;
@@ -515,21 +618,22 @@ export function createTrackCanvasRenderer(canvas, {
     start(track) {
       stop(); width = height = renderedFrames = 0;
       try {
-        const context = canvas.getContext('2d', { alpha: false });
-        if (!context) throw Object.assign(new Error('Canvas 2D unavailable'), { name: 'NotSupportedError' });
+        const token = generation;
+        painter = createCanvasFramePainter(canvas, { webgl, onError: error => fail(error, token) });
         reader = createProcessor({ track, maxBufferSize: 1 }).readable.getReader();
         running = true;
-        void consume(reader, context, generation);
+        void consume(reader, painter, token);
       } catch (error) { stop(); onError('renderer-error', isRtcErrorRetryable(error)); }
     },
     stop,
-    snapshot: () => ({ width, height, renderedFrames, presentedFrames: null }),
+    snapshot: () => ({ width, height, renderedFrames, presentedFrames: null, renderBackend: painter?.backend ?? null }),
   };
 }
 
 // Video elements exist only for the two legacy renderers, and belong to one offer.
 export function createVideoRenderer(mode, canvas, {
   createVideo, onReady = () => {}, onResize = () => {}, onError = () => {},
+  webgl = false,
 } = {}) {
   let video = null, copy = null, frameCallback = null, generation = 0, ready = false, started = false;
   let width = 0, height = 0, presentedFrames = null, renderedFrames = mode === 'video-canvas' ? 0 : null;
@@ -559,6 +663,7 @@ export function createVideoRenderer(mode, canvas, {
         const token = generation, current = () => video !== null && token === generation;
         if (mode === 'video-canvas') {
           copy = createVideoCanvasRenderer(video, canvas, {
+            webgl,
             onDraw: () => { renderedFrames++; }, onFrame: report,
             onError: error => { if (current()) onError('renderer-error', isRtcErrorRetryable(error)); },
           });
@@ -589,7 +694,7 @@ export function createVideoRenderer(mode, canvas, {
       } catch (error) { onError('renderer-error', isRtcErrorRetryable(error)); }
     },
     stop,
-    snapshot: () => ({ width, height, presentedFrames, renderedFrames }),
+    snapshot: () => ({ width, height, presentedFrames, renderedFrames, renderBackend: copy?.backend ?? (mode === 'native' ? 'native' : null) }),
   };
 }
 
@@ -683,7 +788,7 @@ export function createRtcReceiver(createRenderer, {
               receivedFps: rate('framesReceived'), decodedFps: rate('framesDecoded'),
               presentedFps: presented !== null && previous?.presented !== null && elapsed ? Math.max(0, presented - previous.presented) * 1000 / elapsed : null,
               renderedFps: rendered !== null && previous?.rendered !== null && elapsed ? Math.max(0, rendered - previous.rendered) * 1000 / elapsed : null,
-              renderedFrames: rendered,
+              renderedFrames: rendered, renderBackend: output.renderBackend ?? null,
               presentedFrames: presented,
               decodeMs: averageMs('totalDecodeTime', 'framesDecoded'),
               jitterBufferMs: averageMs('jitterBufferDelay', 'jitterBufferEmittedCount'),
@@ -884,12 +989,15 @@ if (typeof document !== 'undefined') {
   const screens = [screen, $('screen-next'), $('screen-third')];
   const heldFrame = $('held-frame');
   let video = null;
-  const canvas = $('video-canvas');
+  // Context types cannot change on a canvas. Keep a separate, initially empty
+  // surface so users can toggle the experiment between display sessions.
+  const canvas2d = $('video-canvas'), canvasWebgl = $('video-canvas-webgl');
+  let canvas = canvas2d;
   const display = $('display');
   const settingsDialog = $('settings-dialog');
   const touchSurface = $('touch-surface');
   // Read-only diagnostic snapshots; counters never include pairing credentials or video payloads.
-  const rendererStats = { selectedMode: 'native', activeMode: 'waiting', renderedFps: null, renderedFrames: null, fallbackReason: null };
+  const rendererStats = { selectedMode: 'native', activeMode: 'waiting', renderBackend: null, renderedFps: null, renderedFrames: null, fallbackReason: null };
   const performanceStats = { source: null, transport: null, receiver: null, image: null, presentation: rendererStats };
   const imageDebugStats = createImageDebugStats();
   let debugRevision = null;
@@ -969,12 +1077,20 @@ if (typeof document !== 'undefined') {
     },
   });
   const rendererPreference = 'wheelplay.videoRenderer';
+  const webglPreference = 'wheelplay.canvasWebgl';
+  const webglOption = $('canvas-webgl');
+  webglOption.checked = false;
+  try { webglOption.checked = window.localStorage.getItem(webglPreference) === 'true'; } catch (_) {}
+  webglOption.addEventListener('change', () => {
+    try { window.localStorage.setItem(webglPreference, String(webglOption.checked)); } catch (_) {}
+  });
   let selectedMode = 'native';
   try {
     selectedMode = videoRendererPreference(window.localStorage.getItem(rendererPreference), window.localStorage.getItem('wheelplay.canvasVideo'));
     window.localStorage.setItem(rendererPreference, selectedMode);
   } catch (_) {}
   let launchMode = selectedMode;
+  let launchWebgl = false;
   const processorSupported = () => typeof MediaStreamTrackProcessor === 'function';
   function updateRendererOptions() {
     for (const mode of ['native', 'video-canvas', 'track-canvas']) {
@@ -982,6 +1098,7 @@ if (typeof document !== 'undefined') {
       $(`renderer-${mode}-card`).classList.toggle('selected', selectedMode === mode);
     }
     $('renderer-hint').hidden = selectedMode !== 'track-canvas' || processorSupported();
+    webglOption.disabled = selectedMode === 'native';
   }
   for (const mode of ['native', 'video-canvas', 'track-canvas']) {
     $(`renderer-${mode}`).addEventListener('change', () => {
@@ -1330,6 +1447,7 @@ if (typeof document !== 'undefined') {
     performanceStats.source = performanceStats.transport = performanceStats.receiver = performanceStats.image = null;
     imageDebugStats.reset();
     rendererStats.activeMode = 'waiting';
+    rendererStats.renderBackend = null;
   }
   function exitLaunchFullscreen() {
     try { Promise.resolve(document.exitFullscreen()).catch(() => {}); } catch (_) {}
@@ -1380,6 +1498,7 @@ if (typeof document !== 'undefined') {
     const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/stream?${auth}&media=2&images=3&nowPlaying=1`);
     ws.binaryType = 'arraybuffer';
     const mode = launchMode;
+    const webgl = launchWebgl;
     socket = ws;
     const connectTimer = setTimeout(() => ws.close(), 8000);
     ws.onopen = () => {
@@ -1398,14 +1517,14 @@ if (typeof document !== 'undefined') {
       webpSupport.then(supported => {
         if (supported && socket === ws && ws.readyState === WebSocket.OPEN) send({ type: 'image-format', format: 'webp' });
       });
-      Object.assign(rendererStats, { selectedMode: mode, activeMode: 'waiting', renderedFps: null, renderedFrames: null,
+      Object.assign(rendererStats, { selectedMode: mode, activeMode: 'waiting', renderBackend: null, renderedFps: null, renderedFrames: null,
         fallbackReason: mode === 'track-canvas' && !processorSupported() ? 'processor-unsupported' : null });
       rtc = createRtcReceiver(callbacks => {
         if (mode === 'track-canvas') {
           if (!processorSupported()) throw new Error('processor-unsupported');
-          return createTrackCanvasRenderer(canvas, callbacks);
+          return createTrackCanvasRenderer(canvas, { ...callbacks, webgl });
         }
-        return createVideoRenderer(mode, canvas, { ...callbacks, createVideo: createLegacyVideo });
+        return createVideoRenderer(mode, canvas, { ...callbacks, webgl, createVideo: createLegacyVideo });
       }, { send,
         onReset: () => { holdRtcFrame(); presentation.invalidate('rtc'); },
         onResize: size => { if (socket === ws) showRtcSize(size); },
@@ -1419,12 +1538,14 @@ if (typeof document !== 'undefined') {
           if (socket !== ws) return;
           video = null; rtcFps = null; rendererStats.fallbackReason = reason; rendererStats.renderedFps = null;
           performanceStats.receiver = null;
+          rendererStats.renderBackend = null;
           presentation.invalidate('rtc');
         },
         onStats: (fps, metrics) => {
           const outputFps = mode === 'track-canvas' ? metrics.renderedFps : fps;
           rtcFps = outputFps === null ? null : Math.round(outputFps); performanceStats.receiver = metrics;
           rendererStats.renderedFps = metrics.renderedFps; rendererStats.renderedFrames = metrics.renderedFrames;
+          rendererStats.renderBackend = metrics.renderBackend;
           presentation.refresh();
         },
       });
@@ -1566,6 +1687,8 @@ if (typeof document !== 'undefined') {
     }
     closePinKeypad();
     launchMode = selectedMode;
+    launchWebgl = selectedMode !== 'native' && webglOption.checked;
+    canvas = launchWebgl ? canvasWebgl : canvas2d;
     const generation = ++authGeneration;
     prepareLaunchPresentation();
     stopQr(); $('connect').disabled = true; $('message').textContent = '';
@@ -1671,7 +1794,7 @@ if (typeof document !== 'undefined') {
   surface.addEventListener('pointercancel', cancel);
   surface.addEventListener('lostpointercapture', cancel);
   }
-  for (const surface of [...screens, canvas, touchSurface]) bindSurface(surface);
+  for (const surface of [...screens, canvas2d, canvasWebgl, touchSurface]) bindSurface(surface);
   window.addEventListener('blur', release);
   document.addEventListener('visibilitychange', () => { if (document.hidden) release(); presentation.refresh(); });
   window.addEventListener('pagehide', () => disconnect(false));
