@@ -2,6 +2,8 @@ package com.shilapi.xcertplay.airplay
 
 import java.net.InetAddress
 import java.net.NetworkInterface
+import java.net.ServerSocket
+import java.net.Socket
 import java.util.concurrent.atomic.AtomicLong
 
 /** 每次绑定生成独立身份，防止旧 accept 和旧清理作用于新 listener。 */
@@ -19,3 +21,13 @@ data class AirPlayTcpAccepted(
 internal fun isInternalAirPlayPeer(peer: InetAddress, local: InetAddress): Boolean =
     peer.isLoopbackAddress || peer == local ||
         runCatching { NetworkInterface.getByInetAddress(peer) != null }.getOrDefault(true)
+
+/** Accept data connections only from the control-session peer, closing strangers unread. */
+internal fun ServerSocket.acceptFrom(expected: InetAddress, onRejected: (InetAddress) -> Unit = {}): Socket {
+    while (true) {
+        val socket = accept()
+        if (socket.inetAddress == expected) return socket
+        safeClose(socket)
+        onRejected(socket.inetAddress)
+    }
+}

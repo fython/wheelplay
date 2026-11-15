@@ -11,6 +11,8 @@ import java.net.Inet6Address
 import java.net.InetAddress
 import java.math.BigInteger
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ScheduledThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 
 /** Rendering seam for the decrypted CarPlay media streams. */
 interface MediaSink {
@@ -36,8 +38,8 @@ interface MediaSink {
 
 /**
  * Concrete [AirPlayMediaHandler] that binds the screen, audio and iAP2 DataStream ports,
- * decrypts their payloads, and hands decoded media to a [MediaSink]. Telephony and speech
- * streams can additionally return a PCM microphone uplink through the sink.
+ * decrypts their payloads, and hands decoded media to a [MediaSink]. Streams that request input
+ * can additionally return a microphone uplink through the sink.
  */
 class CarPlayMediaEngine(
     private val sink: MediaSink,
@@ -64,9 +66,20 @@ class CarPlayMediaEngine(
         val handler: (BlockingDuplexByteStream) -> Boolean,
     )
 
+    private data class PendingMicrophone(val session: AirPlaySession, val start: MicrophoneStart)
+
     private val streams = ConcurrentHashMap<StreamKey, Closeable>()
     private val audioMeta = ConcurrentHashMap<Int, AudioMeta>()
-    private val pendingMicrophone = ConcurrentHashMap<Int, MicrophoneConfig>()
+    // The sink owns one microphone per stream type. Serialize delayed starts with replacement/teardown.
+    private val microphoneLock = Any()
+    private val pendingMicrophone = mutableMapOf<Int, PendingMicrophone>()
+    private val microphoneScheduler by lazy {
+        ScheduledThreadPoolExecutor(1) { task -> Thread(task, "carplay-mic-start").apply { isDaemon = true } }.apply {
+            removeOnCancelPolicy = true
+            setKeepAliveTime(5, TimeUnit.SECONDS)
+            allowCoreThreadTimeOut(true)
+        }
+    }
     private val audioCaptures = ConcurrentHashMap<Int, AudioPacketCapture>()
     private val pendingIapTunnels = ConcurrentHashMap<AirPlaySession, PendingIapTunnel>()
     @Volatile private var iapTunnelHandler: ((BlockingDuplexByteStream) -> Boolean)? = null
@@ -77,9 +90,10 @@ class CarPlayMediaEngine(
 
     override fun onScreen(session: AirPlaySession, type: Int, stream: Map<String, Any?>): Int? {
         val key = outputKey(session, stream) ?: return null
+        val peer = session.remoteAddress ?: return null
         val streamKey = StreamKey(session, type)
         Log.i(TAG, "airplay screen key connectionID=${unsignedPlistDecimal(stream["streamConnectionID"])}")
-        val screen = ScreenStream(key, session::logDebug, sink::createVideoFrameDecoder)
+        val screen = ScreenStream(key, peer, session::logDebug, sink::createVideoFrameDecoder)
         sink.setVideoDiagnosticHandler(type) {
             if (it == "first frame rendered") session.videoFrameRendered()
             session.logDebug("Video: $it")
@@ -118,7 +132,7 @@ class CarPlayMediaEngine(
         streams.remove(streamKey)?.close()
         audioMeta.remove(type)
         audioCaptures.remove(type)?.close()
-        if (pendingMicrophone.remove(type) != null) sink.onMicrophoneStopped(type)
+        synchronized(microphoneLock) { stopMicrophone(type) }
         sink.onAudioStopped(type)
 
         val key = outputKey(session, stream) ?: return null
@@ -138,10 +152,11 @@ class CarPlayMediaEngine(
         val latencyMs = (stream["audioLatencyMs"] as? Number)?.toInt() ?: 0
         val meta = AudioMeta(type, format, connectionId, latencyMs)
         val microphone = microphoneConfig(session, type, stream, format)
-        if (microphone != null) pendingMicrophone[type] = microphone
+        val pending = microphone?.let { config ->
+            PendingMicrophone(session, MicrophoneStart { sink.onMicrophoneStarted(type, config) })
+        }
 
         val capture = audioCaptureDirectory?.let { AudioPacketCapture(it, type) }
-        if (capture != null) audioCaptures[type] = capture
         val audio = AudioStream(key, type, session::logDebug)
         val (dataPort, controlPort) = audio.listen(
             object : AudioStream.Listener {
@@ -149,7 +164,11 @@ class CarPlayMediaEngine(
                     meta.firstSample = firstSample
                     meta.originNs = nanoTime()
                     sink.onAudioStarted(type, format, firstSample)
-                    microphone?.let { sink.onMicrophoneStarted(type, it) }
+                    synchronized(microphoneLock) {
+                        if (!session.isClosed && pending != null && pendingMicrophone[type] === pending) {
+                            pending.start.onDownlink()
+                        }
+                    }
                 }
 
                 override fun onRtp(rtp: ByteArray, sample: Int) =
@@ -165,8 +184,29 @@ class CarPlayMediaEngine(
                 }
             },
         )
-        streams[streamKey] = audio
-        audioMeta[type] = meta
+        synchronized(microphoneLock) {
+            if (session.isClosed) {
+                audio.close()
+                capture?.close()
+                pending?.start?.close()
+                return null
+            }
+            streams[streamKey] = audio
+            audioMeta[type] = meta
+            if (capture != null) audioCaptures[type] = capture
+            if (pending != null) {
+                pendingMicrophone[type] = pending
+                if (MicrophoneStart.startsWithoutDownlink(audioType)) {
+                    pending.start.scheduleSilentStart(microphoneScheduler, MicrophoneStart.SILENT_START_MILLIS) { startNow ->
+                        synchronized(microphoneLock) {
+                            if (!session.isClosed && pendingMicrophone[type] === pending && startNow()) {
+                                session.logDebug("Audio: microphone started without downlink type=$type audioType=$audioType")
+                            }
+                        }
+                    }
+                }
+            }
+        }
         return linkedMapOf(
             "type" to type,
             "dataPort" to dataPort,
@@ -179,6 +219,7 @@ class CarPlayMediaEngine(
         val uuid = (stream["clientTypeUUID"] as? String)?.uppercase() ?: return null
         if (uuid != IAP_DATASTREAM_UUID) return null
         val shared = session.sharedSecret ?: return null
+        val peer = session.remoteAddress ?: return null
         val seed = unsignedPlistDecimal(stream["seed"]) ?: return null
         session.logDebug(
             "AirPlay iAP SETUP uuid=$uuid seed=$seed " +
@@ -192,6 +233,7 @@ class CarPlayMediaEngine(
         )
         val tunnel = IapTunnel(
             readKey = key,
+            expectedPeer = peer,
             bindAddress = session.localAddress
                 ?: when (session.remoteAddress) {
                     is Inet6Address -> InetAddress.getByName("::")
@@ -284,7 +326,9 @@ class CarPlayMediaEngine(
 
     override fun onTeardown(session: AirPlaySession, type: Int) {
         if (type == STREAM_TYPE_DATA) clearPendingIapTunnel(session)
-        if (pendingMicrophone.remove(type) != null) sink.onMicrophoneStopped(type)
+        synchronized(microphoneLock) {
+            if (pendingMicrophone[type]?.session === session) stopMicrophone(type)
+        }
         audioMeta.remove(type)
         audioCaptures.remove(type)?.close()
         sink.onAudioStopped(type)
@@ -294,15 +338,24 @@ class CarPlayMediaEngine(
 
     override fun onSessionClosed(session: AirPlaySession) {
         clearPendingIapTunnel(session)
+        synchronized(microphoneLock) {
+            pendingMicrophone.filterValues { it.session === session }.keys.toList().forEach(::stopMicrophone)
+        }
         val sessionStreams = streams.keys.filter { it.session === session }
         sessionStreams
             .filter { isScreenStreamType(it.type) }
             .forEach { sink.onScreenStreamActive(it.type, false) }
         sessionStreams.forEach { streams.remove(it)?.close() }
         audioMeta.clear()
-        pendingMicrophone.clear()
         audioCaptures.values.forEach(AudioPacketCapture::close)
         audioCaptures.clear()
+    }
+
+    /** Must hold microphoneLock, including the sink callback, to fence already-running timer tasks. */
+    private fun stopMicrophone(type: Int) {
+        val previous = pendingMicrophone.remove(type) ?: return
+        previous.start.close()
+        sink.onMicrophoneStopped(type)
     }
 
     private fun replacePendingIapTunnel(session: AirPlaySession, next: PendingIapTunnel) {
@@ -331,7 +384,7 @@ class CarPlayMediaEngine(
         format: AudioFormat,
     ): MicrophoneConfig? {
         if (!microphoneEnabled || type != STREAM_TYPE_MAIN_AUDIO) return null
-        if (format.audioType != "telephony" && format.audioType != "speechrecognition") return null
+        if (!wantsMicrophone(format.audioType, stream)) return null
         val port = (stream["dataPort"] as? Number)?.toInt() ?: return null
         if (port !in 1..65535) return null
         val host = session.remoteAddress ?: return null
@@ -343,7 +396,7 @@ class CarPlayMediaEngine(
         } else if (framesPerPacket > 0) {
             Math.round(framesPerPacket * 1000.0 / format.sampleRate).toInt().coerceIn(5, 60)
         } else {
-            20
+            MicrophoneConfig.pcmFrameMillis(format.sampleRate, format.channels)
         }
         val opusBitrate = when {
             formatBits and OPUS_48K != 0L -> 96_000
@@ -383,17 +436,28 @@ class CarPlayMediaEngine(
     private fun isScreenStreamType(type: Int): Boolean =
         type == STREAM_TYPE_MAIN_SCREEN || type == STREAM_TYPE_ALT_SCREEN
 
-    private companion object {
-        const val TAG = "xcertplay-usb"
-        const val STREAM_TYPE_MAIN_SCREEN = 110
-        const val STREAM_TYPE_ALT_SCREEN = 111
-        const val STREAM_TYPE_MAIN_AUDIO = 100
-        const val STREAM_TYPE_DATA = 130
-        const val DATASTREAM_OUTPUT_KEY = "DataStream-Output-Encryption-Key"
-        const val DATASTREAM_INPUT_KEY = "DataStream-Input-Encryption-Key"
-        const val IAP_DATASTREAM_UUID = "E9459FD0-BCAD-4C45-820F-1E72447EF2F2"
-        const val OPUS_24K = 0x20000000L
-        const val OPUS_48K = 0x40000000L
+    internal companion object {
+        /** App audio also carries navigation, so record it only when the phone requests input. */
+        fun wantsMicrophone(audioType: String, stream: Map<String, Any?>): Boolean = when (audioType) {
+            "telephony", "speechrecognition" -> true
+            "default", "compatibility" -> when (val input = stream["input"]) {
+                is Boolean -> input
+                is Number -> input.toInt() != 0
+                else -> (stream["dataPort"] as? Number)?.toInt()?.let { it in 1..65535 } == true
+            }
+            else -> false
+        }
+
+        private const val TAG = "xcertplay-usb"
+        private const val STREAM_TYPE_MAIN_SCREEN = 110
+        private const val STREAM_TYPE_ALT_SCREEN = 111
+        private const val STREAM_TYPE_MAIN_AUDIO = 100
+        private const val STREAM_TYPE_DATA = 130
+        private const val DATASTREAM_OUTPUT_KEY = "DataStream-Output-Encryption-Key"
+        private const val DATASTREAM_INPUT_KEY = "DataStream-Input-Encryption-Key"
+        private const val IAP_DATASTREAM_UUID = "E9459FD0-BCAD-4C45-820F-1E72447EF2F2"
+        private const val OPUS_24K = 0x20000000L
+        private const val OPUS_48K = 0x40000000L
     }
 }
 

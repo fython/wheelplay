@@ -557,3 +557,25 @@ run-1 捕获的第 12 个访问单元（索引 11）为：
 - `npm run test:browser:media`：真实 Chromium 在生产 CSP 下通过 seek 能力切换、最后一次拖动位置（42.123 秒 → 42123 毫秒）、暂停状态保持、切歌后的旧 seek 回调隔离，以及既有画面／触控／重连检查。回调由测试脚本触发，未验证车机的实体按键或系统进度条 UI。
 - `:mobile:lintDebug`：0 错误、18 警告；`git diff --check` 通过。
 - 未安装或操作真实车机／iPhone。手机音乐应用是否执行跳转、进度回报及本地／浏览器输出的声音连续性仍需实机验收。本次复用现有 CarPlay 音频链路，未根据猜测注入 AirPlay 缓冲清空命令。
+
+## DiPlay CarPlay 协议首批同步（2026-11-15）
+
+从 WheelPlay `1c0c2b88` 新建 `feat/sync-diplay-carplay-batch1`，按 [来源记录](UPSTREAM.md#carplay-协议首批同步2026-11-15) 选择性同步麦克风、触控、对端校验和解析边界修复。
+
+回归覆盖：
+
+- App 录音按 input/上行端口启用；无下行时启动一次，通话仍等待下行；替换、TEARDOWN、会话关闭取消延迟开麦。PCM 默认包长连同 IPv6/UDP 头不超过 1500 字节；显式 framesPerPacket 及 Opus RTP 时钟继续按协商值处理。
+- 阻塞事件 socket 下合并 500 次 MOVE，保留按下/抬起及多指边界；切换会话丢弃旧待发输入，拒绝执行器关闭后的提交，复制调用方触点列表。生产投影适配器直接进入同一链路，300 次拖动在阻塞解除后只产生按下、最终移动、原位释放三份加密 HID 报文。
+- 视频、事件和 iAP TCP 拒绝其他 IP，拒绝者不占用正常对端连接；覆盖 IPv4、IPv6 及映射地址。NTP 只接受指定对端的时钟响应；视频帧缺少认证标签时不进入解码器。
+- NTB16 拒绝 NDP 循环、过多条目及超预算重复复制，保留正常 NDP 链与非零缓冲偏移；iAP 拒绝非法长度并保留跨加密帧的增量重组。既有 pair-verify、RTSP 读取期限、bplist 展开预算和浏览器媒体路由测试继续参与全量回归。
+
+验证命令：
+
+```sh
+./gradlew :mobile:assembleDebug :mobile:lintDebug
+./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest
+```
+
+结果：shared 全量 556 项、common 全量 545 项测试全部通过，均无失败、错误或跳过。Debug APK 构建通过；`lintDebug` 为 0 errors、24 warnings；`git diff --check` 通过。
+
+本轮未连接 iPhone 或车机，未测量实际触控延迟或验证真实 App 录音；上游设备报告不作为 WheelPlay 真机验证结果。

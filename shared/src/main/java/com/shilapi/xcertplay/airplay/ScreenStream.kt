@@ -22,7 +22,12 @@ typealias VideoCodec = com.shilapi.xcertplay.media.VideoCodec
  * (avcC/hvcC) or a ChaCha20-Poly1305 sealed VideoFrame. The key is the DataStream output key
  * and the per-frame nonce is an 8-byte little-endian counter.
  */
-class ScreenStream(private val key: ByteArray, private val onDiagnostic: (String) -> Unit = {}, private val decoderFactory: ((ByteArray) -> VideoFrameDecoder?)? = null) : Closeable {
+class ScreenStream(
+    private val key: ByteArray,
+    private val expectedPeer: InetAddress,
+    private val onDiagnostic: (String) -> Unit = {},
+    private val decoderFactory: ((ByteArray) -> VideoFrameDecoder?)? = null,
+) : Closeable {
     interface Listener {
         fun onFrame(frame: CompressedVideoFrame, pts: Long, receivedAtNs: Long, decryptNs: Long) = onFrame(frame.toByteArray(), pts, receivedAtNs, decryptNs)
         fun onCodec(codec: VideoCodec) {}
@@ -60,7 +65,7 @@ class ScreenStream(private val key: ByteArray, private val onDiagnostic: (String
 
     private fun accept(bound: ServerSocket) {
         try {
-            val accepted = bound.accept()
+            val accepted = bound.acceptFrom(expectedPeer) { onDiagnostic("Video: rejected sender outside the control session") }
             socket = accepted
             run(accepted)
         } catch (error: Exception) {
@@ -106,18 +111,18 @@ class ScreenStream(private val key: ByteArray, private val onDiagnostic: (String
     private fun onMessage(header: ByteArray, body: ByteArray, bodySize: Int) {
         when (header[OPCODE_OFFSET].toInt() and 0xff) {
             OP_VIDEO_FRAME -> {
+                if (bodySize < ScreenCodec.TAG_SIZE) return
                 val receivedAtNs = System.nanoTime()
                 val decoder = frameDecoder
-                if (decoder != null && bodySize >= ScreenCodec.TAG_SIZE) {
+                if (decoder != null) {
                     val frame = decoder.decode(frameCounter.get(), header, body, bodySize)
                     frameCounter.incrementAndGet()
                     val decryptNs = System.nanoTime() - receivedAtNs
                     frame.use { listener.onFrame(it, ScreenCodec.presentationTimeUs(header), receivedAtNs, decryptNs) }
                 } else {
                     val exact = if (body.size == bodySize) body else body.copyOf(bodySize)
-                    val payload = if (exact.size >= ScreenCodec.TAG_SIZE) {
-                        ScreenCodec.decryptFrame(key, frameCounter.get(), header, exact).also { frameCounter.incrementAndGet() }
-                    } else exact
+                    val payload = ScreenCodec.decryptFrame(key, frameCounter.get(), header, exact)
+                    frameCounter.incrementAndGet()
                     val decryptNs = System.nanoTime() - receivedAtNs
                     HeapVideoFrame(ScreenCodec.lengthPrefixedToAnnexB(payload)).use {
                         listener.onFrame(it, ScreenCodec.presentationTimeUs(header), receivedAtNs, decryptNs)

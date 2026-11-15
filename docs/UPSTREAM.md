@@ -87,3 +87,16 @@ Material Components for Android 1.13.0（Apache-2.0），使用官方 Material 3
 WheelPlay 实现固定 1:1 选区、图片平移/双指缩放、无障碍移动与缩放、横竖屏布局及重置；
 原图坐标与窗口尺寸解耦，加载和保存由 ViewModel 管理。仅输出车厂图标所需的
 1024 × 1024 PNG，不引入 crop-kit/JitPack 运行时依赖。
+
+## CarPlay 协议首批同步（2026-11-15）
+
+基于 WheelPlay `1c0c2b88`，对照 [DiPlay `615b32ce`](https://github.com/shihabal3amri/DiPlay/tree/615b32ce0b40cd0b99ce94ba23a512001553684f) 选择性移植以下修复。这里只表示列出的补丁已适配，不表示已经合并 DiPlay 的全部协议或媒体实现。
+
+| 范围 | 上游提交 | WheelPlay 适配 |
+| --- | --- | --- |
+| 麦克风 | [`c2afb171`](https://github.com/shihabal3amri/DiPlay/commit/c2afb171)、[`9647d689`](https://github.com/shihabal3amri/DiPlay/commit/9647d689)、[`8d5fd4b2`](https://github.com/shihabal3amri/DiPlay/commit/8d5fd4b2) | 按手机的 input/上行端口识别 App 录音；非通话输入流在没有下行时等待 500 ms 开麦；未明确协商 framesPerPacket 的 PCM 采用适合 1500 字节 IPv6 MTU 的包长。保留原有 Opus RTP 时钟及浏览器麦克风路由。 |
+| 触控 | [`4b5e0bb7`](https://github.com/shihabal3amri/DiPlay/commit/4b5e0bb7)、[`48c97171`](https://github.com/shihabal3amri/DiPlay/commit/48c97171)、[`ad03bf44`](https://github.com/shihabal3amri/DiPlay/commit/ad03bf44)、[`47b39a5c`](https://github.com/shihabal3amri/DiPlay/commit/47b39a5c)、[`50957d41`](https://github.com/shihabal3amri/DiPlay/commit/50957d41) | 事件 TCP_NODELAY、固定手指槽位和原位释放、合并同组手指的待发 MOVE、延迟构造 TRACE。投影适配器直接传递触点，由会话分配槽位并补发原位释放；复制输入列表并在执行时检查会话归属；实际界面声明不接收会被 DiagnosticRedactor 丢弃的 TRACE。 |
+| 对端校验 | [`aeb1d733`](https://github.com/shihabal3amri/DiPlay/commit/aeb1d733) | 视频、事件和 iAP TCP 连接仅接受控制连接的同一 IP；NTP 响应仅由指定对端调整时钟；拒绝缺少认证标签的视频帧。保留原生视频解密/帧对象接口。 |
+| 解析边界 | [`1759a981`](https://github.com/shihabal3amri/DiPlay/commit/1759a981)、[`a83284c5`](https://github.com/shihabal3amri/DiPlay/commit/a83284c5) 中的 iAP 包长修复 | NTB16 限制条目数、累计复制字节及 NDP 重访；iAP 非法包长立即报错。沿用 WheelPlay 既有增量 RTSP 解码器、读取期限、认证门禁和 bplist 展开预算。 |
+
+延迟开麦使用每流独立的启动门闩，启动与替换、TEARDOWN、会话关闭串行化；取消时移除计时任务，避免旧回调重新打开麦克风。通话仍等待首个下行包，明确的 input=false 不启动 App 录音。音频流 audioType 隔离、有线启动恢复和 type-103 buffered audio 留待后续批次。

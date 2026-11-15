@@ -861,6 +861,9 @@ class CarPlayHostActivity : ComponentActivity() {
                 }
             }
 
+            // DiagnosticRedactor discards protocol traces; do not build them on the send path.
+            override val wantsTrace: Boolean get() = false
+
             override fun onDebugLog(message: String) {
                 if (DiagnosticRedactor.redact(message) == null) return
                 runOnUiThread {

@@ -116,7 +116,7 @@ class NtpClock : Closeable {
     private fun handleMessage(message: ByteArray, source: InetSocketAddress) {
         when (message[1].toInt() and 0xff) {
             PT_REQUEST -> respondToRequest(message, source)
-            PT_RESPONSE -> handleResponse(message)
+            PT_RESPONSE -> if (source.address == peer?.address) handleResponse(message)
         }
     }
 

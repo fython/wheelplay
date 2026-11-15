@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Captures one PCM microphone stream and sends it back to the phone as sealed CarPlay RTP.
  *
  * The recorder runs only while the matching audio stream is active, so callers start this after
- * the first downlink audio packet and close it on stream teardown.
+ * the first downlink audio packet (or the input-only startup delay) and close it on stream teardown.
  */
 internal class MicrophoneUplink(
     private val config: MicrophoneConfig,
