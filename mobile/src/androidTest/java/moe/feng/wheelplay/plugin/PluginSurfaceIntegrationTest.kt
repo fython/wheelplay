@@ -5,6 +5,7 @@ import android.graphics.PixelFormat
 import android.media.Image
 import android.media.ImageReader
 import android.os.*
+import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.util.UUID
@@ -24,7 +25,10 @@ class PluginSurfaceIntegrationTest {
             Intent(instrumentation.targetContext, PluginTestHostActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         )
-        try { repeat(2) { runSession() } }
+        try { repeat(2) { index ->
+            Log.i("PluginSurfaceTest", "Starting session ${index + 1}")
+            runSession()
+        } }
         finally { instrumentation.runOnMainSync { activity.finish() } }
     }
     private fun runSession() {
@@ -133,6 +137,7 @@ class PluginSurfaceIntegrationTest {
             assertTrue(await("cleanup acknowledgement", stopped))
             context.unbindService(connection); bound = false
             assertTrue("Dedicated plugin process did not exit", exited.await(10, TimeUnit.SECONDS))
+            awaitSystemTeardown(component.packageName, service.processName)
         } finally {
             if (!stopped.isDone) {
                 runCatching { remote?.stop(token); stopped.get(5, TimeUnit.SECONDS) }
@@ -147,6 +152,31 @@ class PluginSurfaceIntegrationTest {
             assertTrue(released.await(5, TimeUnit.SECONDS))
             worker.quitSafely(); worker.join(3000)
         }
+    }
+
+    private fun awaitSystemTeardown(packageName: String, processName: String) {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val deadline = SystemClock.uptimeMillis() + 10_000
+        fun dump(kind: String): String = ParcelFileDescriptor.AutoCloseInputStream(
+            instrumentation.uiAutomation.executeShellCommand("dumpsys activity $kind $packageName"),
+        ).bufferedReader().use { it.readText() }.also {
+            check(it.startsWith("ACTIVITY MANAGER")) { "Cannot inspect plugin $kind teardown: $it" }
+        }
+        var services: String
+        var processes: String
+        do {
+            services = dump("services")
+            processes = dump("processes")
+            // Binder death can reach this test before ActivityManager handles the
+            // old process's death. Rebinding then targets the dying service and
+            // Android 16 defers its restart for up to 120 seconds.
+            val registeredProcess = processes.lineSequence().any {
+                it.contains("ProcessRecord{") && it.contains(":$processName/")
+            }
+            if (!services.contains("ServiceRecord{") && !registeredProcess) return
+            SystemClock.sleep(50)
+        } while (SystemClock.uptimeMillis() < deadline)
+        fail("Plugin remained registered after process exit:\n$services\n$processes")
     }
 
     private fun <T> await(stage: String, future: CompletableFuture<T>): T = try {
