@@ -25,6 +25,7 @@ class OffscreenVideoOutput(
     private val wanted: () -> Boolean,
     private val encoding: () -> ImageEncodingOptions = { ImageEncodingOptions() },
     private val publish: (ByteArray, ImageFormat, Int) -> Unit,
+    private val intervalMillis: () -> Long = { 66L },
 ) : Closeable {
     private val thread = HandlerThread("wheelplay-video").apply { start() }
     private val handler = Handler(thread.looper)
@@ -49,6 +50,7 @@ class OffscreenVideoOutput(
         post = { task, delay -> handler.postDelayed(task, delay) },
         remove = { handler.removeCallbacks(it) },
         publish = ::draw,
+        currentIntervalMillis = intervalMillis,
     )
     private val viewerCheck = object : Runnable {
         override fun run() {

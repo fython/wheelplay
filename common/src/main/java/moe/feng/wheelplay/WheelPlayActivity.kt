@@ -7,6 +7,7 @@ import com.shilapi.xcertplay.projection.projectionFailure
 import com.shilapi.xcertplay.projection.ProjectionSourceIds
 import com.shilapi.xcertplay.projection.projectionSessions
 import com.shilapi.xcertplay.projection.plugin.projectionPlugins
+import com.shilapi.xcertplay.projection.plugin.PluginPreparation
 import com.shilapi.xcertplay.projection.plugin.RemotePluginSession
 import com.shilapi.xcertplay.projection.plugin.InstalledProjectionPlugin
 import com.shilapi.xcertplay.projection.ProjectionSession
@@ -22,6 +23,7 @@ import com.shilapi.xcertplay.projection.vnc.VncEndpoint
 import com.shilapi.xcertplay.shared.R as UiR
 import com.shilapi.xcertplay.i18n.*
 
+import moe.feng.wheelplay.plugin.forRemoteProcess
 import android.Manifest
 import com.shilapi.xcertplay.web.WebSession
 import com.shilapi.xcertplay.web.RootAccess
@@ -75,6 +77,22 @@ class WheelPlayActivity : AppCompatActivity() {
     private var webBusy = false
     private var embeddedPlugin by mutableStateOf<InstalledProjectionPlugin?>(null)
     private var awaitingTeslaVpnConsent = false
+    private var pendingPluginPreparation: PluginPreparation? = null
+    private val pluginPreparation = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val pending = pendingPluginPreparation
+        pendingPluginPreparation = null
+        if (pending != null && result.resultCode == RESULT_OK) {
+            val registry = projectionPlugins(this).also { it.refresh() }
+            val plugin = registry.entries().find { it.id == pending.sourceId }
+            val snapshot = projectionSessions.controlSnapshot()
+            if (pending.accepts(plugin, selectedHomeSource().id, snapshot.generation, snapshot.occupied,
+                    plugin?.let { registry.available(it) } == true,
+                    result.data?.getStringExtra(ProjectionPlugin.EXTRA_PREPARE_REQUEST))) {
+                startProjectionSourceNow(pending.sourceId)
+            }
+        }
+        refreshUiState()
+    }
     private val localAndroidAutoSettings = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (!isFinishing && !isDestroyed) showLocalAndroidAutoSetup()
     }
@@ -131,6 +149,7 @@ class WheelPlayActivity : AppCompatActivity() {
     private var setupError: String? = null
     private var pendingWireless = false
     private var initialLaunch = true
+    private var homeFallbackMessage: String? = null
     private var notificationTransport = true
     private var exportInProgress = false
     private var pendingAndroidAutoSourceId: String? = null
@@ -226,12 +245,14 @@ class WheelPlayActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        homeFallbackMessage = savedInstanceState?.getString("homeFallbackMessage")
         Shizuku.addRequestPermissionResultListener(desktopPermissionResult)
         if (TeslaHttpCompatibility.config(this).let { it.enabled && it.mode == TeslaHttpMode.ROOT }) RootAccess.checkOnStartup()
         com.shilapi.xcertplay.hud.BydNavigationOutputs.onAppOpened(applicationContext)
         ServerWindow.showSystemBars(window)
         refreshAuthentication()
         selectedPrivateKey = savedInstanceState?.getString("selectedPrivateKey")?.let(Uri::parse)
+        pendingPluginPreparation = PluginPreparation.fromBundle(savedInstanceState?.getBundle("pluginPreparation"))
         pendingAndroidAutoSourceId = savedInstanceState?.getString("pendingAndroidAutoSourceId")
         aaConnection = AaConnection.entries.firstOrNull { it.name == savedInstanceState?.getString("aaConnection") } ?: AaConnection.LOCAL
         awaitingTeslaVpnConsent = savedInstanceState?.getBoolean("awaitingTeslaVpnConsent") ?: false
@@ -269,10 +290,12 @@ class WheelPlayActivity : AppCompatActivity() {
         if (!handleUsbConnectionIntent(intent) && !handleAuthenticationIntent(intent)) navigate(intent.getStringExtra("page") ?: "service")
     }
     override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString("homeFallbackMessage", homeFallbackMessage)
         outState.putString("page", page)
         outState.putString("selectedPrivateKey", selectedPrivateKey?.toString())
         outState.putString("pendingAndroidAutoSourceId", pendingAndroidAutoSourceId)
         outState.putString("aaConnection", aaConnection.name)
+        outState.putBundle("pluginPreparation", pendingPluginPreparation?.toBundle())
         outState.putBoolean("awaitingTeslaVpnConsent", awaitingTeslaVpnConsent)
         super.onSaveInstanceState(outState)
     }
@@ -282,18 +305,12 @@ class WheelPlayActivity : AppCompatActivity() {
     }
     override fun onResume() {
         super.onResume(); projectionPlugins(this).refresh(); refreshAuthentication(); render(); ServerWindow.showSystemBars(window); handler.removeCallbacks(tick); handler.post(tick)
-        WebSession.setPhoneConnectHandler {
-            if (setupError != null) setupError!!
-            else {
-                connect(AirPlayPersistence.loadWirelessEnabled(this))
-                getString(UiR.string.ui_iphone_connection_requested_complete_any_device_selection_or_permission)
-            }
-        }
+        WebSession.sourceControl.foreground { id -> connectSelectedSource(id) }
         // Back from the car settings: refresh the car hotspot reminder on the home page.
         if (!initialLaunch) { refreshUiState() }
         if (initialLaunch) {
             initialLaunch = false
-            if (setupError == null && !WheelPlayBootstrap.importing && selectedPrivateKey == null &&
+            if (homeFallbackMessage == null && setupError == null && !WheelPlayBootstrap.importing && selectedPrivateKey == null &&
                 intent.action != Intent.ACTION_SEND && intent.action != Intent.ACTION_VIEW &&
                 !projectionSessions.hasSession() &&
                 selectedHomeSource().id == ProjectionSourceIds.CARPLAY && WheelPlayPreferences.autoConnect(this) && intent.getStringExtra("page") == null) {
@@ -301,7 +318,7 @@ class WheelPlayActivity : AppCompatActivity() {
             }
         }
     }
-    override fun onPause() { WebSession.setPhoneConnectHandler(null); handler.removeCallbacks(tick); super.onPause() }
+    override fun onPause() { WebSession.sourceControl.foreground(null); handler.removeCallbacks(tick); super.onPause() }
     override fun onDestroy() { Shizuku.removeRequestPermissionResultListener(desktopPermissionResult); dialogs.cancel(); settingsDialogs.cancel(); pendingPemCertificate?.fill(0); pendingPemCertificate = null; super.onDestroy() }
 
     private fun normalizedPage(value: String) = when (value) {
@@ -356,15 +373,7 @@ class WheelPlayActivity : AppCompatActivity() {
             UiAction.SCAN -> scanPairing()
             UiAction.CHOOSE_HOME -> chooseHomeSource()
             UiAction.HOME_SETTINGS -> navigate(selectedHomeSource().page.id)
-            UiAction.HOME_CONNECT -> {
-                val source = selectedHomeSource()
-                when (source.id) {
-                    ProjectionSourceIds.CARPLAY -> connect(AirPlayPersistence.loadWirelessEnabled(this))
-                    ProjectionSourceIds.ANDROID_AUTO, ProjectionSourceIds.ANDROID_DESKTOP -> navigate(source.page.id)
-                    ProjectionSourceIds.VNC -> configureVnc()
-                    else -> startProjectionSource(source.id)
-                }
-            }
+            UiAction.HOME_CONNECT -> runCatching { connectSelectedSource() }.onFailure { toast(it.message.orEmpty()) }
             UiAction.HOME_STOP -> {
                 val active = projectionSessions.snapshot()
                 if (projectionSessions.hasSession()) projectionSessions.stop(active).whenComplete { _, failure -> runOnUiThread {
@@ -373,6 +382,7 @@ class WheelPlayActivity : AppCompatActivity() {
                 } } else CarPlayBackgroundSession.stop { runOnUiThread { refreshUiState() } }
             }
             UiAction.STOP_SERVICE -> {
+                pendingPluginPreparation = null
                 startService(Intent(this, WheelPlaySessionService::class.java).setAction(WheelPlaySessionService.ACTION_STOP))
                 finishAndRemoveTask()
             }
@@ -403,7 +413,9 @@ class WheelPlayActivity : AppCompatActivity() {
                     UiAction.PLUGIN_DISABLE -> { registry.setEnabled(plugin, false); refreshUiState() }
                     UiAction.PLUGIN_SETTINGS -> if (plugin.settingsProvider != null) embeddedPlugin = plugin
                         else plugin.settings?.let { component ->
-                            runCatching { startActivity(Intent().setComponent(component)) }.onFailure { toast(getString(UiR.string.plugin_unavailable)) }
+                            runCatching { startActivity(Intent().setComponent(component).putExtra(
+                                moe.feng.wheelplay.plugin.ProjectionPlugin.EXTRA_SETTINGS_BRIDGE,
+                                com.shilapi.xcertplay.projection.plugin.PluginSettingsBridge(this).forRemoteProcess())) }.onFailure { toast(getString(UiR.string.plugin_unavailable)) }
                         }
                     UiAction.PLUGIN_CONNECT -> startProjectionSource(plugin.id)
                     else -> Unit
@@ -443,6 +455,12 @@ class WheelPlayActivity : AppCompatActivity() {
         val carPlayRunning = CarPlayBackgroundSession.hasSession()
         val registry = projectionPlugins(this)
         val selected = selectedHomeSource()
+        WebSession.sourceControl.select(com.shilapi.xcertplay.web.BrowserSourceControl.Selection(
+            selected.id, selected.name, when {
+                homeSources().none { it.id == selected.id } -> "unavailable"
+                selected.id in setOf(ProjectionSourceIds.ANDROID_AUTO, ProjectionSourceIds.ANDROID_DESKTOP, ProjectionSourceIds.VNC) -> "configure"
+                else -> "connect"
+            }, homeFallbackMessage))
         val currentId = state.source?.id?.takeIf { running } ?: if (carPlayRunning) ProjectionSourceIds.CARPLAY else null
         val currentPage = currentId?.let(::sourcePageFor)
         val phase = when {
@@ -452,6 +470,7 @@ class WheelPlayActivity : AppCompatActivity() {
         }
         val overview = buildString {
             append(getString(UiR.string.source_home_selection, selected.name))
+            homeFallbackMessage?.let { append("\n" + it) }
             if (currentId != null) append("\n" + getString(UiR.string.source_current_session,
                 state.source?.displayName?.takeIf { running } ?: getString(UiR.string.source_carplay), phase))
         }
@@ -486,7 +505,7 @@ class WheelPlayActivity : AppCompatActivity() {
                 belongs && (state.failure != null || (session == null && running)) -> state.message(this)
                 session != null -> session.statusText ?: state.message(this)
                 else -> getString(UiR.string.source_idle)
-            }, session != null || (belongs && running))
+            }, session != null || (belongs && running), (session as? RemotePluginSession)?.interaction)
         }.toMap()
         val plugins = registry.entries().map { plugin -> PluginUi(
             plugin.id, plugin.name, plugin.component.packageName, plugin.sourceId == ProjectionPlugin.SOURCE_ICCOA_CARLINK,
@@ -509,14 +528,15 @@ class WheelPlayActivity : AppCompatActivity() {
                 browserEnabled = WebSession.running && BrowserExperienceLink.local(WebSession.code, WebSession.httpPort) != null,
                 code = if (WebSession.running) WebSession.code else "— — — — — —", viewerConnected = WebSession.hasViewer,
                 sourceName = getString(UiR.string.home_switch_source, selected.name),
-                stage = when {
+                interaction = (active as? RemotePluginSession)?.interaction,
+                stage = (when {
                     active != null -> getString(UiR.string.home_active_source, active.descriptor.displayName, state.failure?.message(this) ?: active.statusText ?: getString(UiR.string.projection_active, active.descriptor.displayName))
                     carPlayRunning -> getString(UiR.string.home_active_source, getString(UiR.string.source_carplay), WebSession.stage(this))
                     selected.id == ProjectionSourceIds.CARPLAY -> setupError ?: if (WheelPlayPreferences.phoneAddress(this) != null) getString(UiR.string.status_selected_phone, WheelPlayPreferences.phoneName(this)) else getString(UiR.string.ui_waiting_to_connect_to_iphone)
                     registry.lastFailure(selected.id) != null -> getString(UiR.string.projection_failed, registry.lastFailure(selected.id))
                     state.source?.id == selected.id -> state.message(this)
                     else -> getString(UiR.string.projection_waiting)
-                },
+                }).let { listOfNotNull(homeFallbackMessage, it).joinToString("\n") },
                 connectLabel = getString(if (selected.id in setOf(ProjectionSourceIds.ANDROID_AUTO, ProjectionSourceIds.VNC, ProjectionSourceIds.ANDROID_DESKTOP)) UiR.string.home_configure_connect else UiR.string.ui_connect),
                 showConnect = !selectedActive && !(selected.id == ProjectionSourceIds.CARPLAY && WheelPlayPreferences.phoneAddress(this) == null),
                 connectEnabled = selected.id != ProjectionSourceIds.CARPLAY || (setupError == null && !WheelPlayBootstrap.importing),
@@ -660,7 +680,26 @@ class WheelPlayActivity : AppCompatActivity() {
         val sources = homeSources()
         val saved = WheelPlayPreferences.homeSource(this)
         return sources.find { it.id == saved } ?: sources.first().also {
+            homeFallbackMessage = getString(UiR.string.source_fallback_carplay)
             WheelPlayPreferences.saveHomeSource(this, it.id)
+        }
+    }
+
+    /** Shared by the native home action and the paired browser; never defaults a missing plugin to CarPlay. */
+    private fun connectSelectedSource(expectedId: String? = null) {
+        check(!projectionSessions.hasSession()) { "An input source is already active" }
+        val source = selectedHomeSource()
+        check(expectedId == null || expectedId == source.id) { "Selected input source changed" }
+        check(homeSources().any { it.id == source.id }) { "Selected input source is unavailable" }
+        homeFallbackMessage = null
+        when (source.id) {
+            ProjectionSourceIds.CARPLAY -> {
+                check(setupError == null) { setupError.orEmpty() }
+                connect(AirPlayPersistence.loadWirelessEnabled(this))
+            }
+            ProjectionSourceIds.ANDROID_AUTO, ProjectionSourceIds.ANDROID_DESKTOP -> navigate(source.page.id)
+            ProjectionSourceIds.VNC -> configureVnc()
+            else -> startProjectionSource(source.id)
         }
     }
 
@@ -668,6 +707,7 @@ class WheelPlayActivity : AppCompatActivity() {
         projectionPlugins(this).refresh()
         val sources = homeSources()
         dialogs.choices(getString(UiR.string.home_choose_source), sources.map { it.name }, sources.indexOf(selectedHomeSource())) { index ->
+            homeFallbackMessage = null
             WheelPlayPreferences.saveHomeSource(this, sources[index].id)
             refreshUiState()
         }
@@ -819,6 +859,8 @@ class WheelPlayActivity : AppCompatActivity() {
     }
 
     private fun startProjectionSource(id: String) {
+        if (pendingPluginPreparation != null) return
+        homeFallbackMessage = null
         val homeId = when {
             belongsToSource(id, ProjectionSourceIds.ANDROID_AUTO) -> ProjectionSourceIds.ANDROID_AUTO
             belongsToSource(id, ProjectionSourceIds.VNC) -> ProjectionSourceIds.VNC
@@ -830,6 +872,18 @@ class WheelPlayActivity : AppCompatActivity() {
             checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             pendingAndroidAutoSourceId = id
             androidAutoMicrophonePermission.launch(Manifest.permission.RECORD_AUDIO)
+            return
+        }
+        val registry = projectionPlugins(this)
+        val plugin = registry.entries().find { it.id == id }
+        if (plugin?.preparation != null && registry.available(plugin)) {
+            val snapshot = projectionSessions.controlSnapshot()
+            if (snapshot.occupied) { toast(getString(UiR.string.projection_busy)); return }
+            val pending = PluginPreparation.create(plugin, snapshot.generation)
+            pendingPluginPreparation = pending
+            runCatching { pluginPreparation.launch(Intent().setComponent(plugin.preparation)
+                .putExtra(ProjectionPlugin.EXTRA_PREPARE_REQUEST, pending.request)) }
+                .onFailure { pendingPluginPreparation = null; toast(getString(UiR.string.plugin_unavailable)) }
             return
         }
         startProjectionSourceNow(id)
@@ -990,6 +1044,7 @@ class WheelPlayActivity : AppCompatActivity() {
     }
 
     private fun connect(wireless: Boolean) {
+        homeFallbackMessage = null
         WheelPlayPreferences.saveHomeSource(this, ProjectionSourceIds.CARPLAY)
         refreshUiState()
         refreshAuthentication()

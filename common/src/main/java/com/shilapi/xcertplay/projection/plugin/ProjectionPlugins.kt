@@ -24,6 +24,7 @@ internal data class InstalledProjectionPlugin(
     val installedAt: Long = 0,
     val sourceId: String? = null,
     val settingsProvider: String? = null,
+    val preparation: ComponentName? = null,
 ) {
     val id get() = PREFIX + component.flattenToString()
     val consentKey get() = "$signer@$installedAt"
@@ -112,7 +113,7 @@ internal class ProjectionPluginRegistry(private val context: Context, private va
                     service.permission != null && pm.checkPermission(service.permission, context.packageName) != PackageManager.PERMISSION_GRANTED -> context.getString(UiR.string.plugin_unavailable)
                     else -> null
                 }
-                val settings = service.metaData?.getString(ProjectionPlugin.META_SETTINGS_ACTIVITY)?.let { name ->
+                fun activityFor(key: String) = service.metaData?.getString(key)?.let { name ->
                     val activity = ComponentName(service.packageName, if (name.startsWith('.')) service.packageName + name else name)
                     runCatching { pm.getActivityInfo(activity, 0) }.getOrNull()?.takeIf {
                         it.exported && it.enabled && it.applicationInfo.enabled &&
@@ -130,8 +131,8 @@ internal class ProjectionPluginRegistry(private val context: Context, private va
                     } == true
                 }
                 InstalledProjectionPlugin(component, service.loadLabel(pm).toString().take(120),
-                    service.applicationInfo.uid, signer, pkg.lastUpdateTime, pkg.longVersionCode, settings, problem, pkg.firstInstallTime,
-                    service.metaData?.getString(ProjectionPlugin.META_SOURCE_ID), settingsProvider)
+                    service.applicationInfo.uid, signer, pkg.lastUpdateTime, pkg.longVersionCode, activityFor(ProjectionPlugin.META_SETTINGS_ACTIVITY), problem, pkg.firstInstallTime,
+                    service.metaData?.getString(ProjectionPlugin.META_SOURCE_ID), settingsProvider, activityFor(ProjectionPlugin.META_PREPARE_ACTIVITY))
             }.getOrNull()
         }.distinctBy { it.id }.sortedBy { it.name }
         failures.entries.removeAll { it.value.plugin !in installed }

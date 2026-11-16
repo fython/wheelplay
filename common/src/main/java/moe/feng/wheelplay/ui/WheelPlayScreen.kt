@@ -141,6 +141,7 @@ private fun Action(label: String, action: UiAction, dispatch: UiDispatch, argume
     CardSection(stringResource(UiR.string.home_source_title)) {
         Action(state.sourceName, UiAction.CHOOSE_HOME, dispatch)
         Text(state.stage)
+        PluginPairing(state.interaction)
         if (state.showConnect) Action(state.connectLabel, UiAction.HOME_CONNECT, dispatch, primary = true, enabled = state.connectEnabled)
         state.stopLabel?.let { Action(it, UiAction.HOME_STOP, dispatch) }
         Action(stringResource(UiR.string.home_source_settings), UiAction.HOME_SETTINGS, dispatch)
@@ -186,9 +187,19 @@ private fun Action(label: String, action: UiAction, dispatch: UiDispatch, argume
     }
 }
 
+@Composable private fun PluginPairing(interaction: moe.feng.wheelplay.plugin.PluginInteraction?) {
+    val code = interaction?.pairingCode ?: return
+    CardSection(stringResource(UiR.string.plugin_pairing_code)) {
+        Text(stringResource(UiR.string.plugin_pairing_instruction, interaction.deviceName))
+        Text(code.chunked(3).joinToString(" "), style = MaterialTheme.typography.headlineLarge,
+            modifier = Modifier.testTag("plugin:pairing-code"))
+    }
+}
+
 @Composable private fun SessionSummary(page: SourcePage, state: SourcesUi, dispatch: UiDispatch) {
     val session = state.sessions[page.group] ?: return
     Description(session.message)
+    PluginPairing(session.interaction)
     if (session.canStop) Action(stringResource(UiR.string.projection_stop), UiAction.STOP_SOURCE, dispatch, page.group)
 }
 

@@ -133,7 +133,11 @@ class SourceNavigationTest : ComposeSettingsTest() {
             text("test.unrelated").assertDoesNotExist()
             compose.onNodeWithTag("plugin:connect:test.carlink").assertDoesNotExist()
             tap("plugin:settings:test.carlink")
-            assertEquals(ComponentName("test.carlink", "test.carlink.Settings"), shadowOf(controller.get()).nextStartedActivity.component)
+            val settingsIntent = shadowOf(controller.get()).nextStartedActivity
+            assertEquals(ComponentName("test.carlink", "test.carlink.Settings"), settingsIntent.component)
+            val bridge = settingsIntent.getParcelableExtra<android.os.ResultReceiver>(ProjectionPlugin.EXTRA_SETTINGS_BRIDGE)
+            assertNotNull(bridge)
+            assertEquals(android.os.ResultReceiver::class.java, bridge!!.javaClass)
             tap("plugin:enable:test.carlink")
             compose.onNodeWithText(controller.get().getString(com.shilapi.xcertplay.host.R.string.settings_confirm)).performClick()
             compose.onNodeWithTag("plugin:connect:test.carlink").assertIsEnabled()
@@ -156,18 +160,42 @@ class SourceNavigationTest : ComposeSettingsTest() {
         compose.onNodeWithTag("aa:LOCAL").assertExists(); assertNull(projectionSessions.snapshot())
     }
 
-    @Test fun homeListsOnlyEnabledCompatiblePluginsAndFallsBackWhenDisabled() {
+    @Test fun homeFallsBackWhenPluginDisabledWithoutStartingOrReroutingOldRequests() {
         val context = RuntimeEnvironment.getApplication()
         installPlugin("test.carlink", ProjectionPlugin.SOURCE_ICCOA_CARLINK); installPlugin("test.disabled", null)
         installPlugin("test.incompatible", ProjectionPlugin.SOURCE_ICCOA_CARLINK, 99)
         discoverPlugins("test.carlink", "test.disabled", "test.incompatible")
         val registry = projectionPlugins(context); registry.refresh(); registry.setEnabled(registry.entries().single { it.component.packageName == "test.carlink" }, true)
-        try { withActivity { _ ->
+        try { withActivity { controller ->
             action("CHOOSE_HOME"); text("test.disabled").assertDoesNotExist(); text("test.incompatible").assertDoesNotExist()
-            text("ICCOA CarLink test.carlink").performClick(); action("HOME_SETTINGS")
+            text("ICCOA CarLink test.carlink").performClick()
+            val old = WebSession.sourceControl.snapshot()
+            action("HOME_SETTINGS")
             tap("plugin:manage:test.carlink"); tap("plugin:disable:test.carlink"); tap("nav:service")
             text("切换输入源：CarPlay (iPhone)").assertExists(); assertNull(projectionSessions.snapshot())
+            text("默认选择已恢复为 CarPlay").assertExists()
+            assertEquals("carplay", WheelPlayPreferences.homeSource(context))
+            assertEquals("connect", WebSession.sourceControl.snapshot().getString("action"))
+            var reply = ""
+            WebSession.requestSourceAction("connect", old.getString("selectedId"), old.getLong("revision")) { reply = it }
+            refresh(); assertEquals("stale", reply)
+            assertNull(shadowOf(controller.get()).nextStartedActivity); assertNull(projectionSessions.snapshot())
         } } finally { discoverPlugins(); registry.refresh() }
+    }
+
+    @Test fun unavailableSavedSourceDoesNotAutoConnectAfterFallbackOrRecreation() {
+        val context = RuntimeEnvironment.getApplication()
+        WheelPlayPreferences.saveHomeSource(context, "plugin-removed")
+        WheelPlayPreferences.saveAutoConnect(context, true)
+        withActivity { controller ->
+            text("切换输入源：CarPlay (iPhone)").assertExists()
+            text("默认选择已恢复为 CarPlay").assertExists()
+            assertEquals("carplay", WheelPlayPreferences.homeSource(context))
+            assertNull(shadowOf(controller.get()).nextStartedActivity); assertNull(projectionSessions.snapshot())
+            controller.recreate()
+            text("默认选择已恢复为 CarPlay").assertExists()
+            assertNull(shadowOf(controller.get()).nextStartedActivity); assertNull(projectionSessions.snapshot())
+        }
     }
 
     @Test fun pluginFailureRemainsVisibleAcrossPagesUntilRetry() {

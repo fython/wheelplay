@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.projection.plugin
 
 import android.content.*
+import com.shilapi.xcertplay.web.WebSession
 import android.os.*
 import android.content.res.Configuration
 import moe.feng.wheelplay.AirPlayPersistence
@@ -54,7 +55,39 @@ internal class RemotePluginSession(
     private var stopSent = false
     private var processExitRequired = false
     private var awaitingProcessExit = false
-    private var output: CompletableFuture<ProjectionVideoOutput>? = null
+    private var output: CompletableFuture<AutoCloseable>? = null
+    private var viewportSubscription: AutoCloseable? = null
+    private var displaySizeSupported = false
+    private var interactionSupported = false
+    private var localInteraction: moe.feng.wheelplay.plugin.PluginInteraction? = null
+    private var interactionAt = 0L
+    val interaction: moe.feng.wheelplay.plugin.PluginInteraction?
+        get() = localInteraction?.takeIf { !stopping && !closing && !ready &&
+            android.os.SystemClock.elapsedRealtime() - interactionAt < 120_000 }
+
+    private var sentDisplaySize = 1280 to 720
+    private var desiredDisplaySize = sentDisplaySize
+    private var displayRequestId = 0L
+    private val displayUpdate = Runnable {
+        if (!closing && !stopping && startSent && displaySizeSupported && desiredDisplaySize != sentDisplaySize) {
+            sentDisplaySize = desiredDisplaySize
+            val size = sentDisplaySize
+            val request = ++displayRequestId
+            enqueue { it.updateDisplaySize(token, request, size.first, size.second) }
+        }
+    }
+    private fun observeDisplaySize() {
+        viewportSubscription = WebSession.subscribeBrowserViewport { width, height -> main.post {
+            if (closing || stopping) return@post
+            desiredDisplaySize = if (width != null && height != null) width to height else 1280 to 720
+            main.removeCallbacks(displayUpdate)
+            main.postDelayed(displayUpdate, 800)
+        } }
+    }
+    private fun stopObservingDisplaySize() {
+        viewportSubscription?.close(); viewportSubscription = null
+        main.removeCallbacks(displayUpdate)
+    }
     private val deadline = Runnable { fail(context.getString(UiR.string.plugin_timeout)) }
     private val stopDeadline = Runnable { finish(false, context.getString(UiR.string.plugin_cleanup_failed)) }
     private val death = IBinder.DeathRecipient { main.post {
@@ -82,23 +115,49 @@ internal class RemotePluginSession(
                 check(stillAllowed()) { context.getString(UiR.string.plugin_disabled) }
                 val video = PluginVideoInfo.fromBundle(info)
                 infoReceived = true
+                interactionSupported = video.interactionVersion == ProjectionPlugin.INTERACTION_VERSION
                 processExitRequired = video.processExitRequired
+                displaySizeSupported = video.displaySizeVersion == ProjectionPlugin.DISPLAY_SIZE_VERSION
+                if (displaySizeSupported) observeDisplaySize()
                 main.removeCallbacks(deadline)
                 main.postDelayed(deadline, startupTimeoutMs)
-                capabilities = ProjectionCapabilities(setOf(VideoIngressKind.SURFACE), video.maxTouchContacts, video.nightMode,
+                capabilities = ProjectionCapabilities(setOf(if (video.encodedVideoVersion != 0) VideoIngressKind.ENCODED else VideoIngressKind.SURFACE), video.maxTouchContacts, video.nightMode,
                     cancellation = if (video.nativeCancelInput) ProjectionCancellation.NATIVE else ProjectionCancellation.RELEASE_ONLY)
                 runtime.changed(this@RemotePluginSession)
-                output = CompletableFuture.supplyAsync({ outputFactory(video.width, video.height) }, mediaWorker).also { pending ->
+                output = CompletableFuture.supplyAsync<AutoCloseable>({
+                    if (video.encodedVideoVersion != 0) EncodedPluginVideo { reason -> main.post { fail(reason) } }
+                    else outputFactory(video.width, video.height)
+                }, mediaWorker).also { pending ->
                     pending.whenComplete { port, failure -> main.post {
                         if (closing) return@post
                         if (failure != null) { fail(failure.message ?: "Cannot create video output"); return@post }
                         if (stopping) { beginStop(); return@post }
                         if (!stillAllowed()) { fail(context.getString(UiR.string.plugin_disabled)); return@post }
                         startSent = true
-                        enqueue { it.start(this@RemotePluginSession.token, port.surface) }
+                        main.removeCallbacks(displayUpdate)
+                        main.postDelayed(displayUpdate, 800)
+                        enqueue {
+                            if (port is EncodedPluginVideo) port.sendTo(it, this@RemotePluginSession.token)
+                            else it.start(this@RemotePluginSession.token, (port as ProjectionVideoOutput).surface)
+                        }
                     } }
                 }
             } catch (failure: Exception) { fail(failure.message ?: "Invalid plugin information") }
+        }
+        override fun onDisplaySizeResult(token: String, requestId: Long, restartRequired: Boolean) = callback(token) {
+            if (stopping || !startSent || !displaySizeSupported || requestId <= 0 || requestId != displayRequestId ||
+                desiredDisplaySize != sentDisplaySize || !restartRequired) return@callback
+            runtime.restart(this@RemotePluginSession).whenComplete { _, failure ->
+                if (failure != null && generateSequence(failure) { it.cause }.none { it is CancellationException }) {
+                    main.post { onFailure(failure.message ?: "Cannot restart plugin for display size") }
+                }
+            }
+        }
+        override fun onInteraction(token: String, interaction: android.os.Bundle) = callback(token) {
+            if (stopping || ready || !startSent || !interactionSupported) return@callback
+            localInteraction = runCatching { moe.feng.wheelplay.plugin.PluginInteraction.fromBundle(interaction) }.getOrNull()
+            interactionAt = android.os.SystemClock.elapsedRealtime()
+            runtime.changed(this@RemotePluginSession)
         }
         override fun onState(token: String, state: Int, message: String) = callback(token) {
             if (stopping) return@callback
@@ -111,6 +170,7 @@ internal class RemotePluginSession(
             when (state) {
                 ProjectionPlugin.CONNECTING -> { ready = false; notifyStatus(message) }
                 ProjectionPlugin.READY -> {
+                    localInteraction = null
                     ready = true
                     main.removeCallbacks(deadline)
                     notifyStatus(message.ifBlank { context.getString(UiR.string.plugin_connected) })
@@ -169,7 +229,16 @@ internal class RemotePluginSession(
             if (!stillAllowed()) { fail(context.getString(UiR.string.plugin_disabled)); return@post }
             main.postDelayed(deadline, connectTimeoutMs)
             try {
-                bound = context.bindService(Intent(ProjectionPlugin.ACTION).setComponent(plugin.component), connection, Context.BIND_AUTO_CREATE)
+                val viewport = WebSession.currentBrowserViewport
+                    .takeIf { WebSession.adaptiveBrowserSize } ?: (1280 to 720)
+                sentDisplaySize = viewport; desiredDisplaySize = viewport
+                val intent = Intent(ProjectionPlugin.ACTION).setComponent(plugin.component)
+                    .putExtra(ProjectionPlugin.EXTRA_INTERACTION_VERSION, ProjectionPlugin.INTERACTION_VERSION)
+                .putExtra(ProjectionPlugin.EXTRA_DISPLAY_SIZE_VERSION, ProjectionPlugin.DISPLAY_SIZE_VERSION)
+                    .putExtra(ProjectionPlugin.EXTRA_ENCODED_VIDEO_VERSION, ProjectionPlugin.ENCODED_VIDEO_VERSION)
+                    .putExtra(ProjectionPlugin.EXTRA_DISPLAY_WIDTH, viewport.first)
+                    .putExtra(ProjectionPlugin.EXTRA_DISPLAY_HEIGHT, viewport.second)
+                bound = context.bindService(intent, connection, Context.BIND_AUTO_CREATE)
                 if (!bound) fail(context.getString(UiR.string.plugin_unavailable))
             } catch (failure: Exception) { fail(failure.message ?: "Cannot bind plugin") }
         }
@@ -216,6 +285,8 @@ internal class RemotePluginSession(
         notifyStatus(reason)
     }
     private fun beginStop() {
+        localInteraction = null
+        stopObservingDisplaySize()
         if (closing || completion.isDone || stopSent) return
         notifyStatus(context.getString(UiR.string.plugin_stopping))
         main.removeCallbacks(deadline)
@@ -235,6 +306,7 @@ internal class RemotePluginSession(
         }
     }
     private fun finish(clean: Boolean, message: String) {
+        stopObservingDisplaySize()
         if (closing) return
         closing = true
         synchronized(admission) { stopping = true; ready = false }
@@ -247,7 +319,7 @@ internal class RemotePluginSession(
         // Failed or absent acknowledgement keeps the runtime lease quarantined even if the host closes successfully.
         val pending = output ?: CompletableFuture.completedFuture(null)
         pending.handleAsync({ port, allocationFailure ->
-            var failure: Throwable? = if (clean) null else ProjectionCleanupException(context.getString(UiR.string.plugin_cleanup_failed))
+            var failure: Throwable? = if (clean) null else ProjectionCleanupException(message.ifBlank { context.getString(UiR.string.plugin_cleanup_failed) })
             if (allocationFailure != null && generateSequence(allocationFailure) { it.cause }.any { it is ProjectionCleanupException }) failure = allocationFailure
             try { port?.close() } catch (closeFailure: Throwable) { failure = closeFailure }
             failure
@@ -262,7 +334,8 @@ internal class RemotePluginSession(
                 lifecycleFailure = ProjectionFailure(ProjectionErrorCategory.CLEANUP, failure.toString(), "plugin")
                 val cleanupMessage = context.getString(UiR.string.plugin_cleanup_failed)
                 // Preserve the original failure too, but make the unsafe cleanup actionable.
-                val report = failureReason?.let { "$it\n$cleanupMessage" } ?: cleanupMessage
+                val detail = failureReason ?: message.takeIf { it.isNotBlank() && it != cleanupMessage }
+                val report = detail?.let { "$it\n$cleanupMessage" } ?: cleanupMessage
                 runCatching { onFailure(report) }
                 notifyStatus(report)
                 completion.completeExceptionally(failure)
