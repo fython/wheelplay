@@ -3,6 +3,8 @@ package com.shilapi.xcertplay.media
 import java.util.concurrent.CompletableFuture
 
 interface MediaControlSource {
+    /** True when the source owns local playback focus; the session bridge must not request it again. */
+    val managesAudioFocus: Boolean get() = false
     fun mediaSnapshot(): NowPlayingState
     fun subscribeMediaState(listener: (NowPlayingState) -> Unit): AutoCloseable
     fun sendMediaCommand(command: MediaCommand, connectionGeneration: Long? = null): CompletableFuture<MediaCommandResult>

@@ -20,9 +20,9 @@ class WebRuntimeTest {
         val frames = LinkedBlockingQueue<Triple<ByteArray, ImageFormat, Int>>()
         val preferred = java.util.concurrent.atomic.AtomicReference(ImageFormat.JPEG)
         val quality = java.util.concurrent.atomic.AtomicInteger(75)
-        val output = OffscreenVideoOutput(320, 180, { true }, { ImageEncodingOptions(preferred.get(), quality.get()) }) { bytes, format, value ->
+        val output = OffscreenVideoOutput(320, 180, { true }, { ImageEncodingOptions(preferred.get(), quality.get()) }, publish = { bytes, format, value ->
             frames.offer(Triple(bytes, format, value))
-        }
+        })
         try {
             val canvas = output.surface.lockCanvas(null); canvas.drawColor(Color.RED)
             output.surface.unlockCanvasAndPost(canvas)
@@ -46,7 +46,7 @@ class WebRuntimeTest {
 
     @Test fun offscreenThrottlePublishesFinalFrameWithoutAnotherArrival() {
         val frames = LinkedBlockingQueue<ByteArray>()
-        val output = OffscreenVideoOutput(320, 180, { true }) { bytes, _, _ -> frames.offer(bytes) }
+        val output = OffscreenVideoOutput(320, 180, { true }, publish = { bytes, _, _ -> frames.offer(bytes) })
         try {
             fun paint(color: Int) {
                 val canvas = output.surface.lockCanvas(null)
@@ -70,7 +70,7 @@ class WebRuntimeTest {
     @Test fun offscreenSurfaceProducesUprightJpegWithoutActivity() {
         val ready = CountDownLatch(1)
         var jpeg: ByteArray? = null
-        val output = OffscreenVideoOutput(320, 180, { true }) { bytes, _, _ -> jpeg = bytes; ready.countDown() }
+        val output = OffscreenVideoOutput(320, 180, { true }, publish = { bytes, _, _ -> jpeg = bytes; ready.countDown() })
         try {
             val canvas = output.surface.lockCanvas(null)
             val paint = Paint()

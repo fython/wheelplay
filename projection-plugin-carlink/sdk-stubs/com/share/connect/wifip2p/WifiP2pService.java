@@ -1,0 +1,1 @@
+package com.share.connect.wifip2p; public class WifiP2pService extends android.app.Service { public android.os.IBinder onBind(android.content.Intent intent) { throw new UnsupportedOperationException(); } }

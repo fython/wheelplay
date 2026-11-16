@@ -16,7 +16,7 @@ Run CarPlay on an Android device and use it from your car's browser. WheelPlay h
 | **Android virtual desktop — experimental** | Shizuku UserService, local app selection, fixed-size JPEG/WebP output, multi-touch and Back. Requires Android 10+/Shizuku 13+; no physical-device compatibility validated yet. See the [guide](docs/ANDROID_DESKTOP.md). |
 | **Diagnostic sources** | H.264, Surface, and framebuffer test sources for checking the display pipeline without a phone connection. |
 | **Plugin APKs** | Install and enable independent Surface video/touch sources. Includes a standalone SDK and sample APK; see the [plugin guide](docs/PROJECTION_PLUGINS.md). |
-| **ICCOA CarLink** | Planned as a separate plugin APK. No proprietary SDK or CarLink plugin is included. |
+| **ICCOA CarLink** | [Independent APK plugin](docs/CARLINK.md) with device-validated Wi-Fi Direct, manual hotspot, USB, and Surface / WebRTC output. Replug the USB cable for error 10007. The receiver requires arm64 / 4 KB pages. |
 
 One projection source and one browser control session can be active at a time. For Android Auto, audio plays on the Android host and microphone input uses the host; browser audio/microphone routing and automatic wireless discovery are not implemented. See the [Android Auto guide](docs/ANDROID_AUTO.md) for setup and limitations.
 

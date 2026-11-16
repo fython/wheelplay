@@ -61,7 +61,7 @@ OEM 设置中的「调试信息」开关控制右上角悬浮窗口，默认关�
 
 下一真实源仍优先 Android Auto：从 DiAuto 提取一种传输及协议会话，将完整压缩访问单元交给视频端口，并在适配器处理 ACK、明确的 touch action/actionIndex、音频和焦点。此次没有打包未经端到端验证的 AA 协议实现，也未复制外部证书私钥。音频 PCM/麦克风的跨协议端口仍需继续收敛；公共生命周期和启动取消契约见下文。
 
-ICCOA 继续受制于 MiAuto 未分发的 `icar-sdk.dex`。拿到适用 SDK 后，先验证离屏 Surface、触控注入和停止释放，再实现 provider；没有 SDK 时不能把包装层视作可用源。VNC 可复用 framebuffer 合成，但 Pointer/Key/Text 等能力尚未实现。新源只能声明实际支持的能力。
+ICCOA 已通过 [CarLink 独立插件](CARLINK.md) 接入，支持固定 SDK 的 Debug / Release 打包与分发；P2P、手动热点、USB 和 Surface / WebRTC 输出已通过实机验证，USB 10007 按使用指南拔插数据线恢复。VNC 可复用 framebuffer 合成，但 Pointer/Key/Text 等能力尚未实现。新源只能声明实际支持的能力。
 
 
 ## 公共取消、状态与启动契约

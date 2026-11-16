@@ -16,7 +16,7 @@ internal data class PluginPreparation(val sourceId: String, val identity: String
     }
     companion object {
         private fun identity(plugin: InstalledProjectionPlugin) =
-            "${plugin.component.flattenToString()}|${plugin.uid}|${plugin.signer}|${plugin.installedAt}|${plugin.updatedAt}|${plugin.version}|${plugin.preparation}"
+            "${plugin.component.flattenToString()}|${plugin.uid}|${plugin.signer}|${plugin.installedAt}|${plugin.updatedAt}|${plugin.version}|${plugin.preparation}|${plugin.microphone}"
         fun create(plugin: InstalledProjectionPlugin, generation: Long) =
             PluginPreparation(plugin.id, identity(plugin), generation, UUID.randomUUID().toString())
         fun fromBundle(bundle: Bundle?) = bundle?.let {

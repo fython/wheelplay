@@ -330,6 +330,7 @@ internal object WebSession {
             mdns = WebMdns(context.applicationContext)
             experienceContext = context.applicationContext
             var previousSource = inputSession
+            var previousCapabilities = inputSession?.capabilities
             offlineSubscription = projectionSessions.subscribe {
                 val changed = synchronized(this) {
                     // Read under the configuration lock: a delayed notification cannot restore an old route.
@@ -349,9 +350,13 @@ internal object WebSession {
                     // Versionless clients cannot distinguish old touches after a source switch.
                     server?.disconnectViewer()
                     secureServer?.disconnectViewer()
-                    configureAudio(context)
                     refreshAppearance(context)
                 }
+                val audioChanged = synchronized(this) {
+                    val capabilities = projectionSessions.snapshot()?.capabilities
+                    (previousCapabilities != capabilities).also { previousCapabilities = capabilities }
+                }
+                if (changed || audioChanged) configureAudio(context)
                 viewerStateChanged()
             }
             httpsPort = WebListenSettings.httpsPort(context)

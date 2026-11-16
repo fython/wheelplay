@@ -207,6 +207,7 @@ internal class CarPlayMediaSessionBridge(
     }
 
     private fun requestFocus(): Boolean {
+        if (source?.managesAudioFocus == true) return true
         if (remote || output?.isRemoteMediaAvailable() == true) {
             output?.setLocalMediaAllowed(false)
             return true

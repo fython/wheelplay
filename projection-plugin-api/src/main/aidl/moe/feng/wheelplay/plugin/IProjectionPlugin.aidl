@@ -17,4 +17,8 @@ oneway interface IProjectionPlugin {
     void startEncoded(String token, in ParcelFileDescriptor output);
     // Optional display-size extension v1; requires bind-time and onInfo negotiation.
     void updateDisplaySize(String token, long requestId, int width, int height);
+    // Audio v1: negotiate, attach once before video start; separate bounded pipes.
+    void attachAudio(String token, in ParcelFileDescriptor playback, in ParcelFileDescriptor microphone);
+    // Media v1; play/pause/next/previous, only after explicit negotiation.
+    void mediaCommand(String token, long requestId, int command);
 }
