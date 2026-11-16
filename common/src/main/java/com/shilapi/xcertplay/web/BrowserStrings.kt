@@ -17,6 +17,8 @@ internal object BrowserStrings {
             "web_debug_format" to UiR.string.web_debug_format,
             "web_debug_image_decode" to UiR.string.web_debug_image_decode,
             "web_debug_frames" to UiR.string.web_debug_frames,
+            "web_auto_fullscreen" to UiR.string.web_auto_fullscreen,
+            "web_auto_fullscreen_help" to UiR.string.web_auto_fullscreen_help,
             "web_debug_title" to UiR.string.web_debug_title,
             "web_debug_help" to UiR.string.web_debug_help,
             "web_debug_connection" to UiR.string.web_debug_connection,
