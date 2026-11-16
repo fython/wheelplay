@@ -11,7 +11,8 @@ fi
 
 missing=()
 for package in "$@"; do
-  directory="${ANDROID_HOME}/${package//;/\/}"
+  relative=${package//;/\/}
+  directory="${ANDROID_HOME}/${relative}"
   if [[ -f "$directory/package.xml" || -f "$directory/source.properties" ]]; then
     echo "Using installed SDK package: $package"
   else
