@@ -140,7 +140,16 @@ class SourceNavigationTest : ComposeSettingsTest() {
         // Browser and native home use the stable built-in identity.
         assertEquals(ProjectionSourceIds.CARLIFE, WebSession.sourceControl.snapshot().getString("selectedId"))
         shadowOf(context).grantPermissions(android.Manifest.permission.RECORD_AUDIO)
+        AirPlayPersistence.saveBrowserAudioPlayback(context, false)
         action("HOME_CONNECT")
+        text("切换音频输出后连接").assertExists()
+        cancel()
+        assertFalse(AirPlayPersistence.loadBrowserAudioPlayback(context))
+        assertNull(projectionSessions.snapshot())
+        assertNull(shadowOf(context).nextStartedActivity)
+        action("HOME_CONNECT")
+        tap("dialog:action:0")
+        assertTrue(AirPlayPersistence.loadBrowserAudioPlayback(context))
         val preparation = shadowOf(context).nextStartedActivityForResult
         assertEquals(android.content.ComponentName(context, moe.feng.wheelplay.projection.carlife.CarLifeSettingsActivity::class.java), preparation.intent.component)
         assertNotNull(preparation.intent.getStringExtra(moe.feng.wheelplay.projection.carlife.CarLifeSettingsActivity.EXTRA_PREPARE_REQUEST))
