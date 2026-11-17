@@ -34,7 +34,9 @@ export function createMicResampler(inputRate, outputRate, channels, emit) {
 
 export function createBrowserAudio({
   send, sendBinary, onState = () => {},
-  createContext = () => new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' }),
+  // Keep 48 kHz PCM packets at their native rate. Per-buffer 48→44.1 kHz
+  // conversion can introduce seams; device-rate conversion belongs after mixing.
+  createContext = () => new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive', sampleRate: 48000 }),
   getMicrophone = () => navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false }),
   createWorklet = context => new AudioWorkletNode(context, 'wheelplay-microphone', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] }),
   secure = () => window.isSecureContext && location.protocol === 'https:' && !!navigator.mediaDevices?.getUserMedia,
