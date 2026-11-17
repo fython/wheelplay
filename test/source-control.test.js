@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { sourcePanel } from '../common/src/main/assets/web/source-control.js';
+import { sourcePanel, resizeNotice } from '../common/src/main/assets/web/source-control.js';
 const base = { version: 1, selectedName: 'CarPlay', activeId: 'plugin', activeName: 'CarLink', phase: 'running', action: 'stop' };
 test('source readiness without a browser frame never offers connect', () => {
   const panel = sourcePanel(base, { visible: false });
@@ -13,5 +13,17 @@ test('connecting, cleanup and unsupported servers do not offer media retry or im
   assert.equal(sourcePanel({ ...base, phase: 'connecting' }, {}).retry, false);
   for (const control of [null, { ...base, phase: 'stopping' }, { ...base, cleanup: 'unconfirmed' }]) {
     assert.equal(sourcePanel(control, {}).action, ''); assert.equal(sourcePanel(control, {}).retry, false);
+  }
+});
+
+test('resize prompts require an explicit pending resize on the current running source', () => {
+  assert.equal(resizeNotice(base), null); // CarPlay and automatic plugins.
+  const manual = { ...base, generation: 3, resize: { width: 1600, height: 900 }, resizeAction: 'reconnect' };
+  assert.equal(resizeNotice(manual).canReconnect, true);
+  assert.equal(resizeNotice({ ...manual, resizeAction: '' }).canReconnect, false);
+  assert.notEqual(resizeNotice(manual).key, resizeNotice({ ...manual, generation: 4 }).key);
+  for (const patch of [{ phase: 'stopping' }, { cleanup: 'unconfirmed' }, { reconfiguring: true },
+    { activeId: null }, { resize: null }, { resize: { width: 0, height: 900 } }]) {
+    assert.equal(resizeNotice({ ...manual, ...patch }), null);
   }
 });

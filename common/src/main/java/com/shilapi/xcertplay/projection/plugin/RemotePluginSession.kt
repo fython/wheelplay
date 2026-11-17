@@ -58,8 +58,12 @@ internal class RemotePluginSession(
     private var awaitingProcessExit = false
     private var output: CompletableFuture<AutoCloseable>? = null
     @Volatile private var audio: RemotePluginAudio? = null
+    private var initialViewportSubscription: AutoCloseable? = null
     private var viewportSubscription: AutoCloseable? = null
     private var displaySizeSupported = false
+    private var manualDisplaySizeReconnect = false
+    @Volatile private var pendingResize: Pair<Int, Int>? = null
+    override val pendingDisplayResize get() = pendingResize?.takeIf { !stopping && it == desiredDisplaySize }
     private var interactionSupported = false
     private var hostUiSupported = false
     private var pluginMedia: RemotePluginMedia? = null
@@ -71,7 +75,7 @@ internal class RemotePluginSession(
             android.os.SystemClock.elapsedRealtime() - interactionAt < 120_000 }
 
     private var sentDisplaySize = 1280 to 720
-    private var desiredDisplaySize = sentDisplaySize
+    @Volatile private var desiredDisplaySize = sentDisplaySize
     private var displayRequestId = 0L
     private val displayUpdate = Runnable {
         if (!closing && !stopping && startSent && displaySizeSupported && desiredDisplaySize != sentDisplaySize) {
@@ -85,11 +89,13 @@ internal class RemotePluginSession(
         viewportSubscription = WebSession.subscribeBrowserViewport { width, height -> main.post {
             if (closing || stopping) return@post
             desiredDisplaySize = if (width != null && height != null) width to height else 1280 to 720
+            runtime.changed(this)
             main.removeCallbacks(displayUpdate)
             main.postDelayed(displayUpdate, 800)
         } }
     }
     private fun stopObservingDisplaySize() {
+        initialViewportSubscription?.close(); initialViewportSubscription = null
         viewportSubscription?.close(); viewportSubscription = null
         main.removeCallbacks(displayUpdate)
     }
@@ -122,11 +128,13 @@ internal class RemotePluginSession(
                 infoReceived = true
                 if (video.mediaVersion == ProjectionPlugin.MEDIA_VERSION) pluginMedia = RemotePluginMedia(
                     { !stopping && ready && stillAllowed() && runtime.snapshot() === this@RemotePluginSession },
-                    { request, command -> enqueue { it.mediaCommand(this@RemotePluginSession.token, request, command) } })
+                    { request, command -> enqueue { it.mediaCommand(this@RemotePluginSession.token, request, command) } },
+                    sourceName = plugin.name, publishNativeSession = video.publishNativeMediaSession)
 
                 hostUiSupported = video.hostUiVersion == ProjectionPlugin.HOST_UI_VERSION
                 interactionSupported = video.interactionVersion == ProjectionPlugin.INTERACTION_VERSION
                 processExitRequired = video.processExitRequired
+                manualDisplaySizeReconnect = video.manualDisplaySizeReconnect
                 displaySizeSupported = video.displaySizeVersion == ProjectionPlugin.DISPLAY_SIZE_VERSION
                 if (displaySizeSupported) observeDisplaySize()
                 main.removeCallbacks(deadline)
@@ -162,7 +170,13 @@ internal class RemotePluginSession(
         }
         override fun onDisplaySizeResult(token: String, requestId: Long, restartRequired: Boolean) = callback(token) {
             if (stopping || !startSent || !displaySizeSupported || requestId <= 0 || requestId != displayRequestId ||
-                desiredDisplaySize != sentDisplaySize || !restartRequired) return@callback
+                desiredDisplaySize != sentDisplaySize) return@callback
+            if (manualDisplaySizeReconnect) {
+                pendingResize = sentDisplaySize.takeIf { restartRequired }
+                runtime.changed(this@RemotePluginSession)
+                return@callback
+            }
+            if (!restartRequired) return@callback
             runtime.restart(this@RemotePluginSession).whenComplete { _, failure ->
                 if (failure != null && generateSequence(failure) { it.cause }.none { it is CancellationException }) {
                     main.post { onFailure(failure.message ?: "Cannot restart plugin for display size") }
@@ -210,6 +224,7 @@ internal class RemotePluginSession(
             }
         }
         override fun onStopped(token: String, clean: Boolean, message: String) = callback(token) {
+            android.util.Log.i("WheelPlayLifecycle", "PLUGIN_STOPPED clean=$clean stopping=$stopping reason=${message.take(512)}")
             pluginMedia?.close()
             if (awaitingProcessExit) return@callback
             // Older v2 plugins can reject connect or end a session using onStopped alone.
@@ -256,24 +271,42 @@ internal class RemotePluginSession(
             activated = true
             if (stopping) { beginStop(); return@post }
             if (!stillAllowed()) { fail(context.getString(UiR.string.plugin_disabled)); return@post }
-            main.postDelayed(deadline, connectTimeoutMs)
-            try {
-                val viewport = WebSession.currentBrowserViewport
-                    .takeIf { WebSession.adaptiveBrowserSize } ?: (1280 to 720)
-                sentDisplaySize = viewport; desiredDisplaySize = viewport
-                val intent = Intent(ProjectionPlugin.ACTION).setComponent(plugin.component)
-                    .putExtra(ProjectionPlugin.EXTRA_MEDIA_VERSION, ProjectionPlugin.MEDIA_VERSION)
-                    .putExtra(ProjectionPlugin.EXTRA_AUDIO_VERSION, ProjectionPlugin.AUDIO_VERSION)
-                    .putExtra(ProjectionPlugin.EXTRA_HOST_UI_VERSION, ProjectionPlugin.HOST_UI_VERSION)
-                    .putExtra(ProjectionPlugin.EXTRA_INTERACTION_VERSION, ProjectionPlugin.INTERACTION_VERSION)
-                .putExtra(ProjectionPlugin.EXTRA_DISPLAY_SIZE_VERSION, ProjectionPlugin.DISPLAY_SIZE_VERSION)
-                    .putExtra(ProjectionPlugin.EXTRA_ENCODED_VIDEO_VERSION, ProjectionPlugin.ENCODED_VIDEO_VERSION)
-                    .putExtra(ProjectionPlugin.EXTRA_DISPLAY_WIDTH, viewport.first)
-                    .putExtra(ProjectionPlugin.EXTRA_DISPLAY_HEIGHT, viewport.second)
-                bound = context.bindService(intent, connection, Context.BIND_AUTO_CREATE)
-                if (!bound) fail(context.getString(UiR.string.plugin_unavailable))
-            } catch (failure: Exception) { fail(failure.message ?: "Cannot bind plugin") }
+            if (plugin.requiresInitialViewport && WebSession.adaptiveBrowserSize && WebSession.currentBrowserViewport == null) {
+                notifyStatus(context.getString(UiR.string.plugin_waiting_viewport))
+                main.postDelayed(deadline, startupTimeoutMs)
+                initialViewportSubscription = WebSession.subscribeBrowserViewport { _, _ -> main.post {
+                    if (closing || stopping || initialViewportSubscription == null) return@post
+                    if (!WebSession.adaptiveBrowserSize || WebSession.currentBrowserViewport != null) {
+                        initialViewportSubscription?.close(); initialViewportSubscription = null
+                        bindPlugin()
+                    }
+                } }
+            } else bindPlugin()
         }
+    }
+
+    private fun bindPlugin() {
+        if (closing || stopping || bound) return
+        if (!stillAllowed()) { fail(context.getString(UiR.string.plugin_disabled)); return }
+        main.removeCallbacks(deadline)
+        main.postDelayed(deadline, connectTimeoutMs)
+        try {
+            val viewport = WebSession.currentBrowserViewport
+                .takeIf { WebSession.adaptiveBrowserSize } ?: (1280 to 720)
+            sentDisplaySize = viewport; desiredDisplaySize = viewport
+            val intent = Intent(ProjectionPlugin.ACTION).setComponent(plugin.component)
+                .putExtra(ProjectionPlugin.EXTRA_MEDIA_VERSION, ProjectionPlugin.MEDIA_VERSION)
+                .putExtra(ProjectionPlugin.EXTRA_AUDIO_VERSION, ProjectionPlugin.AUDIO_VERSION)
+                .putExtra(ProjectionPlugin.EXTRA_HOST_UI_VERSION, ProjectionPlugin.HOST_UI_VERSION)
+                .putExtra(ProjectionPlugin.EXTRA_INTERACTION_VERSION, ProjectionPlugin.INTERACTION_VERSION)
+                .putExtra(ProjectionPlugin.EXTRA_DISPLAY_SIZE_VERSION, ProjectionPlugin.DISPLAY_SIZE_VERSION)
+                .putExtra(ProjectionPlugin.EXTRA_MANUAL_DISPLAY_RECONNECT, true)
+                .putExtra(ProjectionPlugin.EXTRA_ENCODED_VIDEO_VERSION, ProjectionPlugin.ENCODED_VIDEO_VERSION)
+                .putExtra(ProjectionPlugin.EXTRA_DISPLAY_WIDTH, viewport.first)
+                .putExtra(ProjectionPlugin.EXTRA_DISPLAY_HEIGHT, viewport.second)
+            bound = context.bindService(intent, connection, Context.BIND_AUTO_CREATE)
+            if (!bound) fail(context.getString(UiR.string.plugin_unavailable))
+        } catch (failure: Exception) { fail(failure.message ?: "Cannot bind plugin") }
     }
 
     private fun enqueue(action: (IProjectionPlugin) -> Unit): Boolean {
@@ -306,17 +339,21 @@ internal class RemotePluginSession(
         if (enqueue { it.setNightMode(token, night) }) ProjectionCommandResult.SENT else ProjectionCommandResult.FAILED
     }
     override fun stop(): CompletableFuture<Unit> {
+        android.util.Log.i("WheelPlayLifecycle", "HOST_STOP source=${plugin.component} stopping=$stopping ready=$ready closing=$closing", Throwable("Stop caller"))
         synchronized(admission) { stopping = true; ready = false }
         main.post { beginStop() }
         return completion
     }
     private fun fail(reason: String) {
+        if (!closing && !stopping) moe.feng.wheelplay.plugin.PluginAudioDiagnostics.dump("host-failure")
+        android.util.Log.w("WheelPlayLifecycle", "HOST_FAILURE source=${plugin.component} stopping=$stopping reason=${reason.take(512)}", Throwable("Failure caller"))
         if (closing || stopping) return
         rememberFailure(reason)
         stop()
         notifyStatus(reason)
     }
     private fun beginStop() {
+        pendingResize = null
         pluginMedia?.close()
         audio?.close()
         localInteraction = null

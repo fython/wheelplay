@@ -635,4 +635,10 @@
     <string name="plugin_pairing_instruction">请在发送手机的车联功能中选择 %1$s，并输入此验证码。这不是浏览器配对码。</string>
     <string name="web_auto_fullscreen">连接后进入全屏</string>
     <string name="web_auto_fullscreen_help">启动连接时自动进入全屏。下次连接生效，仅保存在当前浏览器。</string>
+    <string name="web_resize_title">窗口尺寸已变化</string>
+    <string name="web_resize_description">窗口已调整为 %1$s × %2$s。%3$s 需要重新连接才能应用。当前画面会中断，请随后在手机上完成连接。</string>
+    <string name="web_resize_foreground">请先在手机上打开 WheelPlay，再点击重新连接。</string>
+    <string name="web_resize_later">稍后</string>
+    <string name="web_resize_reconnect">重新连接</string>
+    <string name="web_resize_review">应用新窗口尺寸</string>
 </resources>

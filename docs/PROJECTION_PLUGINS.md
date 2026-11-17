@@ -158,6 +158,27 @@ binding a fresh session with the latest viewport. A user stop or source switch c
 reopening; a cleanup failure retains quarantine. Surface and encoded outputs are recreated together
 with touch mapping rather than changing dimensions underneath an active producer.
 
+Plugins that require user preparation on a size change set
+`PluginVideoInfo.manualDisplaySizeReconnect=true` (requires `displaySizeVersion=1`).
+The default is false, preserving automatic restart for existing plugins. When the latest valid
+resize reply requires a restart, the host publishes a pending resize to WebUI instead of stopping
+anything. The browser offers Later and Reconnect; Later preserves playback and the request remains
+available in settings. Returning to the original effective size clears the request. Reconnect is
+available while WheelPlay is in the foreground and, after clean teardown, invokes the same plugin
+preparation flow used for a fresh connection. It targets the exact active source and revision;
+cleanup failure, foreground loss, source replacement or selection change prevents reopening.
+This capability concerns resize only, not recovery from network/source failure. Built-in CarPlay
+and other automatic sources do not publish a pending manual resize.
+
+Hosts advertise `EXTRA_MANUAL_DISPLAY_RECONNECT=true` in the bind intent. Plugins that cannot
+safely auto-restart must return false on size updates from older hosts that omit this flag;
+`ProjectionPluginService.hostManualDisplayReconnect` exposes it. No Binder method or transaction
+number changes. CarLife uses this guard to retain its previous deferred behavior on older hosts.
+
+The optional service metadata `META_REQUIRES_INITIAL_VIEWPORT=true` asks the host to wait for a
+real browser viewport before binding when adaptive sizing is enabled. Waiting is cancellable and
+uses the host startup deadline. Disabling adaptive sizing permits the default 1280×720 immediately.
+
 ## 编码视频扩展调研
 
 ICCOA 的独立实验已验证压缩 H.264 可经现有 WebRTC 在浏览器出画，且无需本机解码即可完成普通触控。CarLink 设置现已提供可选 WebRTC 模式，默认仍为 Surface；关键帧请求与重连恢复仍有实验性限制。实测记录、失败边界和能力协商／有界媒体管道／关键帧控制设计见 [ICCOA WebRTC 验证与协议草案](ICCOA_WEBRTC_PROBE.md)。

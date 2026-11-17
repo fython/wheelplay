@@ -174,6 +174,79 @@ class RemotePluginSessionTest {
         }
     }
 
+    @Test fun manualResizeWaitsForUserAndRejectsObsoleteReplies() {
+        val web = com.shilapi.xcertplay.web.WebSession
+        val oldAdaptive = web.adaptiveBrowserSize; val oldViewport = web.currentBrowserViewport
+        val peer = Peer().apply { info = PluginVideoInfo(1280, 720, displaySizeVersion = 1,
+            manualDisplaySizeReconnect = true).toBundle() }
+        val binding = Binding(peer); val runtime = ProjectionRuntime()
+        val session = RemotePluginSession(binding, plugin, runtime, { true }, { _, _ -> Output() })
+        try {
+            web.setAdaptiveBrowserSize(true); web.reportBrowserViewport(1280, 720)
+            runtime.adopt(session, setOf(ProjectionResource.DISPLAY)); session.activate(); until { session.inputReady }
+            assertTrue(binding.bindIntent!!.getBooleanExtra(ProjectionPlugin.EXTRA_MANUAL_DISPLAY_RECONNECT, false))
+            web.reportBrowserViewport(1600, 900)
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(800)); until { peer.displayRequests.size == 1 }
+            val request = peer.displayRequests.remove()
+            peer.host.onDisplaySizeResult(peer.token, request.first, true)
+            shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(1600 to 900, session.pendingDisplayResize)
+            assertEquals(0, peer.stops); assertSame(session, runtime.snapshot())
+            web.reportBrowserViewport(1280, 720)
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(800)); until { peer.displayRequests.size == 1 }
+            val restored = peer.displayRequests.remove()
+            peer.host.onDisplaySizeResult(peer.token, request.first, true) // Stale reply cannot revive the prompt.
+            peer.host.onDisplaySizeResult(peer.token, restored.first, false)
+            shadowOf(Looper.getMainLooper()).idle()
+            assertNull(session.pendingDisplayResize); assertEquals(0, peer.stops)
+            val stopped = runtime.stop(); until { peer.stops == 1 }
+            peer.acknowledge(); until { stopped.isDone }
+        } finally {
+            oldViewport?.let { web.reportBrowserViewport(it.first, it.second) }; web.setAdaptiveBrowserSize(oldAdaptive)
+        }
+    }
+
+    @Test fun initialViewportGateUsesLateSizeAndCanBeCancelledOrDisabled() {
+        val web = com.shilapi.xcertplay.web.WebSession
+        val oldAdaptive = web.adaptiveBrowserSize
+        val viewportField = web.javaClass.getDeclaredField("browserViewport").apply { isAccessible = true }
+        val oldViewport = viewportField.get(web)
+        try {
+            for (mode in listOf("size", "defaultSize", "cancel", "disable", "timeout")) {
+                viewportField.set(web, null)
+                web.setAdaptiveBrowserSize(true)
+                val peer = Peer()
+                val binding = Binding(peer)
+                val session = RemotePluginSession(binding, plugin.copy(requiresInitialViewport = true),
+                    ProjectionRuntime(), { true }, { _, _ -> Output() }, startupTimeoutMs = 2_000)
+                session.activate()
+                shadowOf(Looper.getMainLooper()).idle()
+                assertEquals(0, binding.binds)
+                if (mode == "cancel" || mode == "timeout") {
+                    if (mode == "cancel") {
+                        val stopped = session.stop(); until { stopped.isDone }
+                    } else shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(2_001))
+                    web.reportBrowserViewport(1728, 1192)
+                    shadowOf(Looper.getMainLooper()).idle()
+                    assertEquals(0, binding.binds)
+                    continue
+                }
+                val expected = if (mode == "size") 1728 to 1192 else 1280 to 720
+                if (mode == "disable") web.setAdaptiveBrowserSize(false)
+                else web.reportBrowserViewport(expected.first, expected.second)
+                until { session.inputReady }
+                assertEquals(1, binding.binds)
+                assertEquals(expected.first, binding.bindIntent!!.getIntExtra(ProjectionPlugin.EXTRA_DISPLAY_WIDTH, 0))
+                assertEquals(expected.second, binding.bindIntent!!.getIntExtra(ProjectionPlugin.EXTRA_DISPLAY_HEIGHT, 0))
+                val stopped = session.stop(); until { peer.stops == 1 }
+                peer.acknowledge(); until { stopped.isDone }
+            }
+        } finally {
+            viewportField.set(web, oldViewport)
+            web.setAdaptiveBrowserSize(oldAdaptive)
+        }
+    }
+
     @Test fun viewportChangesCoalesceAndRestartOnlyAfterMatchingReplyAndCleanup() {
         val web = com.shilapi.xcertplay.web.WebSession
         val oldAdaptive = web.adaptiveBrowserSize; val oldViewport = web.currentBrowserViewport

@@ -9,6 +9,7 @@ object ProjectionPlugin {
     const val META_API_VERSION = "moe.feng.wheelplay.plugin.API_VERSION"
     /** Optional UI association; never replaces the component-derived runtime identity or consent. */
     const val META_SOURCE_ID = "moe.feng.wheelplay.plugin.SOURCE_ID"
+    const val SOURCE_CARLIFE_LOOPBACK = "carlife-loopback"
     const val SOURCE_ICCOA_CARLINK = "iccoa-carlink"
     const val META_PREPARE_ACTIVITY = "moe.feng.wheelplay.plugin.PREPARE_ACTIVITY"
     const val EXTRA_PREPARE_REQUEST = "moe.feng.wheelplay.plugin.PREPARE_REQUEST"
@@ -20,6 +21,8 @@ object ProjectionPlugin {
     const val AUDIO_VERSION = 1
     const val EXTRA_MEDIA_VERSION = "moe.feng.wheelplay.plugin.MEDIA_VERSION"
     const val MEDIA_VERSION = 1
+    /** Wait for a browser viewport before binding when adaptive sizing is enabled. */
+    const val META_REQUIRES_INITIAL_VIEWPORT = "moe.feng.wheelplay.plugin.REQUIRES_INITIAL_VIEWPORT"
     const val META_MICROPHONE = "moe.feng.wheelplay.plugin.MICROPHONE"
     const val META_SETTINGS_ACTIVITY = "moe.feng.wheelplay.plugin.SETTINGS_ACTIVITY"
     /** Optional bind-time pixel size; plugins may constrain it and return their actual size in onInfo. */
@@ -31,6 +34,7 @@ object ProjectionPlugin {
     const val ENCODED_VIDEO_VERSION = 1
     const val EXTRA_DISPLAY_SIZE_VERSION = "moe.feng.wheelplay.plugin.DISPLAY_SIZE_VERSION"
     const val DISPLAY_SIZE_VERSION = 1
+    const val EXTRA_MANUAL_DISPLAY_RECONNECT = "moe.feng.wheelplay.plugin.MANUAL_DISPLAY_RECONNECT"
     const val CONNECTING = 0
     const val READY = 1
     const val ERROR = 2
@@ -52,12 +56,16 @@ data class PluginVideoInfo(
     val audioVersion: Int = 0,
     val microphone: Boolean = false,
     val mediaVersion: Int = 0,
+    /** A true resize reply requires user confirmation and the plugin preparation flow. */
+    val manualDisplaySizeReconnect: Boolean = false,
+    val publishNativeMediaSession: Boolean = true,
 ) {
     init {
         require(width in 1..4096 && height in 1..4096 && width.toLong() * height <= 8_388_608)
         require(maxTouchContacts in 0..10)
         require(encodedVideoVersion in 0..ProjectionPlugin.ENCODED_VIDEO_VERSION)
         require(displaySizeVersion in 0..ProjectionPlugin.DISPLAY_SIZE_VERSION)
+        require(!manualDisplaySizeReconnect || displaySizeVersion != 0)
         require(interactionVersion in 0..ProjectionPlugin.INTERACTION_VERSION)
         require(hostUiVersion in 0..ProjectionPlugin.HOST_UI_VERSION)
         require(audioVersion in 0..ProjectionPlugin.AUDIO_VERSION)
@@ -75,12 +83,14 @@ data class PluginVideoInfo(
         putInt("hostUiVersion", hostUiVersion)
         putInt("audioVersion", audioVersion); putBoolean("microphone", microphone)
         putInt("mediaVersion", mediaVersion)
+        putBoolean("publishNativeMediaSession", publishNativeMediaSession)
+        putBoolean("manualDisplaySizeReconnect", manualDisplaySizeReconnect)
     }
     companion object {
         fun fromBundle(bundle: Bundle): PluginVideoInfo {
             require(bundle.getInt("apiVersion") == ProjectionPlugin.API_VERSION) { "Unsupported plugin API" }
             return PluginVideoInfo(bundle.getInt("width"), bundle.getInt("height"),
-                bundle.getInt("maxTouchContacts"), bundle.getBoolean("nightMode"), bundle.getBoolean("processExitRequired"), bundle.getBoolean("nativeCancelInput"), bundle.getInt("encodedVideoVersion"), bundle.getInt("displaySizeVersion"), bundle.getInt("interactionVersion"), bundle.getInt("hostUiVersion"), bundle.getInt("audioVersion"), bundle.getBoolean("microphone"), bundle.getInt("mediaVersion"))
+                bundle.getInt("maxTouchContacts"), bundle.getBoolean("nightMode"), bundle.getBoolean("processExitRequired"), bundle.getBoolean("nativeCancelInput"), bundle.getInt("encodedVideoVersion"), bundle.getInt("displaySizeVersion"), bundle.getInt("interactionVersion"), bundle.getInt("hostUiVersion"), bundle.getInt("audioVersion"), bundle.getBoolean("microphone"), bundle.getInt("mediaVersion"), bundle.getBoolean("manualDisplaySizeReconnect"), bundle.getBoolean("publishNativeMediaSession", true))
         }
     }
 }

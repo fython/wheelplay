@@ -17,6 +17,30 @@ import java.util.concurrent.CompletableFuture
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29], shadows = [RecordingMediaSession::class, LinkedMediaController::class, LinkedTransportControls::class])
 class CarPlayMediaSessionBridgeTest {
+    @Test fun localPlayerKeepsBrowserControlsWithoutNativeSessionOrMetadata() {
+        val context = RuntimeEnvironment.getApplication()
+        val source = Source().apply { managesAudioFocus = true; publishNativeSession = false }
+        var nativeSession: android.media.session.MediaSession? = null
+        val bridge = CarPlayMediaSessionBridge(context) { _, session, _ -> nativeSession = session }
+        try {
+            bridge.bind(source, null); source.update(playing()); idle()
+            assertFalse(bridge.session.isActive)
+            assertNull(nativeSession)
+            val controller = MediaController(context, bridge.session.sessionToken)
+            assertNull(controller.metadata)
+            assertEquals(PlaybackState.STATE_NONE, controller.playbackState!!.state)
+            assertEquals(MediaCommandResult.SENT, bridge.browserCommand(source, 0, MediaCommand.PAUSE).get())
+            assertEquals(listOf(MediaCommand.PAUSE), source.sent)
+            assertNull(shadowOf(context.getSystemService(android.media.AudioManager::class.java)).lastAudioFocusRequest)
+            val remote = Source().apply { managesAudioFocus = true }
+            bridge.bind(remote, null); remote.update(playing()); idle()
+            assertTrue(bridge.session.isActive)
+            bridge.bind(source, null); idle()
+            assertFalse(bridge.session.isActive)
+            assertNull(controller.metadata)
+        } finally { bridge.close() }
+    }
+
     @Test fun sourceOwnedPlaybackFocusIsNotRequestedAgainByMediaSession() {
         val context = RuntimeEnvironment.getApplication()
         val source = Source().apply { managesAudioFocus = true }
@@ -127,6 +151,7 @@ class CarPlayMediaSessionBridgeTest {
     }
 
     private class Source : CarPlayMediaSource {
+        override var publishNativeSession = true
         override var managesAudioFocus = false
         var state = NowPlayingState()
         val listeners = mutableListOf<(NowPlayingState) -> Unit>()

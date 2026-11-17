@@ -73,4 +73,31 @@ class RemotePluginMediaTest {
         assertEquals(MediaCommandResult.UNAVAILABLE, send().get())
         assertEquals(MediaCommandResult.UNSUPPORTED, source.seekTo(1000, 1, 1).get())
     }
+
+    @Test fun carlifeNameAndArtworkArePublishedAndCleared() {
+        val source = RemotePluginMedia({ true }, { _, _ -> true }, sourceName = "CarLife")
+        val bitmap = android.graphics.Bitmap.createBitmap(2, 2, android.graphics.Bitmap.Config.ARGB_8888)
+        val out = java.io.ByteArrayOutputStream()
+        bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+        bitmap.recycle()
+        try {
+            val original = song().copy(artwork = out.toByteArray())
+            val bundle = original.toBundle()
+            val restored = PluginMediaState.fromBundle(bundle)
+            assertArrayEquals(original.artwork, restored.artwork)
+            source.update(restored)
+            val deadline = System.nanoTime() + 3_000_000_000L
+            while (source.mediaSnapshot().artwork == null && System.nanoTime() < deadline) {
+                Thread.sleep(10); idle()
+            }
+            assertNotNull(source.mediaSnapshot().artwork)
+            assertEquals("CarLife", source.mediaSnapshot().appName)
+            val art = source.mediaSnapshot().artwork
+            source.update(restored.copy(positionMs = 2000))
+            assertSame(art, source.mediaSnapshot().artwork)
+            source.update(PluginMediaState())
+            assertNull(source.mediaSnapshot().artwork)
+            assertFalse(source.mediaSnapshot().available)
+        } finally { source.close(); idle() }
+    }
 }

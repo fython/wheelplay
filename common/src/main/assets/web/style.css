@@ -72,8 +72,8 @@
 /* Remains accessible in immersive display mode; absent for sources without Back. */
 #desktop-back{position:absolute;left:12px;bottom:12px;z-index:2;opacity:.85}
 
-#settings-dialog{position:fixed;inset:0;margin:auto;width:min(560px,calc(100% - 32px));max-height:calc(100% - 32px);overflow:auto;padding:24px;border:1px solid #46514e;border-radius:20px;background:#1c2428;color:#eef2ef;box-shadow:0 24px 80px #0008}
-#settings-dialog::backdrop{background:#0009}
+#settings-dialog,#resize-dialog{position:fixed;inset:0;margin:auto;width:min(560px,calc(100% - 32px));max-height:calc(100% - 32px);overflow:auto;padding:24px;border:1px solid #46514e;border-radius:20px;background:#1c2428;color:#eef2ef;box-shadow:0 24px 80px #0008}
+#settings-dialog::backdrop,#resize-dialog::backdrop{background:#0009}
 .settings-heading{display:flex;align-items:center;justify-content:space-between;gap:20px}
 .settings-heading h2{margin:0;font-size:24px;font-weight:550}
 .settings-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:24px}
@@ -109,3 +109,5 @@
 #pairing-keypad #keypad-clear{font-size:13px;background:transparent;color:#cbd5cf}
 #keypad-delete svg{display:block;width:24px;height:24px;margin:auto;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 @media(max-height:480px){body.pin-keypad-open #topbar{display:none}}
+
+#resize-dialog p{line-height:1.6} #resize-dialog .settings-actions{justify-content:flex-end;flex-wrap:wrap}

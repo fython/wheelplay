@@ -635,4 +635,10 @@
     <string name="plugin_pairing_instruction">On the sending phone, select %1$s in car connectivity and enter this code. This is not the browser pairing code.</string>
     <string name="web_auto_fullscreen">Enter fullscreen on connection</string>
     <string name="web_auto_fullscreen_help">Automatically enter fullscreen when starting a connection. Applies to your next connection and is saved in this browser.</string>
+    <string name="web_resize_title">Window size changed</string>
+    <string name="web_resize_description">The window is now %1$s × %2$s. %3$s needs to reconnect to apply this size. Playback will stop; finish connecting on your phone.</string>
+    <string name="web_resize_foreground">Open WheelPlay on your phone to reconnect.</string>
+    <string name="web_resize_later">Later</string>
+    <string name="web_resize_reconnect">Reconnect</string>
+    <string name="web_resize_review">Apply new window size</string>
 </resources>

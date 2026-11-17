@@ -36,6 +36,8 @@ abstract class ProjectionPluginService : Service() {
     protected open fun onAudioTransport(playback: ParcelFileDescriptor, microphone: ParcelFileDescriptor) {
         error("Audio transport is not implemented by this plugin")
     }
+    @Volatile protected var hostManualDisplayReconnect = false
+        private set
     @Volatile private var hostDisplaySizeVersion: Int = 0
     /** Return true when applying this size requires the host to stop and recreate the session.
      * Do not mutate active video dimensions or release resources here. */
@@ -108,6 +110,7 @@ abstract class ProjectionPluginService : Service() {
     }
 
     override fun onCreate() {
+        PluginAudioDiagnostics.initialize(this)
         super.onCreate()
         thread = HandlerThread("projection-plugin").apply { start() }
         handler = Handler(thread.looper)
@@ -301,6 +304,7 @@ abstract class ProjectionPluginService : Service() {
     }
 
     private fun finish(current: Client, message: String, notifyHost: Boolean = true) {
+        android.util.Log.i("WheelPlayLifecycle", "PLUGIN_FINISH service=${javaClass.simpleName} notifyHost=$notifyHost stopping=${current.stopping} reason=${message.take(512)}", Throwable("Finish caller"))
         if (client !== current || current.stopping) return
         current.stopping = true
         current.ready = false
@@ -347,6 +351,7 @@ abstract class ProjectionPluginService : Service() {
             .takeIf { it == ProjectionPlugin.AUDIO_VERSION } ?: 0
         hostUiVersion = intent.getIntExtra(ProjectionPlugin.EXTRA_HOST_UI_VERSION, 0)
         hostInteractionVersion = intent.getIntExtra(ProjectionPlugin.EXTRA_INTERACTION_VERSION, 0)
+        hostManualDisplayReconnect = intent.getBooleanExtra(ProjectionPlugin.EXTRA_MANUAL_DISPLAY_RECONNECT, false)
         hostDisplaySizeVersion = intent.getIntExtra(ProjectionPlugin.EXTRA_DISPLAY_SIZE_VERSION, 0)
             .takeIf { it == ProjectionPlugin.DISPLAY_SIZE_VERSION } ?: 0
         hostEncodedVideoVersion = intent.getIntExtra(ProjectionPlugin.EXTRA_ENCODED_VIDEO_VERSION, 0)
@@ -360,6 +365,7 @@ abstract class ProjectionPluginService : Service() {
         binder
     } else null
     override fun onUnbind(intent: Intent): Boolean {
+        android.util.Log.i("WheelPlayLifecycle", "PLUGIN_UNBIND service=${javaClass.simpleName}")
         val generation = bindingGeneration.get()
         unbound = true
         lifecycleHandler.removeCallbacks(abandonedProcess)

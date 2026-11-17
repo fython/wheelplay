@@ -24,6 +24,7 @@ import com.shilapi.xcertplay.shared.R as UiR
 import com.shilapi.xcertplay.i18n.*
 
 import moe.feng.wheelplay.plugin.forRemoteProcess
+import moe.feng.wheelplay.projection.carlife.CarLifeSettingsActivity
 import android.Manifest
 import com.shilapi.xcertplay.web.WebSession
 import com.shilapi.xcertplay.web.RootAccess
@@ -84,7 +85,7 @@ class WheelPlayActivity : AppCompatActivity() {
         pendingPluginMicrophone = null
         if (pending != null) {
             val registry = projectionPlugins(this).also { it.refresh() }
-            val plugin = registry.entries().find { it.id == pending.sourceId }
+            val plugin = registry.allEntries().find { it.id == pending.sourceId }
             val snapshot = projectionSessions.controlSnapshot()
             if (pending.accepts(plugin, selectedHomeSource().id, snapshot.generation, snapshot.occupied,
                     plugin?.let { registry.available(it) } == true, pending.request)) {
@@ -98,7 +99,7 @@ class WheelPlayActivity : AppCompatActivity() {
         pendingPluginPreparation = null
         if (pending != null && result.resultCode == RESULT_OK) {
             val registry = projectionPlugins(this).also { it.refresh() }
-            val plugin = registry.entries().find { it.id == pending.sourceId }
+            val plugin = registry.allEntries().find { it.id == pending.sourceId }
             val snapshot = projectionSessions.controlSnapshot()
             if (pending.accepts(plugin, selectedHomeSource().id, snapshot.generation, snapshot.occupied,
                     plugin?.let { registry.available(it) } == true,
@@ -107,6 +108,34 @@ class WheelPlayActivity : AppCompatActivity() {
             }
         }
         refreshUiState()
+    }
+    private var pendingCarLifeRequest: String? = null
+    private var pendingCarLifeGeneration = -1L
+    private var pendingCarLifeMicrophoneGeneration: Long? = null
+    private val carLifePreparation = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val request = pendingCarLifeRequest
+        pendingCarLifeRequest = null
+        val snapshot = projectionSessions.controlSnapshot()
+        if (request != null && result.resultCode == RESULT_OK &&
+            result.data?.getStringExtra(CarLifeSettingsActivity.EXTRA_PREPARE_REQUEST) == request &&
+            snapshot.generation == pendingCarLifeGeneration && !snapshot.occupied)
+            startProjectionSourceNow(ProjectionSourceIds.CARLIFE)
+    }
+    private val carLifeMicrophone = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+        val generation = pendingCarLifeMicrophoneGeneration
+        pendingCarLifeMicrophoneGeneration = null
+        val snapshot = projectionSessions.controlSnapshot()
+        if (generation != null && snapshot.generation == generation && !snapshot.occupied) prepareCarLife()
+    }
+    private fun prepareCarLife() {
+        val snapshot = projectionSessions.controlSnapshot()
+        if (snapshot.occupied || pendingCarLifeRequest != null) return
+        pendingCarLifeGeneration = snapshot.generation
+        val request = java.util.UUID.randomUUID().toString()
+        pendingCarLifeRequest = request
+        runCatching { carLifePreparation.launch(Intent(this, CarLifeSettingsActivity::class.java)
+            .putExtra(CarLifeSettingsActivity.EXTRA_PREPARE_REQUEST, request)) }
+            .onFailure { pendingCarLifeRequest = null; toast(it.message.orEmpty()) }
     }
     private val localAndroidAutoSettings = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (!isFinishing && !isDestroyed) showLocalAndroidAutoSetup()
@@ -269,6 +298,9 @@ class WheelPlayActivity : AppCompatActivity() {
         selectedPrivateKey = savedInstanceState?.getString("selectedPrivateKey")?.let(Uri::parse)
         pendingPluginPreparation = PluginPreparation.fromBundle(savedInstanceState?.getBundle("pluginPreparation"))
         pendingPluginMicrophone = PluginPreparation.fromBundle(savedInstanceState?.getBundle("pluginMicrophone"))
+        pendingCarLifeMicrophoneGeneration = savedInstanceState?.takeIf { it.containsKey("carLifeMicGeneration") }?.getLong("carLifeMicGeneration")
+        pendingCarLifeRequest = savedInstanceState?.getString("carLifeRequest")
+        pendingCarLifeGeneration = savedInstanceState?.getLong("carLifeGeneration", -1L) ?: -1L
         pendingAndroidAutoSourceId = savedInstanceState?.getString("pendingAndroidAutoSourceId")
         aaConnection = AaConnection.entries.firstOrNull { it.name == savedInstanceState?.getString("aaConnection") } ?: AaConnection.LOCAL
         awaitingTeslaVpnConsent = savedInstanceState?.getBoolean("awaitingTeslaVpnConsent") ?: false
@@ -310,6 +342,9 @@ class WheelPlayActivity : AppCompatActivity() {
         outState.putString("page", page)
         outState.putString("selectedPrivateKey", selectedPrivateKey?.toString())
         outState.putString("pendingAndroidAutoSourceId", pendingAndroidAutoSourceId)
+        pendingCarLifeMicrophoneGeneration?.let { outState.putLong("carLifeMicGeneration", it) }
+        outState.putString("carLifeRequest", pendingCarLifeRequest)
+        outState.putLong("carLifeGeneration", pendingCarLifeGeneration)
         outState.putString("aaConnection", aaConnection.name)
         outState.putBundle("pluginPreparation", pendingPluginPreparation?.toBundle())
         outState.putBundle("pluginMicrophone", pendingPluginMicrophone?.toBundle())
@@ -321,8 +356,10 @@ class WheelPlayActivity : AppCompatActivity() {
         render()
     }
     override fun onResume() {
+        android.util.Log.i("WheelPlayLifecycle", "ACTIVITY_RESUME")
         super.onResume(); projectionPlugins(this).refresh(); refreshAuthentication(); render(); ServerWindow.showSystemBars(window); handler.removeCallbacks(tick); handler.post(tick)
         WebSession.sourceControl.foreground { id -> connectSelectedSource(id) }
+        WebSession.sourceControl.foregroundReconnect { id -> startProjectionSource(id) }
         // Back from the car settings: refresh the car hotspot reminder on the home page.
         if (!initialLaunch) { refreshUiState() }
         if (initialLaunch) {
@@ -335,7 +372,7 @@ class WheelPlayActivity : AppCompatActivity() {
             }
         }
     }
-    override fun onPause() { WebSession.sourceControl.foreground(null); handler.removeCallbacks(tick); super.onPause() }
+    override fun onPause() { android.util.Log.i("WheelPlayLifecycle", "ACTIVITY_PAUSE finishing=$isFinishing changingConfig=$isChangingConfigurations"); WebSession.sourceControl.foregroundReconnect(null); WebSession.sourceControl.foreground(null); handler.removeCallbacks(tick); super.onPause() }
     override fun onDestroy() { Shizuku.removeRequestPermissionResultListener(desktopPermissionResult); dialogs.cancel(); settingsDialogs.cancel(); pendingPemCertificate?.fill(0); pendingPemCertificate = null; super.onDestroy() }
 
     private fun normalizedPage(value: String) = when (value) {
@@ -385,6 +422,10 @@ class WheelPlayActivity : AppCompatActivity() {
                 // Reselecting a tab preserves its scroll and settings subpage.
                 if (page != argument) page = normalizedPage(argument ?: "service")
             }
+            UiAction.CARLIFE_CONNECT -> startProjectionSource(ProjectionSourceIds.CARLIFE)
+            UiAction.CARLIFE_SETTINGS -> startActivity(Intent(this, CarLifeSettingsActivity::class.java))
+            UiAction.CARLIFE_MODE -> getSharedPreferences("carlife_connection", MODE_PRIVATE).edit()
+                .putBoolean("remoteMode", argument == "remote").apply()
             UiAction.AA_MODE -> aaConnection = AaConnection.valueOf(requireNotNull(argument))
             UiAction.BROWSER -> openLocalBrowserExperience()
             UiAction.SCAN -> scanPairing()
@@ -399,6 +440,8 @@ class WheelPlayActivity : AppCompatActivity() {
                 } } else CarPlayBackgroundSession.stop { runOnUiThread { refreshUiState() } }
             }
             UiAction.STOP_SERVICE -> {
+                pendingCarLifeRequest = null
+                pendingCarLifeMicrophoneGeneration = null
                 pendingPluginPreparation = null
                 pendingPluginMicrophone = null
                 startService(Intent(this, WheelPlaySessionService::class.java).setAction(WheelPlaySessionService.ACTION_STOP))
@@ -420,7 +463,7 @@ class WheelPlayActivity : AppCompatActivity() {
             UiAction.PLUGIN_REFRESH -> { projectionPlugins(this).refresh(); refreshUiState() }
             UiAction.PLUGIN_ENABLE, UiAction.PLUGIN_DISABLE, UiAction.PLUGIN_SETTINGS, UiAction.PLUGIN_CONNECT -> {
                 val registry = projectionPlugins(this)
-                val plugin = registry.entries().find { it.id == argument }
+                val plugin = registry.allEntries().find { it.id == argument }
                 if (plugin == null) { toast(getString(UiR.string.plugin_unavailable)); return }
                 when (action) {
                     UiAction.PLUGIN_ENABLE -> settingsDialogs.confirm(getString(UiR.string.plugin_enable),
@@ -498,16 +541,8 @@ class WheelPlayActivity : AppCompatActivity() {
             if (sourcePage == currentPage) labels += if (state.failure != null) getString(UiR.string.source_needs_attention) else phase
             else if (state.failure != null && state.source?.id?.let(::sourcePageFor) == sourcePage) labels += getString(UiR.string.source_needs_attention)
             else when (sourcePage) {
-                SourcePage.ICCOA -> {
-                    val plugins = registry.entriesForSource(ProjectionPlugin.SOURCE_ICCOA_CARLINK)
-                    labels += getString(when {
-                        plugins.isEmpty() -> UiR.string.source_install_required
-                        plugins.none { it.problem == null } -> UiR.string.source_update_required
-                        plugins.none { registry.available(it) } -> UiR.string.source_enable_required
-                        plugins.any { registry.lastFailure(it.id) != null } -> UiR.string.source_needs_attention
-                        else -> UiR.string.source_ready
-                    })
-                }
+                SourcePage.CARLIFE -> labels += getString(if (state.source?.id == ProjectionSourceIds.CARLIFE && state.failure != null)
+                    UiR.string.source_needs_attention else UiR.string.source_ready)
                 SourcePage.DESKTOP -> if (desktopState !is SourceAvailability.Ready) labels += getString(UiR.string.source_setup_required)
                 else -> Unit
             }
@@ -517,16 +552,16 @@ class WheelPlayActivity : AppCompatActivity() {
             val group = sourcePage.group
             val session = active?.takeIf { sessionBelongsToSource(it, group) }
             val belongs = state.source?.id?.let { sourcePageFor(it)?.group == group || it == group || belongsToSource(it, group) } == true
-            val hasPlugins = if (sourcePage == SourcePage.ICCOA) registry.entriesForSource(ProjectionPlugin.SOURCE_ICCOA_CARLINK).isNotEmpty() else registry.entries().isNotEmpty()
-            if (sourcePage in setOf(SourcePage.ICCOA, SourcePage.PLUGINS) && !hasPlugins && session == null && !(belongs && (running || state.failure != null))) null
+            val hasPlugins = if (sourcePage == SourcePage.CARLIFE) true else registry.entries().isNotEmpty()
+            if (sourcePage in setOf(SourcePage.CARLIFE, SourcePage.PLUGINS) && !hasPlugins && session == null && !(belongs && (running || state.failure != null))) null
             else group to SessionUi(when {
                 belongs && (state.failure != null || (session == null && running)) -> state.message(this)
                 session != null -> session.statusText ?: state.message(this)
                 else -> getString(UiR.string.source_idle)
             }, session != null || (belongs && running), (session as? RemotePluginSession)?.interaction)
         }.toMap()
-        val plugins = registry.entries().map { plugin -> PluginUi(
-            plugin.id, plugin.name, plugin.component.packageName, plugin.sourceId == ProjectionPlugin.SOURCE_ICCOA_CARLINK,
+        val plugins = registry.allEntries().map { plugin -> PluginUi(
+            plugin.id, plugin.name, plugin.component.packageName,
             registry.enabled(plugin), plugin.problem, registry.lastFailure(plugin.id)?.let { getString(UiR.string.projection_failed, it) },
             plugin.settings != null || plugin.settingsProvider != null,
             !(running && (state.source?.id == plugin.id || active?.descriptor?.id == plugin.id)),
@@ -561,7 +596,11 @@ class WheelPlayActivity : AppCompatActivity() {
                 stopLabel = activeName?.let { getString(UiR.string.home_stop_source, it) }, showAudioHint = selected.id == ProjectionSourceIds.CARPLAY,
             ),
             sources = SourcesUi(
-                overview, flags, sessions, plugins,
+                carLifeCanConnect = !running,
+                carLifeRemote = getSharedPreferences("carlife_connection", MODE_PRIVATE).let {
+                    it.getBoolean("remoteMode", it.getString("host", "").orEmpty().isNotEmpty())
+                },
+                overview = overview, flags = flags, sessions = sessions, plugins = plugins,
                 carPlayStatus = when {
                     active?.descriptor?.id?.let { it != ProjectionSourceIds.CARPLAY } == true -> active.descriptor.displayName
                     setupError != null -> getString(UiR.string.ui_authentication_setup_needs_attention)
@@ -685,18 +724,23 @@ class WheelPlayActivity : AppCompatActivity() {
     private fun homeSources(): List<HomeSource> = listOf(
         HomeSource(ProjectionSourceIds.CARPLAY, getString(UiR.string.source_carplay), SourcePage.CARPLAY),
         HomeSource(ProjectionSourceIds.ANDROID_AUTO, "Android Auto", SourcePage.ANDROID_AUTO),
+        HomeSource(ProjectionSourceIds.CARLIFE, "CarLife", SourcePage.CARLIFE),
         HomeSource(ProjectionSourceIds.VNC, "VNC", SourcePage.VNC),
         HomeSource(ProjectionSourceIds.ANDROID_DESKTOP, getString(UiR.string.desktop_title), SourcePage.DESKTOP),
     ) + projectionPlugins(this).let { registry ->
-        registry.entries().filter { registry.available(it) }.map { plugin ->
+        registry.allEntries().filter { registry.available(it) }.map { plugin ->
             HomeSource(plugin.id, plugin.name,
-                if (plugin.sourceId == ProjectionPlugin.SOURCE_ICCOA_CARLINK) SourcePage.ICCOA else SourcePage.PLUGINS)
+                SourcePage.PLUGINS)
         }
     }
 
     private fun selectedHomeSource(): HomeSource {
         val sources = homeSources()
-        val saved = WheelPlayPreferences.homeSource(this)
+        val previous = WheelPlayPreferences.homeSource(this)
+        val saved = if (previous == InstalledProjectionPlugin.LEGACY_CARLIFE_ID) {
+            WheelPlayPreferences.saveHomeSource(this, ProjectionSourceIds.CARLIFE)
+            ProjectionSourceIds.CARLIFE
+        } else previous
         return sources.find { it.id == saved } ?: sources.first().also {
             homeFallbackMessage = getString(UiR.string.source_fallback_carplay)
             WheelPlayPreferences.saveHomeSource(this, it.id)
@@ -743,15 +787,12 @@ class WheelPlayActivity : AppCompatActivity() {
 
     private fun sourcePageFor(id: String): SourcePage? = when {
         id == ProjectionSourceIds.CARPLAY -> SourcePage.CARPLAY
+        id == ProjectionSourceIds.CARLIFE -> SourcePage.CARLIFE
         id == ProjectionSourceIds.ANDROID_DESKTOP -> SourcePage.DESKTOP
         id == ProjectionSourceIds.ANDROID_AUTO || belongsToSource(id, ProjectionSourceIds.ANDROID_AUTO) -> SourcePage.ANDROID_AUTO
         id == ProjectionSourceIds.VNC || belongsToSource(id, ProjectionSourceIds.VNC) -> SourcePage.VNC
         belongsToSource(id, ProjectionSourceIds.DEMO) -> SourcePage.DIAGNOSTICS
-        id.startsWith(ProjectionSourceIds.PLUGIN_PREFIX) -> {
-            val plugin = (projectionSessions.snapshot() as? RemotePluginSession)?.plugin?.takeIf { it.id == id }
-                ?: projectionPlugins(this).entries().find { it.id == id }
-            if (plugin?.sourceId == ProjectionPlugin.SOURCE_ICCOA_CARLINK) SourcePage.ICCOA else SourcePage.PLUGINS
-        }
+        id.startsWith(ProjectionSourceIds.PLUGIN_PREFIX) -> SourcePage.PLUGINS
         else -> null
     }
 
@@ -814,7 +855,7 @@ class WheelPlayActivity : AppCompatActivity() {
     private fun belongsToSource(id: String, group: String) = id.startsWith("$group-")
 
     private fun sessionBelongsToSource(session: ProjectionSession, group: String): Boolean =
-        if (group == ProjectionSourceIds.ICCOA) (session as? RemotePluginSession)?.plugin?.sourceId == ProjectionPlugin.SOURCE_ICCOA_CARLINK
+        if (group == ProjectionSourceIds.CARLIFE) session.descriptor.id == ProjectionSourceIds.CARLIFE
         else session.descriptor.id == group || belongsToSource(session.descriptor.id, group)
 
     private fun chooseDiagnosticSource() {
@@ -877,7 +918,18 @@ class WheelPlayActivity : AppCompatActivity() {
     }
 
     private fun startProjectionSource(id: String, microphoneChecked: Boolean = false) {
-        if (pendingPluginPreparation != null || pendingPluginMicrophone != null) return
+        if (pendingPluginPreparation != null || pendingPluginMicrophone != null || pendingCarLifeRequest != null || pendingCarLifeMicrophoneGeneration != null) return
+        if (id == ProjectionSourceIds.CARLIFE) {
+            WheelPlayPreferences.saveHomeSource(this, id)
+            if (!microphoneChecked && AirPlayPersistence.loadMicrophoneSource(this) != CarPlayMicrophoneSource.DISABLED &&
+                checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                val snapshot = projectionSessions.controlSnapshot()
+                if (snapshot.occupied) return
+                pendingCarLifeMicrophoneGeneration = snapshot.generation
+                carLifeMicrophone.launch(Manifest.permission.RECORD_AUDIO)
+            } else prepareCarLife()
+            return
+        }
         homeFallbackMessage = null
         val homeId = when {
             belongsToSource(id, ProjectionSourceIds.ANDROID_AUTO) -> ProjectionSourceIds.ANDROID_AUTO
@@ -893,7 +945,7 @@ class WheelPlayActivity : AppCompatActivity() {
             return
         }
         val registry = projectionPlugins(this)
-        val plugin = registry.entries().find { it.id == id }
+        val plugin = registry.allEntries().find { it.id == id }
         if (plugin?.microphone == true && registry.available(plugin) && !microphoneChecked &&
             AirPlayPersistence.loadMicrophoneSource(this) != CarPlayMicrophoneSource.DISABLED &&
             checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {

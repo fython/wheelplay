@@ -1,10 +1,10 @@
-package com.shilapi.xcertplay.projection.plugin
+package com.shilapi.xcertplay.media
 
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 
 /** Extension v1 accepts complete, non-reordered Annex-B AVC pictures. No next-PTS buffering. */
-internal class PluginAvcStream {
+internal class ProjectionAvcStream {
     data class Unit(val bytes: ByteArray, val ptsUs: Long, val keyframe: Boolean)
     var configuration: ByteArray? = null
         private set
@@ -98,19 +98,19 @@ internal class PluginAvcStream {
 }
 
 /** Separate media reading from paced bootstrap delivery. All limits include live backlog. */
-internal class PluginAvcQueue(
+internal class ProjectionAvcQueue(
     private val maxFrames: Int = 600,
     private val maxBytes: Int = 16 * 1024 * 1024,
 ) {
-    private val gop = ArrayDeque<PluginAvcStream.Unit>()
-    private val pending = ArrayDeque<PluginAvcStream.Unit>()
+    private val gop = ArrayDeque<ProjectionAvcStream.Unit>()
+    private val pending = ArrayDeque<ProjectionAvcStream.Unit>()
     private var gopBytes = 0
     private var pendingBytes = 0
     private var validGop = false
     private var consumer: Any? = null
     private var bootstrappedConsumer: Any? = null
 
-    @Synchronized fun offer(frame: PluginAvcStream.Unit) {
+    @Synchronized fun offer(frame: ProjectionAvcStream.Unit) {
         if (frame.keyframe) { gop.clear(); gopBytes = 0; validGop = true }
         if (validGop) {
             if (gop.size >= maxFrames || frame.bytes.size > maxBytes - gopBytes) {
@@ -125,7 +125,7 @@ internal class PluginAvcQueue(
         }
     }
 
-    @Synchronized fun poll(nextConsumer: Any?): PluginAvcStream.Unit? {
+    @Synchronized fun poll(nextConsumer: Any?): ProjectionAvcStream.Unit? {
         if (consumer !== nextConsumer) {
             consumer = nextConsumer
             pending.clear(); pendingBytes = 0

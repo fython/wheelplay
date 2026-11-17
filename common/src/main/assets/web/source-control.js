@@ -18,3 +18,15 @@ export function sourcePanel(control, presentation, mediaFailed = false) {
     hint: control.needsForeground ? 'web_source_foreground' : control.unavailable ? 'web_source_android_help' : 'web_source_connect_hint',
     action, label: action === 'configure' ? 'web_source_configure' : 'web_source_connect', retry: false };
 }
+
+// Only an explicit server-side manual resize request can prompt a reconnect.
+export function resizeNotice(control) {
+  const size = control?.resize;
+  if (control?.version !== 1 || !control.activeId || control.phase !== 'running' ||
+      control.cleanup === 'unconfirmed' || control.reconfiguring ||
+      !Number.isInteger(size?.width) || !Number.isInteger(size?.height) ||
+      size.width < 1 || size.height < 1) return null;
+  return { key: `${control.generation}:${control.activeId}:${size.width}x${size.height}`,
+    width: size.width, height: size.height, name: control.activeName || '',
+    canReconnect: control.resizeAction === 'reconnect' };
+}

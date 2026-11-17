@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay.projection.plugin
 
+import com.shilapi.xcertplay.media.ProjectionAvcStream
+import com.shilapi.xcertplay.media.ProjectionAvcQueue
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import com.shilapi.xcertplay.media.VideoCodec
@@ -18,8 +20,8 @@ internal class EncodedPluginVideo(private val failure: (String) -> Unit) : AutoC
     private val input = DataInputStream(ParcelFileDescriptor.AutoCloseInputStream(pipe[0]))
     private val closed = AtomicBoolean()
     private val failed = AtomicBoolean()
-    private val parser = PluginAvcStream()
-    private val frames = PluginAvcQueue()
+    private val parser = ProjectionAvcStream()
+    private val frames = ProjectionAvcQueue()
     private val source = WebVideoSource(StreamTechnology.WEBRTC)
     private val sender = Executors.newSingleThreadScheduledExecutor { task -> Thread(task, "plugin-webrtc").apply { isDaemon = true } }
     private val lifecycle = Any()

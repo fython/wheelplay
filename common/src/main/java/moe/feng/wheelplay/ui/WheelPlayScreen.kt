@@ -153,7 +153,7 @@ private fun Action(label: String, action: UiAction, dispatch: UiDispatch, argume
 @Composable private fun SourceIndex(state: SourcesUi, dispatch: UiDispatch) {
     Text(stringResource(UiR.string.source_tab), style = MaterialTheme.typography.headlineSmall)
     Description(state.overview)
-    SourceRows(listOf(SourcePage.CARPLAY, SourcePage.ANDROID_AUTO, SourcePage.ICCOA, SourcePage.VNC, SourcePage.DESKTOP), state, dispatch)
+    SourceRows(listOf(SourcePage.CARPLAY, SourcePage.ANDROID_AUTO, SourcePage.CARLIFE, SourcePage.VNC, SourcePage.DESKTOP), state, dispatch)
     Heading(stringResource(UiR.string.source_tools))
     SourceRows(listOf(SourcePage.PLUGINS, SourcePage.DIAGNOSTICS), state, dispatch)
 }
@@ -214,7 +214,8 @@ private fun Action(label: String, action: UiAction, dispatch: UiDispatch, argume
     when (page) {
         SourcePage.CARPLAY -> CarPlayScreen(state, dispatch)
         SourcePage.ANDROID_AUTO -> AndroidAutoScreen(mode, dispatch)
-        SourcePage.ICCOA, SourcePage.PLUGINS -> PluginsScreen(page == SourcePage.ICCOA, state, dispatch)
+        SourcePage.CARLIFE -> CarLifeScreen(state, dispatch)
+        SourcePage.PLUGINS -> PluginsScreen(state, dispatch)
         SourcePage.VNC -> {
             Description(stringResource(UiR.string.source_vnc_brief))
             Action(stringResource(UiR.string.vnc_connect), UiAction.VNC, dispatch, primary = true)
@@ -287,13 +288,40 @@ private fun Action(label: String, action: UiAction, dispatch: UiDispatch, argume
     }
 }
 
-@Composable private fun PluginsScreen(carLink: Boolean, state: SourcesUi, dispatch: UiDispatch) {
-    val plugins = state.plugins.filter { !carLink || it.carLink }
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable private fun CarLifeScreen(state: SourcesUi, dispatch: UiDispatch) {
+    val remote = state.carLifeRemote
+    Heading(stringResource(UiR.string.source_connection_method))
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+        listOf(false, true).forEachIndexed { index, item ->
+            SegmentedButton(selected = remote == item,
+                onClick = { dispatch(UiAction.CARLIFE_MODE, if (item) "remote" else "local") },
+                shape = SegmentedButtonDefaults.itemShape(index, 2), icon = {},
+                modifier = Modifier.testTag(if (item) "carlife:remote" else "carlife:local")) {
+                Text(stringResource(if (item) UiR.string.source_carlife_remote else UiR.string.source_carlife_local))
+            }
+        }
+    }
+    key(remote) {
+        Description(stringResource(if (remote) UiR.string.source_carlife_remote_brief else UiR.string.source_carlife_local_brief))
+        if (state.carLifeCanConnect) Action(stringResource(if (remote) UiR.string.source_carlife_remote_connect else UiR.string.source_carlife_local_connect),
+            UiAction.CARLIFE_CONNECT, dispatch, primary = true, tag = "carlife:connect")
+        Action(stringResource(UiR.string.source_carlife_options), UiAction.CARLIFE_SETTINGS,
+            dispatch, tag = "carlife:settings")
+        Disclosure(stringResource(UiR.string.source_connection_help), "source:help") {
+            Description(stringResource(if (remote) UiR.string.source_carlife_remote_help else UiR.string.source_carlife_local_help))
+            Description(stringResource(UiR.string.source_carlife_viewer_help))
+        }
+    }
+}
+
+@Composable private fun PluginsScreen(state: SourcesUi, dispatch: UiDispatch) {
+    val plugins = state.plugins
     if (plugins.isEmpty()) {
-        Heading(stringResource(if (carLink) UiR.string.plugin_iccoa_missing else UiR.string.source_no_plugins))
+        Heading(stringResource(UiR.string.source_no_plugins))
         Description(stringResource(UiR.string.source_plugin_empty_hint))
         Disclosure(stringResource(UiR.string.source_install_help), "plugin:install-help") {
-            Description(stringResource(if (carLink) UiR.string.plugin_iccoa_hint else UiR.string.source_plugin_install_steps))
+            Description(stringResource(UiR.string.source_plugin_install_steps))
         }
     }
     plugins.forEach { plugin -> key(plugin.id) {
@@ -312,9 +340,7 @@ private fun Action(label: String, action: UiAction, dispatch: UiDispatch, argume
         }
     } }
     Action(stringResource(UiR.string.plugin_refresh), UiAction.PLUGIN_REFRESH, dispatch)
-    if (carLink) {
-        if (plugins.isEmpty()) Action(stringResource(UiR.string.plugin_sources), UiAction.NAVIGATE, dispatch, SourcePage.PLUGINS.id)
-    } else Disclosure(stringResource(UiR.string.source_plugin_capabilities), "plugin:capabilities") {
+    Disclosure(stringResource(UiR.string.source_plugin_capabilities), "plugin:capabilities") {
         Description(stringResource(UiR.string.plugin_install_hint))
     }
 }

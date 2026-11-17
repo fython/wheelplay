@@ -12,8 +12,10 @@ data class PluginMediaState(
     val player: String = "",
     val durationMs: Long = -1,
     val positionMs: Long = -1,
+    val artwork: ByteArray? = null,
 ) {
     init {
+        require(artwork == null || artwork.size <= 48 * 1024)
         require(listOf(title, artist, album, player).all { it.length <= 1024 })
         require(durationMs in -1..MAX_TIME && positionMs in -1..MAX_TIME)
     }
@@ -21,6 +23,7 @@ data class PluginMediaState(
         putBoolean("available", available); putBoolean("playing", playing)
         putString("title", title); putString("artist", artist); putString("album", album); putString("player", player)
         putLong("durationMs", durationMs); putLong("positionMs", positionMs)
+        putByteArray("artwork", artwork?.copyOf())
     }
     companion object {
         const val MAX_TIME = 365L * 24 * 60 * 60 * 1000
@@ -32,6 +35,6 @@ data class PluginMediaState(
         fun fromBundle(value: Bundle) = PluginMediaState(value.getBoolean("available"), value.getBoolean("playing"),
             value.getString("title").orEmpty(), value.getString("artist").orEmpty(),
             value.getString("album").orEmpty(), value.getString("player").orEmpty(),
-            value.getLong("durationMs", -1), value.getLong("positionMs", -1))
+            value.getLong("durationMs", -1), value.getLong("positionMs", -1), value.getByteArray("artwork")?.copyOf())
     }
 }

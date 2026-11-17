@@ -18,6 +18,7 @@ internal class RemotePluginAudio(
     private val fail: (String) -> Unit,
     routeFactory: () -> com.shilapi.xcertplay.media.RemoteAudioRoute = WebSession.audio::createRoute,
 ) : AutoCloseable {
+    init { moe.feng.wheelplay.plugin.PluginAudioDiagnostics.initialize(context) }
     private val playback = ParcelFileDescriptor.createReliablePipe()
     private val capture = ParcelFileDescriptor.createReliablePipe()
     private val input = DataInputStream(ParcelFileDescriptor.AutoCloseInputStream(playback[0]))
@@ -42,8 +43,20 @@ internal class RemotePluginAudio(
     private fun read() {
         try {
             val wire = PluginAudioWire.Reader(input)
+            var count = 0L
+            var reportedAt = System.nanoTime()
+            var lastReadAt = reportedAt
             while (!closed.get()) {
-                when (val message = wire.read()) {
+                val message = wire.read()
+                val receivedAt = System.nanoTime()
+                val gapMs = (receivedAt - lastReadAt) / 1_000_000
+                lastReadAt = receivedAt
+                count++
+                if (gapMs > 200 || receivedAt - reportedAt > 5_000_000_000L) {
+                    moe.feng.wheelplay.plugin.PluginAudioDiagnostics.record("RX count=$count gapMs=$gapMs message=${message.javaClass.simpleName}")
+                    reportedAt = receivedAt
+                }
+                when (message) {
                     is PluginAudioWire.Start -> {
                         require(message.id > lastPlaybackId && streams.size < 16 && message.stream !in streamTypes.values)
                         lastPlaybackId = message.id
@@ -66,6 +79,8 @@ internal class RemotePluginAudio(
                     }
                     is PluginAudioWire.MicrophoneData -> error("Unexpected microphone data from plugin")
                 }
+                val handlingMs = (System.nanoTime() - receivedAt) / 1_000_000
+                if (handlingMs > 100) moe.feng.wheelplay.plugin.PluginAudioDiagnostics.record("RX_SLOW ms=$handlingMs message=${message.javaClass.simpleName}")
             }
         } catch (error: Exception) {
             if (!closed.get()) fail("Plugin audio channel failed: ${error.message}")

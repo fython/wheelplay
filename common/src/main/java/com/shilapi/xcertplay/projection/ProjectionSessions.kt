@@ -11,6 +11,7 @@ internal val projectionSessions = ProjectionRuntime()
             BrowserProjectionVideo(app, 1280, 720, VideoIngressKind.ENCODED)
         })
     }
+    projectionSessions.register(moe.feng.wheelplay.projection.carlife.CarLifeSource(app))
     projectionSessions.register(IccoaSource(app))
     projectionSessions.register(moe.feng.wheelplay.projection.desktop.AndroidDesktopSource(app))
     projectionSessions.register(com.shilapi.xcertplay.projection.vnc.VncSource(app) { width, height ->

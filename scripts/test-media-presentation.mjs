@@ -195,6 +195,7 @@ try {
     };
     document.addEventListener('fullscreenchange',()=>fullscreenTrace.push({event:!!document.fullscreenElement}));
     document.addEventListener('fullscreenerror',()=>fullscreenTrace.push({event:'error'}));`);
+  await evaluate(`document.getElementById('auto-fullscreen').checked=true;document.getElementById('auto-fullscreen').dispatchEvent(new Event('change'))`);
   // Finish PIN entry before measuring the button: the keypad can move the scroll viewport.
   await evaluate(`document.getElementById('keypad-done').click()`);
   await command('Page.bringToFront');
@@ -208,7 +209,7 @@ try {
   await wait(showing);
   await wait(`document.getElementById('topbar').hidden`);
   assert.equal(await evaluate(`document.getElementById('debug-overlay').hidden`), true);
-  assert.equal(await evaluate(`fullscreenTrace[0]?.active`), true, 'Default fullscreen is requested in the launch gesture');
+  assert.equal(await evaluate(`fullscreenTrace[0]?.active`), true, 'Enabled fullscreen is requested in the launch gesture');
   for (let attempt = 0; attempt < 40 && !await evaluate(`!!document.fullscreenElement`); attempt++) await pause(50);
   const nativeFullscreenEntered = await evaluate(`!!document.fullscreenElement`);
   // The OEM signal opens a modal above the stream, including immersive/zoomed layouts.
@@ -234,6 +235,47 @@ try {
   assert.equal(sourceActions[0].action, 'stop');
   assert.equal(sourceActions[0].sourceId, 'plugin-carlink');
   assert.equal(sourceActions[0].revision, 7);
+  await evaluate(`document.getElementById('settings-dialog').close()`);
+  assert.equal(await evaluate(`document.getElementById('resize-dialog').open`), false, 'Automatic source never prompts');
+  const manualResizeControl = { version: 1, revision: 8, generation: 1, activeId: 'plugin-carlife', activeName: 'CarLife',
+    selectedId: 'plugin-carlife', phase: 'running', cleanup: 'released', action: 'stop',
+    resize: { width: 1600, height: 900 }, resizeAction: 'reconnect' };
+  status({ sourceControl: manualResizeControl });
+  await wait(`document.getElementById('resize-dialog').open`);
+  assert.equal(await evaluate(`document.getElementById('resize-dialog').matches(':modal')`), true);
+  assert.equal(await evaluate(`document.getElementById('resize-dialog').contains(document.activeElement)`), true);
+  await screenshot('resize-prompt.png');
+  await command('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: false });
+  await pause(100);
+  assert.equal(await evaluate(`(()=>{const r=document.getElementById('resize-dialog').getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight})()`), true);
+  await screenshot('resize-prompt-mobile.png');
+  await command('Emulation.clearDeviceMetricsOverride');
+  const resizeInputCount = touches.length + desktopInputs.length;
+  await touch('pointerdown'); await touch('pointerup'); await pause(100);
+  assert.equal(touches.length + desktopInputs.length, resizeInputCount, 'Resize dialog blocks projected input');
+  await evaluate(`document.getElementById('resize-later').click()`);
+  status(); await pause(100);
+  assert.equal(await evaluate(`document.getElementById('resize-dialog').open`), false, 'Dismissed size is not repeatedly shown');
+  assert.equal(sourceActions.length, 1, 'Later must not stop the source');
+  viewer.send(JSON.stringify({ type: 'open-settings' }));
+  await wait(`document.getElementById('settings-dialog').open`);
+  await evaluate(`document.getElementById('resize-review').click()`);
+  await wait(`document.getElementById('resize-dialog').open`);
+  status({ sourceControl: { ...manualResizeControl, revision: 9, resizeAction: '' } });
+  await wait(`document.getElementById('resize-reconnect').disabled`);
+  assert.equal(await evaluate(`document.getElementById('resize-foreground').hidden`), false);
+  status({ sourceControl: { ...manualResizeControl, revision: 10 } });
+  await wait(`!document.getElementById('resize-reconnect').disabled`);
+  await evaluate(`document.getElementById('resize-reconnect').click();document.getElementById('resize-reconnect').click()`);
+  for (let attempt = 0; sourceActions.length < 2 && attempt < 100; attempt++) await pause(10);
+  assert.equal(sourceActions.length, 2, 'Double click submits only once');
+  assert.equal(sourceActions[1].action, 'reconnect');
+  assert.equal(sourceActions[1].sourceId, 'plugin-carlife');
+  assert.equal(sourceActions[1].revision, 10);
+  status({ sourceControl: { ...manualResizeControl, revision: 11, generation: 2 } });
+  await wait(`document.getElementById('resize-dialog').open`);
+  status({ sourceControl: { ...manualResizeControl, revision: 12, resize: null } });
+  await wait(`!document.getElementById('resize-dialog').open`);
   status({ sourceControl: null });
   await wait(`document.getElementById('source-stop').hidden`);
 
@@ -519,13 +561,13 @@ try {
     nativeFullscreenEntered,
     blockedChecks: nativeFullscreenEntered ? [] : ['Native fullscreen did not enter in this browser environment; OEM fullscreen transitions were not exercised.'],
     checks: ['responsive home columns and stacking', 'six-digit PIN validation and paste', 'floating keypad on wide, narrow, short and zoomed viewports',
-      'trusted keypad touches, deletion, leading zeroes and outside dismissal', 'default fullscreen request and hidden toolbar',
+      'trusted keypad touches, deletion, leading zeroes and outside dismissal', 'opt-in fullscreen request and hidden toolbar',
       ...(nativeFullscreenEntered ? ['OEM native fullscreen toggle'] : []),
       'OEM debug toggle, top-right position, contrast over white video and touch passthrough',
       'OEM settings centered modal, focus, input isolation and Escape', 'five-touch source', 'read-only source', 'WebP capability probe', 'WebP touch with zoom compensation', 'JPEG fallback after corrupt WebP', 'two-image pipeline with exact ACKs',
       'decode without overlay flashes', 'gap releases touch', 'deadline without status', 'cancelled deadline',
       'same-size rebuild', 'cancelled mouse drag cannot cross video epochs', 'old frame rejection', 'rotation', 'real socket reconnect', 'native browser Media Session metadata and cover',
-      'media action roundtrip', 'desktop right drag, scroll and versioned keyboard', 'desktop blur releases modifiers', 'phone-authoritative pause', 'capability-gated seek and final drag position', 'media cleanup and retired callback isolation'] }, null, 2));
+      'media action roundtrip', 'desktop right drag, scroll and versioned keyboard', 'desktop blur releases modifiers', 'manual resize prompt, dismissal, input isolation and reconnect action', 'phone-authoritative pause', 'capability-gated seek and final drag position', 'media cleanup and retired callback isolation'] }, null, 2));
   }
 } finally {
   devtools?.close(); browser.kill('SIGTERM');

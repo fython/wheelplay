@@ -246,6 +246,16 @@ class ProjectionPluginServiceTest {
         } finally { service.stopped.complete(Unit); pipe.forEach { it.close() }; controller.destroy() }
     }
 
+    @Test fun manualResizeCapabilityIsOptionalAndRoundTrips() {
+        val manual = PluginVideoInfo(1280, 720, displaySizeVersion = 1, manualDisplaySizeReconnect = true)
+        assertTrue(PluginVideoInfo.fromBundle(manual.toBundle()).manualDisplaySizeReconnect)
+        val legacy = manual.toBundle().apply { remove("manualDisplaySizeReconnect") }
+        assertFalse(PluginVideoInfo.fromBundle(legacy).manualDisplaySizeReconnect)
+        assertThrows(IllegalArgumentException::class.java) {
+            PluginVideoInfo(1280, 720, manualDisplaySizeReconnect = true)
+        }
+    }
+
     @Test fun displayUpdatesRequireNegotiationAndRejectInvalidStaleOrForeignRequests() {
         for ((hostVersion, pluginVersion) in listOf(0 to 1, 1 to 0, 1 to 1)) {
             val controller = Robolectric.buildService(Service::class.java).create()

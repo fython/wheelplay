@@ -1,4 +1,4 @@
-import { sourcePanel } from './source-control.js';
+import { sourcePanel, resizeNotice } from './source-control.js';
 import { t } from './text.js';
 import { createDesktopInput } from './desktop-input.js';
 // A surface inversely scaled inside the visual viewport cancels browser zoom.
@@ -996,6 +996,8 @@ if (typeof document !== 'undefined') {
   let canvas = canvas2d;
   const display = $('display');
   const settingsDialog = $('settings-dialog');
+  const resizeDialog = $('resize-dialog');
+  let dismissedResize = null;
   const touchSurface = $('touch-surface');
   // Read-only diagnostic snapshots; counters never include pairing credentials or video payloads.
   const rendererStats = { selectedMode: 'native', activeMode: 'waiting', renderBackend: null, renderedFps: null, renderedFrames: null, fallbackReason: null };
@@ -1385,7 +1387,8 @@ if (typeof document !== 'undefined') {
     if (value.revision !== desktopRevision) {
       desktop.release(false); desktopRevision = value.revision;
     }
-    live = value.interactive && !settingsDialog.open;
+    renderResizeNotice();
+    live = value.interactive && !settingsDialog.open && !resizeDialog.open;
     for (const surface of [...screens, video, canvas, heldFrame].filter(Boolean)) surface.classList.toggle('stale', !value.visible);
     touchSurface.classList.toggle('stale', !live);
     $('waiting').hidden = value.visible;
@@ -1498,6 +1501,7 @@ if (typeof document !== 'undefined') {
     authGeneration++;
     restoreLaunchPresentation();
     stopped = true; paired = false; release();
+    sourceControl = null; sourceRequest = null; dismissedResize = null; clearTimeout(sourceRequestTimer);
     if (outbox) { outbox.close(); outbox = null; }
     clearTimeout(retry); clearInterval(heartbeat);
     if (socket) { const old = socket; socket = null; old.close(); }
@@ -1751,10 +1755,10 @@ if (typeof document !== 'undefined') {
       }
     })();
   });
-  function requestSourceAction() {
-    if (!sourceControl?.action || sourceRequest || !socket || socket.readyState !== WebSocket.OPEN) return;
+  function requestSourceAction(action = sourceControl?.action) {
+    if (!action || sourceRequest || !socket || socket.readyState !== WebSocket.OPEN) return;
     const requestId = String(++sourceSequence);
-    if (!send({ type: 'source-action', requestId, action: sourceControl.action,
+    if (!send({ type: 'source-action', requestId, action,
       sourceId: sourceControl.activeId || sourceControl.selectedId, revision: sourceControl.revision })) return;
     sourceRequest = requestId; sourceReply = t('web_source_pending'); presentation.refresh();
     sourceRequestTimer = setTimeout(() => {
@@ -1762,8 +1766,31 @@ if (typeof document !== 'undefined') {
       sourceRequest = null; sourceReply = t('web_source_failed'); presentation.refresh();
     }, 10000);
   }
-  $('source-action').addEventListener('click', requestSourceAction);
-  $('source-stop').addEventListener('click', requestSourceAction);
+  $('source-action').addEventListener('click', () => requestSourceAction());
+  $('source-stop').addEventListener('click', () => requestSourceAction());
+  function renderResizeNotice(force = false) {
+    const notice = resizeNotice(sourceControl);
+    $('resize-review').hidden = !notice;
+    if (!notice) { if (resizeDialog.open) resizeDialog.close(); return; }
+    $('resize-description').textContent = t('web_resize_description', notice.width, notice.height, notice.name);
+    $('resize-foreground').hidden = notice.canReconnect;
+    $('resize-reconnect').disabled = !notice.canReconnect || sourceRequest !== null;
+    if ((force || dismissedResize !== notice.key) && !settingsDialog.open && !resizeDialog.open) {
+      release(); desktop.release(); resizeDialog.showModal();
+    }
+  }
+  function dismissResize() {
+    dismissedResize = resizeNotice(sourceControl)?.key || null;
+    resizeDialog.close();
+  }
+  $('resize-later').addEventListener('click', dismissResize);
+  resizeDialog.addEventListener('cancel', event => { event.preventDefault(); dismissResize(); });
+  resizeDialog.addEventListener('close', () => presentation.refresh());
+  $('resize-review').addEventListener('click', () => { settingsDialog.close(); renderResizeNotice(true); presentation.refresh(); });
+  $('resize-reconnect').addEventListener('click', () => {
+    if (!resizeNotice(sourceControl)?.canReconnect || sourceRequest !== null) return;
+    requestSourceAction('reconnect'); dismissResize();
+  });
   $('media-retry').addEventListener('click', () => {
     // Reopen only the browser transport. The Android source and its SDK keep running.
     $('media-retry').disabled = true;

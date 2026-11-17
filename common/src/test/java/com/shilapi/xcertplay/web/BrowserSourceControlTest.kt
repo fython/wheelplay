@@ -15,11 +15,46 @@ class BrowserSourceControlTest {
         override val descriptor = SourceDescriptor(id, id)
         override val capabilities = ProjectionCapabilities(emptySet())
         override val inputReady = true
+        override var pendingDisplayResize: Pair<Int, Int>? = null
         val done = CompletableFuture<Unit>()
         var stops = 0
         override fun touch(contacts: List<ProjectionContact>) = false
         override fun stop(): CompletableFuture<Unit> { stops++; return done }
     }
+    @Test fun manualResizeReconnectWaitsForCleanupAndNeverRestartsAnotherSession() {
+        for (outcome in listOf("success", "failed", "background", "replacement", "selection")) {
+            val runtime = ProjectionRuntime(); val control = BrowserSourceControl(runtime)
+            val active = Session("plugin-carlife").apply { pendingDisplayResize = 1600 to 900 }
+            val started = mutableListOf<String>(); val replies = mutableListOf<String>()
+            control.foregroundReconnect { started.add(it) }
+            runtime.adopt(active, emptySet())
+            val state = control.snapshot()
+            assertEquals("reconnect", state.getString("resizeAction"))
+            control.execute("reconnect", active.id, state.getLong("revision"), 1000, replies::add)
+            assertEquals(1, active.stops); assertTrue(started.isEmpty())
+            control.execute("reconnect", active.id, state.getLong("revision"), 1001, replies::add)
+            assertEquals("stale", replies.last()); assertEquals(1, active.stops)
+            if (outcome == "background") control.foregroundReconnect(null)
+            if (outcome == "selection") control.select(BrowserSourceControl.Selection("carplay", "CarPlay"))
+            if (outcome == "failed") active.done.completeExceptionally(IllegalStateException("cleanup failed"))
+            else active.done.complete(Unit)
+            if (outcome == "replacement") runtime.adopt(Session("other"), emptySet())
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+            assertEquals(if (outcome == "success") listOf(active.id) else emptyList<String>(), started)
+            assertEquals(when (outcome) { "success" -> "configure"; "failed" -> "failed"; else -> "stale" }, replies.last())
+        }
+    }
+    @Test fun automaticSourcesNeverAdvertiseManualResize() {
+        val runtime = ProjectionRuntime(); val control = BrowserSourceControl(runtime)
+        control.foregroundReconnect { error("No manual reconnect") }
+        val active = Session("carplay"); runtime.adopt(active, emptySet())
+        val state = control.snapshot()
+        assertTrue(state.isNull("resize")); assertEquals("", state.getString("resizeAction"))
+        var result = ""
+        control.execute("reconnect", active.id, state.getLong("revision"), 1000) { result = it }
+        assertEquals("stale", result); assertEquals(0, active.stops)
+    }
+
     @Test fun legacyPhoneConnectCannotStartSelectedPluginAsCarPlay() {
         val control = WebSession.sourceControl
         var calls = 0

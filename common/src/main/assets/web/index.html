@@ -63,7 +63,13 @@
 <label class="launch-option" for="settings-ignore-browser-zoom"><input id="settings-ignore-browser-zoom" type="checkbox"><span><strong>{{web_ignore_browser_zoom}}</strong><small>{{web_ignore_browser_zoom_help}}</small></span></label>
 <label class="launch-option" for="settings-browser-location"><input id="settings-browser-location" type="checkbox" autocomplete="off" aria-describedby="settings-location-status"><span><strong>{{web_location_title}}</strong><small>{{web_location_help}}</small></span></label>
 <p id="settings-location-status" class="hint" role="status" aria-live="polite"></p>
-<div class="settings-actions"><button id="settings-fullscreen" type="button">{{web_full_screen}}</button><button id="source-stop" type="button" hidden>{{web_source_stop}}</button><button id="settings-disconnect" type="button">{{web_disconnect}}</button></div>
+<div class="settings-actions"><button id="settings-fullscreen" type="button">{{web_full_screen}}</button><button id="source-stop" type="button" hidden>{{web_source_stop}}</button><button id="resize-review" type="button" hidden>{{web_resize_review}}</button><button id="settings-disconnect" type="button">{{web_disconnect}}</button></div>
+</dialog>
+<dialog id="resize-dialog" aria-labelledby="resize-title" aria-describedby="resize-description resize-foreground">
+<h2 id="resize-title">{{web_resize_title}}</h2>
+<p id="resize-description"></p>
+<p id="resize-foreground" class="hint" hidden>{{web_resize_foreground}}</p>
+<div class="settings-actions"><button id="resize-later" type="button" autofocus>{{web_resize_later}}</button><button id="resize-reconnect" type="button" class="primary">{{web_resize_reconnect}}</button></div>
 </dialog>
 <aside id="debug-overlay" aria-labelledby="debug-title" hidden>
 <h2 id="debug-title" class="sr-only">{{web_debug_title}}</h2>
