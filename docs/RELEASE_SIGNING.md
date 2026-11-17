@@ -70,6 +70,11 @@ Android Debug Build 工作流使用同一组默认值，因此 PR 与分支构�
 - **Android Debug Build**：推送到 `main`、推送标签或在 `main`/标签上手动运行时，
   使用 Secrets 中的密钥。PR 和其他分支的手动运行使用默认 Debug 密钥。
   可信构建缺少 Secrets 时会失败，而不会静默改用其他签名。
+  CarLink 和 CarLife 的独立 Debug 构建任务使用同一套 Secrets 与上述触发规则。
+  CarLink 二次打包也使用该密钥；CarLife 任务执行插件 lint、接收器及插件单元测试。
+  APK 分别上传为 `wheelplay-carlink-debug-apk`、`wheelplay-carlife-debug-apk`，
+  CarLife 检查报告上传为 `wheelplay-carlife-reports`。
+  PR/其他分支仍使用各任务生成的默认 Debug 密钥，不保证跨独立 runner 的证书一致。
 - **Android Release Build**：在 Actions 页面选择此工作流，选择 `main`，点击
   **Run workflow**；也可推送 `v*` 标签触发。产物位于 `wheelplay-release` artifact，
   包含签名 APK 和 AAB，不会自动创建 GitHub Release 或发布到应用商店。

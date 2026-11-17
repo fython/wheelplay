@@ -139,10 +139,27 @@ class PackagingPolicyTests(unittest.TestCase):
             self.assertNotIn('key-secret', args)
             self.assertNotIn('androiddebugkey', args)
 
-    def test_debug_never_uses_release_credentials(self):
+    def test_debug_without_explicit_keystore_uses_debug_credentials(self):
         with patch.dict('os.environ', {'ANDROID_KEY_ALIAS': 'release-key'}, clear=True):
             self.assertIn('androiddebugkey', sdk.signing_arguments('debug'))
             self.assertNotIn('release-key', sdk.signing_arguments('debug'))
+
+    def test_debug_with_explicit_keystore_uses_configured_credentials(self):
+        with patch.dict('os.environ', {'ANDROID_KEYSTORE_PATH': '/tmp/ci.jks',
+                                      'ANDROID_KEY_ALIAS': 'ci-key',
+                                      'ANDROID_KEYSTORE_PASSWORD': 'store-secret',
+                                      'ANDROID_KEY_PASSWORD': 'key-secret'}, clear=True):
+            args = sdk.signing_arguments('debug')
+            self.assertEqual(args, sdk.signing_arguments('release'))
+            self.assertIn('ci-key', args)
+            self.assertNotIn('androiddebugkey', args)
+            self.assertNotIn('store-secret', args)
+            self.assertNotIn('key-secret', args)
+
+    def test_debug_with_incomplete_configured_signing_fails_closed(self):
+        with patch.dict('os.environ', {'ANDROID_KEYSTORE_PATH': '/tmp/ci.jks'}, clear=True):
+            with self.assertRaisesRegex(ValueError, 'signing requires'):
+                sdk.signing_arguments('debug')
 
 
 if __name__ == '__main__':

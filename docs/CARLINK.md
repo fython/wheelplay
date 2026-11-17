@@ -54,7 +54,9 @@ ANDROID_HOME=/absolute/path/android-sdk ./gradlew \
 Alternatively use `-PcarlinkSdkDir=/absolute/path/to/bundle`. The directory must contain the
 four files above with the pinned hashes. No fallback APK is produced when they are missing.
 Debug and Release variants are supported. Debug uses application ID
-`moe.feng.wheelplay.plugin.carlink.debug` and the Android debug key. Release uses
+`moe.feng.wheelplay.plugin.carlink.debug` and, by default, the Android debug key.
+When `ANDROID_KEYSTORE_PATH` is set, both AGP and the final SDK repackaging use the
+configured signing key, matching the WheelPlay host. Release uses
 `moe.feng.wheelplay.plugin.carlink` and the same signing environment variables as `mobile`:
 `ANDROID_KEYSTORE_PATH` (absolute path), `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`,
 and `ANDROID_KEY_PASSWORD`. Once these are configured, run

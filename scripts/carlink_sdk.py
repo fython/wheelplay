@@ -107,10 +107,11 @@ def validate_component_factory(manifest, definitions):
 
 
 def signing_arguments(variant):
-    if variant == 'debug':
-        return ['--ks-key-alias', 'androiddebugkey', '--ks-pass', 'pass:android', '--key-pass', 'pass:android']
-    if variant != 'release':
+    if variant not in ('debug', 'release'):
         raise ValueError('Unsupported signing variant')
+    # Match AGP: CI can sign Debug with the same configured key as the host.
+    if variant == 'debug' and 'ANDROID_KEYSTORE_PATH' not in os.environ:
+        return ['--ks-key-alias', 'androiddebugkey', '--ks-pass', 'pass:android', '--key-pass', 'pass:android']
     required = ('ANDROID_KEY_ALIAS', 'ANDROID_KEYSTORE_PASSWORD', 'ANDROID_KEY_PASSWORD')
     if any(not os.environ.get(name) for name in required):
         raise ValueError('Release signing requires ANDROID_KEY_ALIAS, ANDROID_KEYSTORE_PASSWORD and ANDROID_KEY_PASSWORD')

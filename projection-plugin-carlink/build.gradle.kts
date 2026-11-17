@@ -34,6 +34,9 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
+            if (providers.environmentVariable("ANDROID_KEYSTORE_PATH").isPresent) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
         release {
             // Vendor classes are appended after AGP packaging; do not shrink their dependencies.

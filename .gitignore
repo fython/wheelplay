@@ -18,6 +18,9 @@
 **/local.properties
 
 # Build outputs and dependency caches
+__pycache__/
+*.pyc
+*.pyo
 node_modules/
 .gradle/
 .kotlin/
@@ -33,7 +36,11 @@ mobile/debug/
 
 # IDE-local state (shared project configuration remains trackable)
 .idea/
+.vscode/
 *.iml
+
+# Local diagnostic attachments
+.codex-attachments/
 
 # Logs, crash dumps, temporary files, and editor backups
 *.log
