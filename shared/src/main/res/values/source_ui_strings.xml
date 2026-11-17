@@ -53,4 +53,8 @@
     <string name="source_carlife_local_help">Connect opens the system car connection settings. Start CarLife wireless connection, then return to WheelPlay to continue automatically. On vivo, dismiss the Bluetooth check with Cancel if shown. If the system entry cannot be opened, use the preparation screen for manual setup.</string>
     <string name="source_carlife_remote_help">Connect both phones to the same Wi-Fi network. Start CarLife wireless connection on the source phone, then select it on the preparation screen. If discovery fails, enter its IP address manually.</string>
     <string name="source_carlife_viewer_help">After connecting, open the WheelPlay address in the car browser to view and control the projection. Protocol options and connection history are available in Connection settings and diagnostics.</string>
+    <string name="source_carlife_usb">USB</string>
+    <string name="source_carlife_usb_brief">Receive CarLife over a USB / OTG data cable.</string>
+    <string name="source_carlife_usb_connect">Connect USB phone</string>
+    <string name="source_carlife_usb_help">The receiver needs USB Host / OTG support. Connect one unlocked source phone, allow USB access and confirm CarLife on the source. Replug the cable if reconnecting fails.</string>
 </resources>

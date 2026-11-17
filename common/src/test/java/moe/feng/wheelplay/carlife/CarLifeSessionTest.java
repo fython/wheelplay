@@ -18,16 +18,18 @@ public class CarLifeSessionTest {
         }, new File("unused-capture"));
     }
     @Test public void earlyEncoderRequestWaitsForWrittenFeatures() throws Exception {
-        CarLifeSession session = session(new AtomicInteger(), false);
         java.io.ByteArrayOutputStream written = new java.io.ByteArrayOutputStream();
-        java.lang.reflect.Field sockets = CarLifeSession.class.getDeclaredField("sockets");
-        sockets.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        java.util.Map<Integer, java.net.Socket> channels =
-            (java.util.Map<Integer, java.net.Socket>) sockets.get(session);
-        channels.put(7240, new java.net.Socket() {
-            @Override public java.io.OutputStream getOutputStream() { return written; }
-        });
+        CarLifeTransport transport = new CarLifeTransport() {
+            public void connect() {}
+            public java.io.InputStream input(int port) { return new java.io.ByteArrayInputStream(new byte[0]); }
+            public void write(int port, byte[] packet) throws java.io.IOException { written.write(packet); }
+            public void close() {}
+        };
+        CarLifeSession session = new CarLifeSession(new CarLifeSession.Listener() {
+            public void log(String message) {}
+            public void video(byte[] data, long time) {}
+            public void ended() {}
+        }, null, null, VideoSize.DEFAULT, CarLifeProtocolMode.LEGACY_3_0, null, transport);
         java.lang.reflect.Field matched = CarLifeSession.class.getDeclaredField("matched");
         matched.setAccessible(true);
         matched.setBoolean(session, true);

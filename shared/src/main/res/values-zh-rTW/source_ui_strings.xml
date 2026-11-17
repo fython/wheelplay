@@ -53,4 +53,8 @@
     <string name="source_carlife_local_help">點擊連接後會開啟系統車載設定。開始 CarLife 無線連接，再返回 WheelPlay 自動繼續。vivo 如出現藍牙檢查視窗，可選擇取消。無法開啟系統入口時，可在準備頁手動連接。</string>
     <string name="source_carlife_remote_help">讓兩台手機連接同一 Wi-Fi，在來源手機開啟 CarLife 無線連接，然後在準備頁選擇找到的手機。找不到時可手動輸入來源手機 IP。</string>
     <string name="source_carlife_viewer_help">連接後，在車機瀏覽器開啟 WheelPlay 網址即可觀看和操作。協定相容選項及連接記錄可在「連接設定與診斷」查看。</string>
+    <string name="source_carlife_usb">USB 有線</string>
+    <string name="source_carlife_usb_brief">透過 USB / OTG 傳輸線接收另一台手機的 CarLife 畫面。</string>
+    <string name="source_carlife_usb_connect">連接 USB 手機</string>
+    <string name="source_carlife_usb_help">接收裝置需支援 USB Host / OTG。只連接一台已解鎖的來源手機，允許 USB 存取並在來源手機確認 CarLife 提示。重新連接失敗時請重新插拔傳輸線。</string>
 </resources>

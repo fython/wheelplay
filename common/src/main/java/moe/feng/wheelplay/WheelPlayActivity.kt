@@ -426,7 +426,7 @@ class WheelPlayActivity : AppCompatActivity() {
             UiAction.CARLIFE_CONNECT -> startProjectionSource(ProjectionSourceIds.CARLIFE)
             UiAction.CARLIFE_SETTINGS -> startActivity(Intent(this, CarLifeSettingsActivity::class.java))
             UiAction.CARLIFE_MODE -> getSharedPreferences("carlife_connection", MODE_PRIVATE).edit()
-                .putBoolean("remoteMode", argument == "remote").apply()
+                .putBoolean("remoteMode", argument == "remote").putString("transport", argument).apply()
             UiAction.AA_MODE -> aaConnection = AaConnection.valueOf(requireNotNull(argument))
             UiAction.BROWSER -> openLocalBrowserExperience()
             UiAction.SCAN -> scanPairing()
@@ -599,8 +599,9 @@ class WheelPlayActivity : AppCompatActivity() {
             sources = SourcesUi(
                 carLifeCanConnect = !running,
                 carLifeRemote = getSharedPreferences("carlife_connection", MODE_PRIVATE).let {
-                    it.getBoolean("remoteMode", it.getString("host", "").orEmpty().isNotEmpty())
+                    moe.feng.wheelplay.projection.carlife.CarLifeConnection.mode(it) == "remote"
                 },
+                carLifeUsb = moe.feng.wheelplay.projection.carlife.CarLifeConnection.mode(getSharedPreferences("carlife_connection", MODE_PRIVATE)) == "usb",
                 overview = overview, flags = flags, sessions = sessions, plugins = plugins,
                 carPlayStatus = when {
                     active?.descriptor?.id?.let { it != ProjectionSourceIds.CARPLAY } == true -> active.descriptor.displayName
@@ -978,7 +979,7 @@ class WheelPlayActivity : AppCompatActivity() {
             ProjectionSourceIds.ANDROID_AUTO_LOCAL -> true
             ProjectionSourceIds.CARLIFE -> {
                 val prefs = getSharedPreferences("carlife_connection", MODE_PRIVATE)
-                !prefs.getBoolean("remoteMode", prefs.getString("host", "").orEmpty().isNotBlank())
+                moe.feng.wheelplay.projection.carlife.CarLifeConnection.mode(prefs) == "local"
             }
             else -> false
         }

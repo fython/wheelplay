@@ -290,26 +290,26 @@ private fun Action(label: String, action: UiAction, dispatch: UiDispatch, argume
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable private fun CarLifeScreen(state: SourcesUi, dispatch: UiDispatch) {
-    val remote = state.carLifeRemote
+    val mode = if (state.carLifeUsb) "usb" else if (state.carLifeRemote) "remote" else "local"
     Heading(stringResource(UiR.string.source_connection_method))
     SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-        listOf(false, true).forEachIndexed { index, item ->
-            SegmentedButton(selected = remote == item,
-                onClick = { dispatch(UiAction.CARLIFE_MODE, if (item) "remote" else "local") },
-                shape = SegmentedButtonDefaults.itemShape(index, 2), icon = {},
-                modifier = Modifier.testTag(if (item) "carlife:remote" else "carlife:local")) {
-                Text(stringResource(if (item) UiR.string.source_carlife_remote else UiR.string.source_carlife_local))
+        listOf("local", "remote", "usb").forEachIndexed { index, item ->
+            SegmentedButton(selected = mode == item,
+                onClick = { dispatch(UiAction.CARLIFE_MODE, item) },
+                shape = SegmentedButtonDefaults.itemShape(index, 3), icon = {},
+                modifier = Modifier.testTag("carlife:$item")) {
+                Text(stringResource(when (item) { "usb" -> UiR.string.source_carlife_usb; "remote" -> UiR.string.source_carlife_remote; else -> UiR.string.source_carlife_local }))
             }
         }
     }
-    key(remote) {
-        Description(stringResource(if (remote) UiR.string.source_carlife_remote_brief else UiR.string.source_carlife_local_brief))
-        if (state.carLifeCanConnect) Action(stringResource(if (remote) UiR.string.source_carlife_remote_connect else UiR.string.source_carlife_local_connect),
+    key(mode) {
+        Description(stringResource(when (mode) { "usb" -> UiR.string.source_carlife_usb_brief; "remote" -> UiR.string.source_carlife_remote_brief; else -> UiR.string.source_carlife_local_brief }))
+        if (state.carLifeCanConnect) Action(stringResource(when (mode) { "usb" -> UiR.string.source_carlife_usb_connect; "remote" -> UiR.string.source_carlife_remote_connect; else -> UiR.string.source_carlife_local_connect }),
             UiAction.CARLIFE_CONNECT, dispatch, primary = true, tag = "carlife:connect")
         Action(stringResource(UiR.string.source_carlife_options), UiAction.CARLIFE_SETTINGS,
             dispatch, tag = "carlife:settings")
         Disclosure(stringResource(UiR.string.source_connection_help), "source:help") {
-            Description(stringResource(if (remote) UiR.string.source_carlife_remote_help else UiR.string.source_carlife_local_help))
+            Description(stringResource(when (mode) { "usb" -> UiR.string.source_carlife_usb_help; "remote" -> UiR.string.source_carlife_remote_help; else -> UiR.string.source_carlife_local_help }))
             Description(stringResource(UiR.string.source_carlife_viewer_help))
         }
     }

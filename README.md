@@ -12,6 +12,7 @@ Run CarPlay on an Android device and use it from your car's browser. WheelPlay h
 | --- | --- |
 | **CarPlay** | USB and wireless iPhone connections, browser display and touch control. Requires valid CarPlay authentication resources. |
 | **Android Auto — experimental** | USB AOA, explicit Head Unit Server TCP connections, and a guided same-phone connection. Device compatibility still needs validation. |
+| **CarLife — experimental** | Same-phone and Wi-Fi reception; [USB AOA](docs/CARLIFE_USB.md) adapter with 3.0 / 4.1, audio, microphone and touch. USB video/touch validated with a computer host; Android-host USB validation is pending. |
 | **VNC — experimental** | Remote desktop over RFB 3.3/3.7/3.8, JPEG/WebP display, touch, mouse and physical keyboard input, and view-only mode. Actual server/device compatibility still needs validation. |
 | **Android virtual desktop — experimental** | Shizuku UserService, local app selection, fixed-size JPEG/WebP output, multi-touch and Back. Requires Android 10+/Shizuku 13+; no physical-device compatibility validated yet. See the [guide](docs/ANDROID_DESKTOP.md). |
 | **Diagnostic sources** | H.264, Surface, and framebuffer test sources for checking the display pipeline without a phone connection. |

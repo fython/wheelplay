@@ -41,8 +41,12 @@ public final class CarLifeRecovery {
     }
     public CarLifeRecovery(Listener listener, CarLifeSession.AudioListener audio, VideoSize size,
             CarLifeProtocolMode mode, CarLifeMicrophone.Listener microphone, String sourceHost) {
+        this(listener, audio, size, mode, microphone, () -> new CarLifeTcpTransport(sourceHost));
+    }
+    public CarLifeRecovery(Listener listener, CarLifeSession.AudioListener audio, VideoSize size,
+            CarLifeProtocolMode mode, CarLifeMicrophone.Listener microphone, CarLifeTransport.Factory transports) {
         this(listener, (target, attemptMode) -> {
-            CarLifeSession session = new CarLifeSession(target, null, audio, size, attemptMode, microphone, sourceHost);
+            CarLifeSession session = new CarLifeSession(target, null, audio, size, attemptMode, microphone, transports.create());
             return new Attempt() {
                 public void start() { session.start(); }
                 public CompletableFuture<Boolean> mediaKey(int code) { return session.mediaKey(code); }

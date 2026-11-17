@@ -12,7 +12,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 internal class CarLifeSource(private val context: Context) : ProjectionSourceProvider {
     override val descriptor = SourceDescriptor(ProjectionSourceIds.CARLIFE, "CarLife")
-    override val resources = setOf(ProjectionResource.DISPLAY, ProjectionResource.MICROPHONE, ProjectionResource.WIRELESS)
+    override val resources get() = setOf(ProjectionResource.DISPLAY, ProjectionResource.MICROPHONE,
+        if (CarLifeConnection.mode(context.getSharedPreferences("carlife_connection", Context.MODE_PRIVATE)) == "usb") ProjectionResource.USB else ProjectionResource.WIRELESS)
     override fun probe() = SourceAvailability.Ready
     override fun open(): CompletableFuture<ProjectionSession> = try {
         CompletableFuture.completedFuture(CarLifeProjectionSession(context, descriptor, CarLifeConnection.load(context)))
@@ -59,6 +60,7 @@ internal class CarLifeProjectionSession(private val context: Context, override v
 
     override fun activate() {
         if (!activated.compareAndSet(false, true)) return
+        context.status("SOURCE_PREPARE transport=${if (connection.usb) "usb" else if (connection.remote) "wifi" else "local"} protocol=${connection.protocol}")
         main.post {
             if (stopping.get()) return@post
             viewportSubscription = WebSession.subscribeBrowserViewport { w, h -> main.post {
@@ -107,8 +109,13 @@ internal class CarLifeProjectionSession(private val context: Context, override v
                     }
                     override fun failed(message: String) = fail(message)
                     override fun ended() { if (!stopping.get()) fail("CarLife 源已断开，请重新连接") }
-                }, sound, target, connection.protocol, sound.takeIf { connection.microphone }, connection.host)
-                statusText = if (connection.remote) "正在连接 ${connection.host}" else "正在连接本机 CarLife"
+                }, sound, target, connection.protocol, sound.takeIf { connection.microphone },
+                    moe.feng.wheelplay.carlife.CarLifeTransport.Factory {
+                        if (connection.usb) carLifeUsbTransport(context) { message ->
+                            main.post { if (!stopping.get()) { statusText = message; context.status(message); projectionSessions.changed(this) } }
+                        } else moe.feng.wheelplay.carlife.CarLifeTcpTransport(connection.host)
+                    })
+                statusText = if (connection.usb) "正在连接 USB CarLife" else if (connection.remote) "正在连接 ${connection.host}" else "正在连接本机 CarLife"
                 receiver!!.start()
             } catch (error: Exception) { fail(error.message ?: "CarLife 启动失败") }
         }

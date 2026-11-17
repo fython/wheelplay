@@ -39,7 +39,7 @@ class CarLifeSettingsActivity : ComponentActivity() {
         if (directLocalPreparation) {
             directLocalPreparation = false
             val prefs = getSharedPreferences("carlife_connection", MODE_PRIVATE)
-            val editor = prefs.edit().putBoolean("remoteMode", false).putString("host", "")
+            val editor = prefs.edit().putString("transport", "local").putBoolean("remoteMode", false).putString("host", "")
             prefs.getString("host", "").orEmpty().takeIf { it.isNotEmpty() }?.let {
                 editor.putString("lastRemoteHost", it)
             }
@@ -72,8 +72,8 @@ class CarLifeSettingsActivity : ComponentActivity() {
         val request = intent.getStringExtra(EXTRA_PREPARE_REQUEST)
         directLocalPreparation = savedInstanceState?.getBoolean("directLocalPreparation") == true
         if (directLocalPreparation) return
-        val remoteMode = prefs.getBoolean("remoteMode", prefs.getString("host", "").orEmpty().isNotEmpty())
-        if (savedInstanceState == null && request != null && !remoteMode) {
+        val mode = CarLifeConnection.mode(prefs)
+        if (savedInstanceState == null && request != null && mode == "local") {
             val entry = CarLifeEnvironment.entry(this, profile)
             if (entry != null) {
                 directLocalPreparation = true
@@ -87,7 +87,9 @@ class CarLifeSettingsActivity : ComponentActivity() {
             Toast.makeText(this, "无法打开系统连接设置，请手动准备连接。", Toast.LENGTH_LONG).show()
         }
         setContent {
-            val remote = remember { prefs.getBoolean("remoteMode", prefs.getString("host", "").orEmpty().isNotEmpty()) }
+            val remote = mode == "remote"
+            val usb = mode == "usb"
+            var usbProtocol by remember { mutableStateOf(CarLifeConnection.protocolSelection(prefs.getString("usbProtocolVersion", null), null)) }
             var host by remember { mutableStateOf(prefs.getString("host", "").orEmpty().ifEmpty { prefs.getString("lastRemoteHost", "").orEmpty() }) }
             var remoteProtocol by remember { mutableStateOf(CarLifeConnection.protocolSelection(prefs.getString("remoteProtocolVersion", null), prefs.getString("brand", null))) }
             var localProtocol by remember { mutableStateOf(CarLifeConnection.protocolSelection(prefs.getString("localProtocolVersion", null), prefs.getString("localProtocol", null), profile.id)) }
@@ -107,7 +109,7 @@ class CarLifeSettingsActivity : ComponentActivity() {
             }
             val valid = !remote || CarLifeConnection.validAddress(host.trim())
             fun saveAndContinue() {
-                if (prefs.edit().putBoolean("remoteMode", remote).putString("lastRemoteHost", host.trim()).putString("host", if (remote) host.trim() else "").putString("remoteProtocolVersion", remoteProtocol).putString("localProtocolVersion", localProtocol).commit()) continueConnection(request)
+                if (prefs.edit().putString("transport", mode).putString("usbProtocolVersion", usbProtocol).putBoolean("remoteMode", remote).putString("lastRemoteHost", host.trim()).putString("host", if (remote) host.trim() else "").putString("remoteProtocolVersion", remoteProtocol).putString("localProtocolVersion", localProtocol).commit()) continueConnection(request)
                 else Toast.makeText(this, "连接设置保存失败", Toast.LENGTH_LONG).show()
             }
             WheelPlaySettingsTheme {
@@ -184,7 +186,7 @@ class CarLifeSettingsActivity : ComponentActivity() {
                                 }
                             }
                             var protocolDialogVisible by remember { mutableStateOf(false) }
-                            val selectedProtocol = if (remote) remoteProtocol else localProtocol
+                            val selectedProtocol = if (usb) usbProtocol else if (remote) remoteProtocol else localProtocol
                             val protocolOptions = listOf(
                                 Triple("auto", "自动（推荐）", "优先 4.1；仅在源手机明确拒绝版本时尝试 3.0。"),
                                 Triple("3.0", "3.0 · 明文兼容", "使用传统 CarLife 握手与明文传输。"),
@@ -205,7 +207,7 @@ class CarLifeSettingsActivity : ComponentActivity() {
                                         Column(Modifier.verticalScroll(rememberScrollState()).selectableGroup()) {
                                             protocolOptions.forEach { (value, title, description) ->
                                                 ProtocolOption(value, title, description, selectedProtocol) {
-                                                    if (remote) remoteProtocol = it else localProtocol = it
+                                                    if (usb) usbProtocol = it else if (remote) remoteProtocol = it else localProtocol = it
                                                     protocolDialogVisible = false
                                                 }
                                             }
@@ -217,7 +219,17 @@ class CarLifeSettingsActivity : ComponentActivity() {
                                     },
                                 )
                             }
-                            if (remote) {
+                            if (usb) {
+                                Section("USB 连接准备") {
+                                    Step("1", "连接源手机", "接收设备需支持 USB Host / OTG。用数据线只连接一台源手机，并保持源手机解锁。")
+                                    Step("2", "允许 USB 访问", "点击继续后允许系统 USB 授权；切换到配件模式时可能需要再次授权。")
+                                    Step("3", "确认 CarLife", "在源手机确认车载连接提示，再到 WheelPlay 浏览器观看和操作。")
+                                    Text("USB 直连不需要 Wi-Fi 或 USB 调试。连接失败时请先拔插数据线，再重试。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Button(onClick = { saveAndContinue() }, modifier = Modifier.fillMaxWidth()) {
+                                        Text(if (request != null) "已连接数据线，继续" else "保存并返回 WheelPlay")
+                                    }
+                                }
+                            } else if (remote) {
                                 Section("连接准备") {
                                     Step("1", "准备源手机", "在另一台手机开启 CarLife 无线连接。vivo 可在蓝牙检查弹窗中选择取消。")
                                     Step("2", "开始接收", "选择发现的源手机，点击继续，然后在 WheelPlay 浏览器观看和操作。")
@@ -252,7 +264,7 @@ class CarLifeSettingsActivity : ComponentActivity() {
                             Section("使用说明") {
                                 Text("WebUI 尺寸协商（实验） · 支持双指缩放", style = MaterialTheme.typography.titleSmall)
                                 Text("已在 CarWith、jovi InCar 上通过验证。开启自适应显示尺寸后，连接时会请求 WebUI 尺寸。调整窗口尺寸后，请在 WheelPlay 停止投影并重新连接；若尺寸不符，旧车辆的分辨率设置可能仍在生效。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(if (remote) "断线后等待源手机恢复两分钟。请在源手机重新开始 CarLife 连接；源手机 IP 改变时，需更新地址并重新连接。" else "断线后会等待系统源恢复两分钟。在系统车载功能重新开始连接并返回 WheelPlay，可自动接回原尺寸的投影。若看到用户协议提示页，请重新完成上面的手动连接步骤。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(if (usb) "USB 断线后请重新插拔数据线，并重新发起连接。自动协议降级后若源手机不再响应，也需要拔插后重连。" else if (remote) "断线后等待源手机恢复两分钟。请在源手机重新开始 CarLife 连接；源手机 IP 改变时，需更新地址并重新连接。" else "断线后会等待系统源恢复两分钟。在系统车载功能重新开始连接并返回 WheelPlay，可自动接回原尺寸的投影。若看到用户协议提示页，请重新完成上面的手动连接步骤。", color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             var expanded by remember { mutableStateOf(false) }
                             Section("连接诊断") {

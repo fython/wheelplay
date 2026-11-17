@@ -91,10 +91,11 @@ final class Wire {
             string(5, "arm64-v8a"), string(6, "arm64-v8a"), string(7, "CarLifeVehicle"), string(8, size.toString()));
     }
     static byte[] features() { return features(false); }
-    static byte[] features(boolean microphone) {
+    static byte[] features(boolean microphone) { return features(microphone, 5); }
+    static byte[] features(boolean microphone, int connectionType) {
         String[] keys = {"CONNECT_TYPE", "I_FRAME_INTERVAL", "DISABLE_RESOLUTION_OPTION", "CONTENT_ENCRYPTION"};
         // Bypass CarLife resolution presets; the vendor MediaFormat callback may still override this.
-        int[] values = {5, 20, 1, 0};
+        int[] values = {connectionType, 20, 1, 0};
         byte[] result = number(1, keys.length + (microphone ? 1 : 0));
         for (int i = 0; i < keys.length; i++) result = join(result, bytes(2, join(string(1, keys[i]), number(2, values[i]))));
         if (microphone) result = join(result, bytes(2, join(string(1, "VOICE_MIC"), number(2, 0))));

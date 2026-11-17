@@ -29,10 +29,11 @@ final class XiaomiHandshake implements AutoCloseable {
     private volatile byte[] aes;
     private volatile boolean closed;
     private VideoSize confirmed;
-    private final boolean microphone;
+    private final boolean microphone, usb;
 
     XiaomiHandshake() { this(false); }
-    XiaomiHandshake(boolean microphone) { this.microphone = microphone; }
+    XiaomiHandshake(boolean microphone) { this(microphone, false); }
+    XiaomiHandshake(boolean microphone, boolean usb) { this.microphone = microphone; this.usb = usb; }
 
     static byte[] version() { return Wire.join(Wire.number(1,4), Wire.number(2,1)); }
     boolean matched() { return matched; }
@@ -108,11 +109,13 @@ final class XiaomiHandshake implements AutoCloseable {
         }
         if(proofAccepted && featureRequested && !featuresSent) {
             featuresSent=true;
-            byte[] features = Wire.join(Wire.number(1,microphone ? 3 : 2),Wire.bytes(2,
+            byte[] features = Wire.join(Wire.number(1,2 + (microphone ? 1 : 0) + (usb ? 1 : 0)),Wire.bytes(2,
                 Wire.join(Wire.string(1,"CONTENT_ENCRYPTION"),Wire.number(2,1))),Wire.bytes(2,
                 Wire.join(Wire.string(1,"DISABLE_RESOLUTION_OPTION"),Wire.number(2,1))));
             if (microphone) features = Wire.join(features, Wire.bytes(2,
                 Wire.join(Wire.string(1,"VOICE_MIC"),Wire.number(2,0))));
+            if (usb) features = Wire.join(features, Wire.bytes(2,
+                Wire.join(Wire.string(1,"CONNECT_TYPE"),Wire.number(2,2))));
             actions.add(new Action(0x18052,features));
         }
         if(ready && admitted && !videoRequested) {

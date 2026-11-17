@@ -6,7 +6,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
 
-/** One attempt, no hidden version fallback/reconnect. Supports loopback and an explicitly selected remote source. */
+/** One attempt over TCP or USB; version fallback belongs to CarLifeRecovery. */
 public final class CarLifeSession {
     public static final int MAX_VIDEO_BYTES = Wire.MAX_VIDEO;
     public interface Listener {
@@ -25,12 +25,11 @@ public final class CarLifeSession {
         void stopped(int port) throws Exception;
     }
     private final CarLifeMedia mediaState = new CarLifeMedia();
-    private final String sourceHost;
+    private final CarLifeTransport transport;
     private final XiaomiHandshake xiaomi;
     private final Listener listener;
     private final AudioListener audio;
     private final CarLifeMicrophone microphone;
-    private final Map<Integer, Socket> sockets = new ConcurrentHashMap<>();
     private final ExecutorService readers = Executors.newFixedThreadPool(8);
     private final ScheduledThreadPoolExecutor control = new ScheduledThreadPoolExecutor(1);
     private final AtomicBoolean stopped = new AtomicBoolean();
@@ -65,16 +64,17 @@ public final class CarLifeSession {
     }
     public CarLifeSession(Listener listener, File capture, AudioListener audio, VideoSize requestedSize,
             CarLifeProtocolMode mode, CarLifeMicrophone.Listener microphoneListener, String sourceHost) {
-        this.sourceHost = Objects.requireNonNull(sourceHost);
-        if (sourceHost.trim().isEmpty()) throw new IllegalArgumentException("source host is empty");
+        this(listener, capture, audio, requestedSize, mode, microphoneListener, new CarLifeTcpTransport(sourceHost));
+    }
+    public CarLifeSession(Listener listener, File capture, AudioListener audio, VideoSize requestedSize,
+            CarLifeProtocolMode mode, CarLifeMicrophone.Listener microphoneListener, CarLifeTransport transport) {
+        this.transport = Objects.requireNonNull(transport);
         if (mode == CarLifeProtocolMode.AUTO) throw new IllegalArgumentException("AUTO requires CarLifeRecovery");
-        xiaomi = Objects.requireNonNull(mode) == CarLifeProtocolMode.XIAOMI_4_1 ? new XiaomiHandshake(microphoneListener != null) : null;
+        xiaomi = Objects.requireNonNull(mode) == CarLifeProtocolMode.XIAOMI_4_1 ? new XiaomiHandshake(microphoneListener != null, transport.usb()) : null;
         microphone = microphoneListener == null ? null : new CarLifeMicrophone(microphoneListener, packet -> {
             if (closing.get()) return;
-            Socket socket = sockets.get(9242);
-            if (socket == null) throw new IOException("voice channel absent");
-            socket.getOutputStream().write(xiaomi == null ? packet : xiaomi.voice(packet));
-        }, listener::log, this::fail);
+            transport.write(9242, xiaomi == null ? packet : xiaomi.voice(packet));
+        }, listener::log, reason -> { if (!usbReceiveEnded()) fail(reason); });
         this.listener = listener; this.capture = capture; this.audio = audio;
         this.requestedSize = Objects.requireNonNull(requestedSize);
     }
@@ -82,24 +82,13 @@ public final class CarLifeSession {
         if (closing.get() || !started.compareAndSet(false, true)) return;
         try { readers.execute(() -> {
             try {
-                long connectDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(8);
-                for (int port : Wire.PORTS) {
-                    Socket socket;
-                    while (true) {
-                        socket = new Socket();
-                        sockets.put(port, socket);
-                        if (stopped.get()) { socket.close(); return; }
-                        try { socket.connect(new InetSocketAddress(sourceHost, port), 1000); break; }
-                        catch (ConnectException error) {
-                            socket.close();
-                            if (System.nanoTime() >= connectDeadline) throw error;
-                            Thread.sleep(100); // The bound source starts its listeners asynchronously.
-                        }
-                    }
-                    socket.setTcpNoDelay(true);
-                    listener.log("PORT_CONNECTED " + port);
+                transport.connect();
+                if (closing.get()) { transport.close(); return; }
+                if (transport.usb()) listener.log("USB_CHANNELS_CONNECTED");
+                else {
+                    for (int port : Wire.PORTS) listener.log("PORT_CONNECTED " + port);
+                    listener.log("SEVEN_CHANNELS_CONNECTED");
                 }
-                listener.log("SEVEN_CHANNELS_CONNECTED");
                 for (int port : Wire.PORTS) if (port != 9340) readers.execute(() -> read(port));
                 // The engine may still be admitting the seven channels. Repeat only this
                 // idempotent version request, within one fixed attempt deadline.
@@ -112,14 +101,14 @@ public final class CarLifeSession {
                 control.schedule(() -> { if (!matched) fail("VERSION_TIMEOUT (no automatic retry)"); }, 12, TimeUnit.SECONDS);
                 control.schedule(() -> { if (frames.get() == 0) fail("FIRST_VIDEO_TIMEOUT"); }, 30, TimeUnit.SECONDS);
                 control.scheduleWithFixedDelay(() -> listener.log("COUNTERS frames=" + frames.get() + " bytes=" + bytes.get()), 5, 5, TimeUnit.SECONDS);
-            } catch (Exception e) { fail("CONNECT_FAILED " + e.getClass().getSimpleName()); }
+            } catch (Exception e) { fail("CONNECT_FAILED " + e.getClass().getSimpleName() + ":" + e.getMessage()); }
         }); } catch (RejectedExecutionException e) { stop(); }
     }
     private void read(int port) {
         CarLifeAudioChannel sound = audio != null && (port == 9240 || port == 9241)
             ? new CarLifeAudioChannel(port, audio, listener::log) : null;
         try (OutputStream dump = port == 8240 && capture != null ? new FileOutputStream(capture) : new OutputStream() { @Override public void write(int b) {} }) {
-            InputStream in = sockets.get(port).getInputStream();
+            InputStream in = transport.input(port);
             VideoTimeline timeline = new VideoTimeline();
             AudioArrivalStats arrivalStats = sound == null ? null : new AudioArrivalStats(port);
             while (!stopped.get()) {
@@ -144,7 +133,14 @@ public final class CarLifeSession {
                 }
                 // Unused voice/data channels are drained. No audio payload or device metadata is recorded.
             }
-        } catch (Exception e) { fail("CHANNEL_FAILED port=" + port + " reason=" + e.getClass().getSimpleName() + ":" + e.getMessage()); }
+        } catch (Exception e) {
+            String reason = "CHANNEL_FAILED port=" + port + " reason=" + e.getClass().getSimpleName() + ":" + e.getMessage();
+            if (e instanceof CarLifeUsbTransport.ReceiveEndedException) {
+                // Other USB streams can observe the same EOF before the command reader drains its queue.
+                // Enqueue the terminal event behind all complete commands, including VERSION_REJECTED.
+                if (port == 7240) enqueue(() -> fail(reason));
+            } else fail(reason);
+        }
         finally {
             if (sound != null) try { sound.close(); }
             catch (Exception e) { fail("AUDIO_CLOSE_FAILED port=" + port); }
@@ -226,7 +222,7 @@ public final class CarLifeSession {
         control.schedule(() -> safe(this::requestVideo), 2400, TimeUnit.MILLISECONDS);
     }
     private void sendFeatures() throws IOException {
-        send(98386, Wire.features(microphone != null));
+        send(98386, Wire.features(microphone != null, transport.connectionType()));
         // Set only after writing the command: an early VIDEO_ENCODER_INIT request
         // must not race ahead of DISABLE_RESOLUTION_OPTION on the same TCP stream.
         featuresSent = true;
@@ -250,16 +246,21 @@ public final class CarLifeSession {
         });
     }
     interface Action { void run() throws Exception; }
-    private void safe(Action a) { if (!closing.get()) try { a.run(); } catch (Exception e) { fail("PROTOCOL_FAILED " + e.getClass().getSimpleName() + ":" + e.getMessage()); } }
+    private boolean usbReceiveEnded() {
+        return transport instanceof CarLifeUsbTransport && ((CarLifeUsbTransport) transport).receiveEnded();
+    }
+    private void safe(Action a) {
+        if (!closing.get()) try { a.run(); }
+        catch (CarLifeUsbTransport.ReceiveEndedException ignored) { /* Command reader queues the terminal event. */ }
+        catch (Exception e) { fail("PROTOCOL_FAILED " + e.getClass().getSimpleName() + ":" + e.getMessage()); }
+    }
     private void enqueue(Action a) {
         if (control.getQueue().size() > 64) { fail("CONTROL_QUEUE_OVERFLOW"); return; }
         if (!closing.get()) try { control.execute(() -> safe(a)); } catch (RejectedExecutionException ignored) { /* stopped */ }
     }
     private void send(int type, byte[] payload) throws IOException {
         if (stopped.get()) return;
-        Socket socket = sockets.get(7240);
-        if (socket == null) throw new IOException("command channel absent");
-        socket.getOutputStream().write(Wire.command(type, encode(payload)));
+        transport.write(7240, Wire.command(type, encode(payload)));
     }
     private byte[] encode(byte[] payload) throws IOException {
         if (xiaomi == null) return payload;
@@ -308,7 +309,7 @@ public final class CarLifeSession {
         } else {
             byte[] payload = Wire.join(Wire.number(1,action),Wire.number(2,lastX),Wire.number(3,lastY),
                 Wire.number(4,lastPointerX),Wire.number(5,lastPointerY));
-            sockets.get(9340).getOutputStream().write(Wire.command(425985,encode(payload)));
+            transport.write(9340, Wire.command(425985,encode(payload)));
         }
         if (action != 2) listener.log("TOUCH_ACTION action=" + action + " contacts=" + (secondTouch ? 2 : 1));
     }
@@ -320,12 +321,12 @@ public final class CarLifeSession {
         touching = false;
     }
     private void writeTouch(int type, int x, int y) throws IOException {
-        sockets.get(9340).getOutputStream().write(Wire.command(type, encode(Wire.join(Wire.number(1, x), Wire.number(2, y)))));
+        transport.write(9340, Wire.command(type, encode(Wire.join(Wire.number(1, x), Wire.number(2, y)))));
     }
     public void key(int code) {
         if (!streaming || stopped.get()) return;
         enqueue(() -> {
-            sockets.get(9340).getOutputStream().write(Wire.command(425992, encode(Wire.number(1, code))));
+            transport.write(9340, Wire.command(425992, encode(Wire.number(1, code))));
             listener.log("KEY_SENT code=" + code);
         });
     }
@@ -335,14 +336,26 @@ public final class CarLifeSession {
         try { control.execute(() -> {
             if (!streaming || closing.get()) { result.complete(false); return; }
             try {
-                sockets.get(9340).getOutputStream().write(Wire.command(425992, encode(Wire.number(1, code))));
+                transport.write(9340, Wire.command(425992, encode(Wire.number(1, code))));
                 listener.log("MEDIA_KEY_SENT code=" + code);
                 result.complete(true);
-            } catch (Exception error) { result.complete(false); }
+            } catch (Exception error) {
+                // A failed USB write can leave the peer waiting for the remainder of this frame.
+                if (transport.usb() && !(error instanceof CarLifeUsbTransport.ReceiveEndedException))
+                    fail("MEDIA_KEY_FAILED " + error.getClass().getSimpleName() + ":" + error.getMessage());
+                result.complete(false);
+            }
         }); } catch (RejectedExecutionException ignored) { result.complete(false); }
         return result;
     }
-    private void fail(String message) { if (!closing.get()) { listener.log(message); listener.failed(message); stop(); } }
+    private void fail(String message) {
+        if (!closing.get()) {
+            // AOA reopen does not restart the phone's protocol engine. Do not silently retry a stale USB stream.
+            String reason = transport.usb() && !message.equals("VERSION_REJECTED")
+                ? "USB_" + message + "；请重新插拔 USB，解锁源手机并确认 CarLife 提示后重连" : message;
+            listener.log(reason); listener.failed(reason); stop();
+        }
+    }
     public CompletableFuture<Void> stop() {
         if (!closing.compareAndSet(false, true)) return closed;
         if (microphone != null) microphone.close();
@@ -361,20 +374,24 @@ public final class CarLifeSession {
                 // Closing the transport also unblocks a stalled writer or reader.
                 released.await(250, TimeUnit.MILLISECONDS);
                 stopped.set(true);
-                sockets.values().forEach(s -> { try { s.close(); } catch (IOException ignored) {} });
+                IOException transportFailure = null;
+                try { transport.close(); } catch (IOException error) { transportFailure = error; }
                 control.shutdownNow(); readers.shutdownNow();
                 if (microphone != null) microphone.awaitStopped();
                 boolean controlStopped = control.awaitTermination(3, TimeUnit.SECONDS);
                 boolean clean = readers.awaitTermination(3, TimeUnit.SECONDS) && controlStopped;
-                sockets.values().forEach(s -> { try { s.close(); } catch (IOException ignored) {} });
                 if (clean && xiaomi != null) xiaomi.close();
                 listener.log(clean ? "STOPPED_CLEAN" : "STOP_TIMEOUT");
-                listener.ended();
-                if (clean) closed.complete(null); else closed.completeExceptionally(new IOException("workers did not stop"));
+                if (transportFailure != null) throw transportFailure;
+                if (!clean) throw new IOException("workers did not stop");
             } catch (Exception e) {
                 if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+                try { listener.ended(); } catch (Exception callback) { e.addSuppressed(callback); }
                 closed.completeExceptionally(e);
+                return;
             }
+            try { listener.ended(); closed.complete(null); }
+            catch (Exception error) { closed.completeExceptionally(error); }
         }, "carlife-stop").start();
         return closed;
     }

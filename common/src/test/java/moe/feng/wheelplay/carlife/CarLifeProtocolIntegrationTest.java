@@ -38,7 +38,16 @@ public class CarLifeProtocolIntegrationTest {
     private void roundTrip(boolean xiaomi, boolean withMicrophone) throws Exception { roundTrip(xiaomi,withMicrophone,false); }
     @Test public void explicitSourceAddressCarriesVideoAudioAndTwoPointers() throws Exception { roundTrip(false,false,true,"localhost"); }
     private void roundTrip(boolean xiaomi, boolean withMicrophone, boolean multi) throws Exception { roundTrip(xiaomi,withMicrophone,multi,null); }
+    @Test public void usbPlaintextVideoAudioMicrophoneAndTouch() throws Exception { roundTrip(false,true,false,null,true); }
+    @Test public void usbEncryptedVideoAudioMicrophoneAndTouch() throws Exception { roundTrip(true,true,false,null,true); }
     private void roundTrip(boolean xiaomi, boolean withMicrophone, boolean multi, String host) throws Exception {
+        roundTrip(xiaomi,withMicrophone,multi,host,false);
+    }
+    @Test public void usbMediaKeyHalfFrameFailureEndsTheSession() throws Exception { roundTrip(true,true,false,null,true,true); }
+    private void roundTrip(boolean xiaomi, boolean withMicrophone, boolean multi, String host, boolean usb) throws Exception {
+        roundTrip(xiaomi,withMicrophone,multi,host,usb,false);
+    }
+    private void roundTrip(boolean xiaomi, boolean withMicrophone, boolean multi, String host, boolean usb, boolean failMediaKey) throws Exception {
         BlockingQueue<CarLifeMicrophone.Capture> captures=new LinkedBlockingQueue<>();
         CountDownLatch microphoneStopped=new CountDownLatch(1);
         CarLifeMicrophone.Listener mic=new CarLifeMicrophone.Listener() {
@@ -58,7 +67,8 @@ public class CarLifeProtocolIntegrationTest {
             public void pcm(int p,byte[] b){receivedAudio.put(p,b);pcm.countDown();}public void stopped(int p){}
         };
         // Use the old constructor for vivo: regressions in its default selection must fail this test.
-        CarLifeSession session=host!=null?new CarLifeSession(listener,null,audio,SIZE,CarLifeProtocolMode.LEGACY_3_0,null,host):withMicrophone?new CarLifeSession(listener,null,audio,SIZE,xiaomi?CarLifeProtocolMode.XIAOMI_4_1:CarLifeProtocolMode.LEGACY_3_0,mic):xiaomi?new CarLifeSession(listener,null,audio,SIZE,CarLifeProtocolMode.XIAOMI_4_1):new CarLifeSession(listener,null,audio,SIZE);
+        UsbLoopbackLink usbLink = usb ? new UsbLoopbackLink() : null;
+        CarLifeSession session=usb?new CarLifeSession(listener,null,audio,SIZE,xiaomi?CarLifeProtocolMode.XIAOMI_4_1:CarLifeProtocolMode.LEGACY_3_0,mic,new CarLifeUsbTransport(usbLink)):host!=null?new CarLifeSession(listener,null,audio,SIZE,CarLifeProtocolMode.LEGACY_3_0,null,host):withMicrophone?new CarLifeSession(listener,null,audio,SIZE,xiaomi?CarLifeProtocolMode.XIAOMI_4_1:CarLifeProtocolMode.LEGACY_3_0,mic):xiaomi?new CarLifeSession(listener,null,audio,SIZE,CarLifeProtocolMode.XIAOMI_4_1):new CarLifeSession(listener,null,audio,SIZE);
         try(Peer peer=new Peer()) {
             session.start();peer.accept();
             assertArrayEquals(xiaomi?XiaomiHandshake.version():Wire.version(),peer.command(98305).body);
@@ -73,11 +83,12 @@ public class CarLifeProtocolIntegrationTest {
                 peer.send(0x1004B,Wire.number(1,1));peer.command(0x1804C);
                 peer.send(0x10051,Wire.EMPTY);peer.send(0x10049,proof(challenge));peer.command(0x1804A);
                 byte[] features=peer.command(0x18052).body;
-                assertEquals(withMicrophone?3:2,Wire.integer(features,1,-1));
+                assertEquals((withMicrophone?3:2)+(usb?1:0),Wire.integer(features,1,-1));
                 Map<String,Long> options=new HashMap<>();
                 for(Wire.Field entry:Wire.fields(features)) if(entry.id==2)
                     options.put(string(entry.data,1),Wire.integer(entry.data,2,-1));
-                assertEquals(withMicrophone?3:2,options.size());
+                assertEquals((withMicrophone?3:2)+(usb?1:0),options.size());
+                if (usb) assertEquals(Long.valueOf(2),options.get("CONNECT_TYPE"));
                 if(withMicrophone) assertEquals(Long.valueOf(0),options.get("VOICE_MIC"));
                 assertEquals(Long.valueOf(1),options.get("CONTENT_ENCRYPTION"));
                 assertEquals(Long.valueOf(1),options.get("DISABLE_RESOLUTION_OPTION"));
@@ -88,7 +99,7 @@ public class CarLifeProtocolIntegrationTest {
                 assertEquals(1280,Wire.integer(request,1,0));peer.send(65544,crypt(request,true));
             } else {
                 byte[] features=peer.command(98386).body;
-                assertArrayEquals(Wire.features(withMicrophone),features);
+                assertArrayEquals(Wire.features(withMicrophone,usb?2:5),features);
                 if(withMicrophone) {
                     assertEquals(5,Wire.integer(features,1,-1));
                     boolean found=false;
@@ -123,6 +134,14 @@ public class CarLifeProtocolIntegrationTest {
                 peer.sockets.get(9242).setSoTimeout(200);
                 try {Wire.read(peer.sockets.get(9242).getInputStream(),false,5000);fail("stopped capture wrote PCM");}
                 catch(SocketTimeoutException expected) {}
+            }
+            if (failMediaKey) {
+                usbLink.failNextInputBody = true;
+                assertFalse(session.mediaKey(1).get(3,TimeUnit.SECONDS));
+                session.stop().get(5,TimeUnit.SECONDS);
+                assertNotNull(failure.get()); assertTrue(failure.get().startsWith("USB_"));
+                assertFalse(session.mediaKey(1).get(1,TimeUnit.SECONDS));
+                return;
             }
             if(multi) {
                 session.touch(0,50,60,0,0); session.touch(261,50,60,150,160); session.touch(2,40,60,170,160);

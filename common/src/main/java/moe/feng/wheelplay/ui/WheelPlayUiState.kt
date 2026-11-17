@@ -41,6 +41,7 @@ internal data class SourcesUi(
     val overview: String = "", val flags: Map<SourcePage, String> = emptyMap(),
     val sessions: Map<String, SessionUi> = emptyMap(), val plugins: List<PluginUi> = emptyList(),
     val carLifeRemote: Boolean = false,
+    val carLifeUsb: Boolean = false,
     val carLifeCanConnect: Boolean = true,
     val carPlayStatus: String = "", val carPlayRunning: Boolean = false, val carPlayEnabled: Boolean = false,
     val phone: String = "", val setupError: String? = null, val hotspotHint: String? = null,
