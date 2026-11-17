@@ -130,6 +130,7 @@ class WheelPlayActivity : AppCompatActivity() {
     private fun prepareCarLife() {
         val snapshot = projectionSessions.controlSnapshot()
         if (snapshot.occupied || pendingCarLifeRequest != null) return
+        if (requireBrowserAudioForLocalSource(ProjectionSourceIds.CARLIFE, ::prepareCarLife)) return
         pendingCarLifeGeneration = snapshot.generation
         val request = java.util.UUID.randomUUID().toString()
         pendingCarLifeRequest = request
@@ -889,6 +890,7 @@ class WheelPlayActivity : AppCompatActivity() {
             showLocalAndroidAutoSetup()
             return
         }
+        if (requireBrowserAudioForLocalSource(LocalAndroidAuto.SOURCE_ID, ::connectLocalAndroidAuto)) return
         registerProjectionSources(this)
         startProjectionSource(LocalAndroidAuto.SOURCE_ID)
     }
@@ -970,7 +972,34 @@ class WheelPlayActivity : AppCompatActivity() {
 
     private fun isAndroidAutoSource(id: String) = belongsToSource(id, ProjectionSourceIds.ANDROID_AUTO)
 
+    /** Return true when connection must wait for an explicit output change. */
+    private fun requireBrowserAudioForLocalSource(id: String, resume: () -> Unit): Boolean {
+        val local = when (id) {
+            ProjectionSourceIds.ANDROID_AUTO_LOCAL -> true
+            ProjectionSourceIds.CARLIFE -> {
+                val prefs = getSharedPreferences("carlife_connection", MODE_PRIVATE)
+                !prefs.getBoolean("remoteMode", prefs.getString("host", "").orEmpty().isNotBlank())
+            }
+            else -> false
+        }
+        if (!local || AirPlayPersistence.loadBrowserAudioPlayback(this)) return false
+        val generation = projectionSessions.controlSnapshot().generation
+        dialogs.message(
+            getString(R.string.local_projection_audio_title),
+            getString(R.string.local_projection_audio_message),
+            listOf(WheelPlayDialogs.Action(getString(R.string.local_projection_audio_switch)) {
+                WebSession.setBrowserAudioPlayback(this, true)
+                refreshSettings()
+                // Do not resume an obsolete request if another session started while prompting.
+                val snapshot = projectionSessions.controlSnapshot()
+                if (snapshot.generation == generation && !snapshot.occupied) resume()
+            }),
+        )
+        return true
+    }
+
     private fun startProjectionSourceNow(id: String) {
+        if (requireBrowserAudioForLocalSource(id) { startProjectionSourceNow(id) }) return
         registerProjectionSources(this)
         startWebServiceIfReady()
         projectionSessions.switchTo(id).whenComplete { _, failure -> runOnUiThread {
