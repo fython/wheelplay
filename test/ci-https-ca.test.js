@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, rmSync, existsSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -35,7 +35,8 @@ ${combinedPem}"""
 `;
 
 function tempDir(t, prefix) {
-  const directory = mkdtempSync(join(tmpdir(), prefix));
+  // Match the provisioner's physical paths, including macOS /var symlinks.
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   return directory;
 }
@@ -102,7 +103,7 @@ set -euo pipefail
 printf 'ca=%s\\n' "\${WHEELPLAY_HTTPS_CA_PEM:-}" > "$CALL_LOG"
 if [[ -n \${WHEELPLAY_HTTPS_CA_PEM:-} ]]; then
   printf 'ca-head=%s\\n' "$(head -n 1 "$WHEELPLAY_HTTPS_CA_PEM")" >> "$CALL_LOG"
-  printf 'ca-mode=%s\\n' "$(stat -c '%a' "$WHEELPLAY_HTTPS_CA_PEM")" >> "$CALL_LOG"
+  printf 'ca-mode=%s\\n' "$(stat ${process.platform === 'darwin' ? "-f '%Lp'" : "-c '%a'"} "$WHEELPLAY_HTTPS_CA_PEM")" >> "$CALL_LOG"
 fi
 printf 'keystore=%s\\n' "$ANDROID_KEYSTORE_PATH" >> "$CALL_LOG"
 printf 'keystore-head=%s\\n' "$(head -c 13 "$ANDROID_KEYSTORE_PATH")" >> "$CALL_LOG"
@@ -198,6 +199,24 @@ test('a value that is not Base64 fails with an actionable message', t => {
   assert.equal(r.status, 1);
   assert.match(r.stderr, /is not valid Base64/);
   assert.deepEqual(readdirSync(r.output), []);
+});
+
+test('invalid characters and padding cannot be ignored in an otherwise valid CA', async t => {
+  const valid = encode(combinedPem);
+  for (const [name, secret] of Object.entries({
+    punctuation: valid.slice(0, 8) + '!!!' + valid.slice(8),
+    middlePadding: valid.slice(0, 8) + '=' + valid.slice(8),
+    excessPadding: valid + '====',
+    incompleteQuartet: valid + 'A',
+  })) {
+    await t.test(name, t => {
+      const r = provisionCa(t, { secret });
+      assert.equal(r.status, 1);
+      assert.match(r.stderr, /is not valid Base64/);
+      assert.equal(r.stdout, '');
+      assert.deepEqual(readdirSync(r.output), []);
+    });
+  }
 });
 
 test('encrypted keys, multiple keys and missing certificates are rejected', async t => {

@@ -83,7 +83,12 @@ pem=$pem_dir/emudhra-ca.pem
 if [[ $ca_source == secret ]]; then
   # Base64 only encodes bytes; GitHub Secrets provides the confidentiality, so the
   # value must never be echoed or written into the checkout.
-  if ! printf '%s' "${encoded//[[:space:]]/}" | base64 --decode > "$pem" 2>/dev/null; then
+  # BSD base64 can ignore invalid characters and still exit successfully.
+  # Check the alphabet and padding before using the platform decoder.
+  encoded=${encoded//[[:space:]]/}
+  base64_pattern='^([A-Za-z0-9+/]{4})*([A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$'
+  if [[ ! $encoded =~ $base64_pattern ]] ||
+    ! printf '%s' "$encoded" | base64 --decode > "$pem" 2>/dev/null; then
     rm -f -- "$pem"
     fail 'WHEELPLAY_HTTPS_CA_PEM_BASE64 is not valid Base64. Re-encode the combined PEM file and update the secret.'
   fi
