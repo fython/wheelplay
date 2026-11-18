@@ -24,10 +24,17 @@ internal data class InstalledProjectionPlugin(
     val installedAt: Long = 0,
     val sourceId: String? = null,
     val settingsProvider: String? = null,
+    val preparation: ComponentName? = null,
+    val microphone: Boolean = false,
+    val requiresInitialViewport: Boolean = false,
 ) {
     val id get() = PREFIX + component.flattenToString()
     val consentKey get() = "$signer@$installedAt"
-    companion object { const val PREFIX = ProjectionSourceIds.PLUGIN_PREFIX }
+    companion object {
+        const val PREFIX = ProjectionSourceIds.PLUGIN_PREFIX
+        const val LEGACY_CARLIFE_PACKAGE = "moe.feng.wheelplay.plugin.carlife"
+        const val LEGACY_CARLIFE_ID = "plugin-$LEGACY_CARLIFE_PACKAGE/$LEGACY_CARLIFE_PACKAGE.CarLifeService"
+    }
 }
 
 /** Package metadata only: discovering/listing an installed APK never binds or starts its code. */
@@ -38,12 +45,13 @@ internal class ProjectionPluginRegistry(private val context: Context, private va
     private val failures = java.util.concurrent.ConcurrentHashMap<String, Failure>()
     fun lastFailure(id: String): String? = failures[id]?.message
     @Synchronized fun recordFailure(plugin: InstalledProjectionPlugin, message: String) {
-        if (plugin in installed) failures[plugin.id] = Failure(plugin, message.take(1200))
+        if (plugin in allEntries()) failures[plugin.id] = Failure(plugin, message.take(1200))
     }
     fun beginAttempt(plugin: InstalledProjectionPlugin) { failures.remove(plugin.id) }
     private val main = Handler(Looper.getMainLooper())
     private var watching = false
     fun entries() = installed
+    fun allEntries() = installed
     fun entriesForSource(sourceId: String) = installed.filter { it.sourceId == sourceId }
     fun enabled(plugin: InstalledProjectionPlugin) = plugin.signer.isNotEmpty() &&
         preferences.getString(plugin.id, null) == plugin.consentKey
@@ -98,6 +106,8 @@ internal class ProjectionPluginRegistry(private val context: Context, private va
         installed = pm.queryIntentServices(Intent(ProjectionPlugin.ACTION),
             PackageManager.GET_META_DATA or PackageManager.MATCH_DISABLED_COMPONENTS).mapNotNull { result ->
             val service = result.serviceInfo ?: return@mapNotNull null
+            // The former standalone APK must not compete with the bundled receiver.
+            if (service.packageName == InstalledProjectionPlugin.LEGACY_CARLIFE_PACKAGE) return@mapNotNull null
             runCatching {
                 val pkg = pm.getPackageInfo(service.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
                 val signer = pkg.signingInfo?.apkContentsSigners?.map { signature ->
@@ -112,7 +122,7 @@ internal class ProjectionPluginRegistry(private val context: Context, private va
                     service.permission != null && pm.checkPermission(service.permission, context.packageName) != PackageManager.PERMISSION_GRANTED -> context.getString(UiR.string.plugin_unavailable)
                     else -> null
                 }
-                val settings = service.metaData?.getString(ProjectionPlugin.META_SETTINGS_ACTIVITY)?.let { name ->
+                fun activityFor(key: String) = service.metaData?.getString(key)?.let { name ->
                     val activity = ComponentName(service.packageName, if (name.startsWith('.')) service.packageName + name else name)
                     runCatching { pm.getActivityInfo(activity, 0) }.getOrNull()?.takeIf {
                         it.exported && it.enabled && it.applicationInfo.enabled &&
@@ -130,11 +140,12 @@ internal class ProjectionPluginRegistry(private val context: Context, private va
                     } == true
                 }
                 InstalledProjectionPlugin(component, service.loadLabel(pm).toString().take(120),
-                    service.applicationInfo.uid, signer, pkg.lastUpdateTime, pkg.longVersionCode, settings, problem, pkg.firstInstallTime,
-                    service.metaData?.getString(ProjectionPlugin.META_SOURCE_ID), settingsProvider)
+                    service.applicationInfo.uid, signer, pkg.lastUpdateTime, pkg.longVersionCode, activityFor(ProjectionPlugin.META_SETTINGS_ACTIVITY), problem, pkg.firstInstallTime,
+                    service.metaData?.getString(ProjectionPlugin.META_SOURCE_ID), settingsProvider, activityFor(ProjectionPlugin.META_PREPARE_ACTIVITY), service.metaData?.getBoolean(ProjectionPlugin.META_MICROPHONE) == true,
+                    service.metaData?.getBoolean(ProjectionPlugin.META_REQUIRES_INITIAL_VIEWPORT) == true)
             }.getOrNull()
         }.distinctBy { it.id }.sortedBy { it.name }
-        failures.entries.removeAll { it.value.plugin !in installed }
+        failures.entries.removeAll { it.value.plugin !in allEntries() }
         // An uninstall observed while WheelPlay was stopped must revoke remembered consent too.
         val ids = installed.map { it.id }.toSet()
         preferences.edit().also { edit -> preferences.all.keys.filter { it !in ids }.forEach(edit::remove) }.apply()

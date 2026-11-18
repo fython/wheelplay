@@ -15,7 +15,7 @@ test('all browser messages exist in each Android resource catalog', () => {
       for (const key of Object.keys(base)) assert.deepEqual(argumentsIn(catalog[key]), argumentsIn(base[key]), key);
     }
   }
-  for (const [qualifier, title] of [['values', 'Connect your CarPlay display'], ['values-zh-rCN', '连接 CarPlay 车机屏幕'], ['values-zh-rTW', '連線 CarPlay 車機螢幕']]) {
+  for (const [qualifier, title] of [['values', 'Connect your WheelPlay display'], ['values-zh-rCN', '连接 WheelPlay 显示端'], ['values-zh-rTW', '連線 WheelPlay 顯示端']]) {
     const messages = resourceStrings(qualifier), html = renderBrowserTemplate(template, messages);
     assert.ok(html.includes(title));
     assert.ok(!html.includes('{{'));

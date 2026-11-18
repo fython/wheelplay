@@ -68,4 +68,4 @@ WebSocket 控制连接的心跳与重连规则独立于视频策略；整个网�
 
 首次成功绘制之前保持 JPEG，首帧等待 `max(10000ms, recoveryGraceMs)`。持续发送时分别检查解码和绘制进展，即使 framesDecoded 增长而画布不再更新，也会在所选容忍时间后回退。没有新输入的静态画面不触发渲染停滞；恢复输入时重新计时。连接短暂断开时仍保留最后一帧。
 
-`presentation.fallbackReason` 区分 processor-unsupported、renderer-error、track-ended、first-frame-timeout、decode-stalled、render-stalled、stats-unavailable、connection-failed、codec-unsupported 等原因；server-stop 表示服务端停止本次媒体。选择保留；可恢复错误沿用上游有界退避重试，缺少 Processor、Canvas 2D 或明确的平台不支持错误停止当前配置的重试，重新连接或配置变化后再尝试。直接 Canvas 状态栏使用 renderedFps，原生 Video 与兼容 Canvas 继续使用 presentedFps / decodedFps。
+`presentation.fallbackReason` 区分 processor-unsupported、renderer-error、track-ended、first-frame-timeout、decode-stalled、render-stalled、stats-unavailable、connection-failed、codec-unsupported 等原因；server-stop 表示服务端停止本次媒体。选择保留；可恢复错误沿用上游有界退避重试，缺少 Processor、可用 Canvas 绘制上下文或明确的平台不支持错误停止当前配置的重试，重新连接或配置变化后再尝试。直接 Canvas 状态栏使用 renderedFps，原生 Video 与兼容 Canvas 继续使用 presentedFps / decodedFps。

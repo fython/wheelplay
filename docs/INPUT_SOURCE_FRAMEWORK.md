@@ -205,9 +205,11 @@ ICCOA 小规模验证可以提前进行，避免架构落地后才发现 SDK 边
 
 验收指标记录源接收、入队、丢弃、输出发送、浏览器呈现分段耗时与速率，外加内存、CPU、耗电和重连时间。真实性能改善须在相同设备/网络场景下比较，不从架构图推断。
 
-## 10. 接入前仍需回答的问题
+## 10. 接入问题与当前状态
 
-1. ICCOA 是否能合法获得适合 WheelPlay 分发方式的运行 SDK？MiAuto 的 AGPL 源码许可不覆盖该专有运行库。DiAuto/MiAuto 均标注 AGPL-3.0；WheelPlay 根许可为 GPLv3 且已有 AGPL UI 来源声明，复用时应保留来源并核对最终组合分发义务。模块或进程隔离本身不等于豁免。
+以下保留框架设计时的问题背景；CarLink 已完成接入及实机验证，最新结果以 [CarLink 说明](CARLINK.md) 为准。
+
+1. ICCOA 已采用独立 APK 插件分发策略，构建时校验并打包固定版本 SDK；Debug / Release 产物均可分发。来源与第三方组件说明见 [插件 NOTICE](../projection-plugin-carlink/NOTICE.md)，当前支持状态见 [CarLink 说明](CARLINK.md)。
 2. ICCOA 的 Surface 是否接受 SurfaceTexture 离屏目标？是否有受保护内容或 SDK 生命周期限制？能否可靠暂停、替换 Surface、停止后台服务？公开包装层尚不足以证明。
 3. 实际 SDK 的触控、按键、麦克风注入、音频导出与关键帧请求接口是什么？没有接口或验证证据的能力保持 Unknown/Unsupported。
 4. AA/ICCOA 在普通 Android 服务手机上能否维持上游手机连接与下游车机浏览器网络？当前外部项目的运行位置和测试硬件与 WheelPlay 不同。

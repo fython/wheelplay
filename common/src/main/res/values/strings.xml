@@ -5,4 +5,7 @@
     <string name="notification_action_play">Play</string>
     <string name="notification_action_pause">Pause</string>
     <string name="notification_action_next">Next track</string>
+    <string name="local_projection_audio_title">Switch audio output to connect</string>
+    <string name="local_projection_audio_message">Android Auto and CarLife local mode cannot use Android device audio output because it can cause an audio loop. Switch to the head unit browser to continue connecting.</string>
+    <string name="local_projection_audio_switch">Switch to head unit browser and continue</string>
 </resources>

@@ -16,7 +16,7 @@
 | **Android 虚拟桌面（实验性）** | Shizuku UserService、本机应用选择、固定尺寸 JPEG/WebP、多指触控与返回。需要 Android 10+/Shizuku 13+，尚未完成真机兼容性验证，见[使用与验收指南](docs/ANDROID_DESKTOP.md)。 |
 | **诊断输入源** | 提供 H.264、Surface 和帧缓冲测试源，无需连接手机即可检查画面链路。 |
 | **插件 APK** | 安装并启用独立的 Surface 画面／触控输入源；提供独立 SDK 和示例 APK，见[插件指南](docs/PROJECTION_PLUGINS.md)。 |
-| **ICCOA CarLink** | 计划通过独立插件 APK 提供；本版本不包含专有 SDK 或 CarLink 插件。 |
+| **ICCOA CarLink** | [独立 APK 插件](docs/CARLINK_USER_GUIDE.md)，支持 Wi-Fi Direct、手动热点和 USB，以及 Surface / WebRTC 输出，已通过实机验证。USB 报 10007 时拔插数据线重连。CI 提供插件 Debug APK；接收设备需 arm64 / 4 KB 内存页。 |
 
 同一时间只运行一个投影输入源，并允许一个浏览器控制会话。Android Auto 的音频播放和麦克风输入均使用 Android 宿主，尚不支持浏览器音频／麦克风转发或自动无线发现。连接方式与限制见 [Android Auto 指南](docs/ANDROID_AUTO.md)。
 

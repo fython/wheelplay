@@ -39,7 +39,11 @@ v3 可使用 WebP，最多两帧在途，并以媒体版本和帧序号精确 AC
 
 ## 浏览器三种渲染方式
 
-`native` 为默认原生 Video；`video-canvas` 使用离屏 Video 与可见 Canvas；实验性 `track-canvas` 使用主线程 `MediaStreamTrackProcessor({ track, maxBufferSize: 1 })` → `VideoFrame` → Canvas 2D。不新增网络消息、解码器或依赖。两个旧模式按需创建自己的 Video 元素，停止时移除；直接 Canvas 及其 JPEG / WebP 回退期间不创建 Video。
+`native` 为默认原生 Video；`video-canvas` 使用离屏 Video 与可见 Canvas；实验性 `track-canvas` 使用主线程 `MediaStreamTrackProcessor({ track, maxBufferSize: 1 })` → `VideoFrame` → Canvas。两种 Canvas 默认使用 Canvas 2D；连接页提供默认关闭的「Canvas 使用 WebGL（实验性）」开关。开启后直接上传浏览器的 Video / VideoFrame 至纹理，以全屏四边形绘制；WebGL 上下文不可用时使用 Canvas 2D。不新增网络消息、解码器或依赖。两个旧模式按需创建自己的 Video 元素，停止时移除；直接 Canvas 及其 JPEG / WebP 回退期间不创建 Video。
+
+WebGL 每次启动创建一组纹理、顶点缓冲和着色器程序，逐帧复用对象，停止时删除资源；尺寸来自实际帧，旋转时更新画布和 viewport。保持视频新帧去重及 250 ms 回调停滞补偿；不在 JS 中读取像素或每帧创建 GPU 对象。首次上传及尺寸变化时检查 GL 错误，避免逐帧查询错误带来的同步开销。画布上下文类型在其生命周期内固定，因此页面为默认 2D 和 WebGL 实验各保留一个初始为空的画布，两种 Canvas 模式使用所选后端对应的画布。取得 WebGL 后的初始化或绘制失败沿用 JPEG / WebP 回退；此时同一画布无法改为 2D。上下文丢失会触发可恢复错误，允许恢复后的接收器重试。
+
+`preserveDrawingBuffer=true` 保留跨任务复制 held-frame 的能力，带来额外缓冲开销；GPU 上下文丢失时旧 GPU 画面可能无法保留。上传和颜色转换的实际执行路径由浏览器决定。原有 Canvas 2D 也可能使用 GPU，WebGL 的帧率收益应在目标设备、相同输入下测量，尤其需区分解码速度与屏幕呈现速度。
 
 接收器通过渲染器工厂创建适配器，调用 `start(track, streams)`、`stop()` 和 `snapshot()`，由适配器报告首次就绪、尺寸变化及错误。接收器持有 PeerConnection、远端轨道及恢复计时器；适配器持有 reader、绘制上下文、元素及绘制回调。关闭先使代次失效，再停止适配器、移除监听、停止远端轨道并关闭 PeerConnection；关闭前先复制当前画面至上游 held-frame，按媒体版本与恢复期限管理显示和触控；取消读取不阻塞重连，读取结束后释放锁。每个读出的 VideoFrame 均在 finally 中 close，包含错误和过期帧。
 
@@ -47,7 +51,9 @@ v3 可使用 WebP，最多两帧在途，并以媒体版本和帧序号精确 AC
 
 偏好键 `wheelplay.videoRenderer` 保存三种模式；有效新值优先，否则旧 `wheelplay.canvasVideo=true` 迁移为 `video-canvas`，其余默认 native。只写新键并保留旧键；连接时固定模式，自动重连沿用。缺少 Processor 时跳过 rtc-start 并记录本地原因，运行失败使用现有 rtc-fallback，不改变用户选择。
 
-`wheelplayStats.presentation` 包含 selectedMode、activeMode（含 waiting / jpeg）、renderedFps、renderedFrames、fallbackReason。绘制指标为 Canvas 的成功提交次数，不代表屏幕刷新率；兼容 Canvas 的补偿重绘可能重复同一解码帧。receiver 保留现有统计字段并新增 renderedFps / renderedFrames，rtc-feedback 仍报告 WebRTC framesDecoded。
+WebGL 偏好键 `wheelplay.canvasWebgl` 仅在值为 `true` 时启用，无法读取存储时默认关闭；原生 Video 下禁用开关但保留选择。选择在用户启动显示时固定，自动重连沿用，修改在下一次手动连接生效。关闭后使用独立的 2D 画布，可在同一页面反复开关。
+
+`wheelplayStats.presentation` 包含 selectedMode、activeMode（含 waiting / jpeg）、renderBackend、renderedFps、renderedFrames、fallbackReason。统计采样后 renderBackend 为 webgl、2d 或 native，未建立或已停止时为 null；receiver 统计也包含 renderBackend。绘制指标为 Canvas 的成功提交次数，不代表屏幕刷新率；兼容 Canvas 的补偿重绘可能重复同一解码帧。receiver 保留现有统计字段并新增 renderedFps / renderedFrames，rtc-feedback 仍报告 WebRTC framesDecoded。
 
 ## 生命周期与资源约束
 

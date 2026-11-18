@@ -25,6 +25,8 @@ internal class WebVideoSource(val technology: StreamTechnology) : EncodedVideoSi
     private val recovery = ConcurrentHashMap<Int, () -> Unit>()
     private val lastRequest = AtomicLong(0)
     private var lastConfig: ByteArray? = null
+    /** Identity changes for each WebRTC decoder; used for bounded plugin bootstrap. */
+    internal val connectedConsumer: Any? get() = consumer?.takeIf { it.connected }
     val jpegNeeded get() = !displayed
 
     fun setProcessorName(name: String) { processor = name }

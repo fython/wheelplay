@@ -47,11 +47,13 @@ internal class BrowserProjectionVideo(
             if (kind != VideoIngressKind.FRAMEBUFFER) offscreen = OffscreenVideoOutput(width, height,
                 wanted = { !closed.get() && WebSession.hasViewer && (kind != VideoIngressKind.ENCODED || encoded.jpegNeeded) },
                 encoding = { AirPlayPersistence.imageEncoding(app, WebSession.imageFormat) },
+                intervalMillis = { 1000L / AirPlayPersistence.loadBrowserImageFps(app) },
                 publish = { bytes, format, quality ->
                     if (!closed.get()) {
                         WebSession.setVideoActive(generation, true)
                         WebSession.publish(generation, bytes, format, quality)
                         published = true
+                        ImageOutputDiagnostics.record(width, height, format.name, quality)
                     }
                 })
             if (kind == VideoIngressKind.ENCODED) decoder = AndroidMediaSink(

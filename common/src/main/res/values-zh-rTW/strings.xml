@@ -4,4 +4,7 @@
     <string name="notification_action_play">播放</string>
     <string name="notification_action_pause">暫停</string>
     <string name="notification_action_next">下一首</string>
+    <string name="local_projection_audio_title">切換音訊輸出後連線</string>
+    <string name="local_projection_audio_message">Android Auto 和 CarLife 本機模式使用 Android 裝置輸出會造成音訊迴圈。請切換到車機瀏覽器後繼續連線。取消則不會開始連線。</string>
+    <string name="local_projection_audio_switch">切換到車機瀏覽器並繼續</string>
 </resources>

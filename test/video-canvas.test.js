@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createVideoCanvasRenderer } from '../common/src/main/assets/web/app.js';
 
-function fixture({ frameCallbacks = true, quality = true } = {}) {
+function fixture({ frameCallbacks = true, quality = true, onError = () => {} } = {}) {
   const animation = new Map(), callbacks = new Map(), draws = [], sizes = [], errors = [], classes = new Set();
   let sequence = 0, clock = 0, frames = 1;
   const video = { hidden: true, readyState: 2, videoWidth: 1280, videoHeight: 720, currentTime: 0,
@@ -14,9 +14,9 @@ function fixture({ frameCallbacks = true, quality = true } = {}) {
   }
   if (quality) video.getVideoPlaybackQuality = () => ({ totalVideoFrames: frames });
   const context = { drawImage: (...args) => draws.push(args) };
-  const canvas = { width: 0, height: 0, hidden: true, getContext: () => context };
+  const canvas = { width: 0, height: 0, hidden: true, getContext: type => type === '2d' ? context : null };
   const renderer = createVideoCanvasRenderer(video, canvas, {
-    onFrame: (width, height) => sizes.push([width, height]), onError: error => errors.push(error), now: () => clock,
+    onFrame: (width, height) => sizes.push([width, height]), onError: error => { errors.push(error); onError(error); }, now: () => clock,
     requestFrame(callback) { const id = ++sequence; animation.set(id, callback); return id; },
     cancelFrame: id => animation.delete(id),
   });
@@ -91,4 +91,23 @@ test('context failures and later draw errors stop both callback loops and report
   f.frame(33);
   assert.equal(f.errors.length, 1); assert.equal(f.animation.size, 0); assert.equal(f.callbacks.size, 0);
   assert.equal(f.canvas.hidden, true); assert.equal(f.classes.has('offscreen-video'), false);
+});
+
+test('drawing failures allow the receiver to freeze the previous picture before clearing it', () => {
+  let captured;
+  const f = fixture({ onError() { captured = { hidden: f.canvas.hidden, width: f.canvas.width, height: f.canvas.height }; } });
+  f.renderer.start(); f.context.drawImage = () => { throw new Error('draw failed'); }; f.frame(33);
+  assert.deepEqual(captured, { hidden: false, width: 1280, height: 720 });
+  assert.equal(f.canvas.width, 0); assert.equal(f.canvas.hidden, true);
+});
+
+test('error cleanup cannot stop a renderer restarted by the error callback', () => {
+  let draw;
+  const f = fixture({ onError() { f.context.drawImage = draw; f.renderer.start(); } });
+  f.renderer.start(); draw = f.context.drawImage;
+  f.context.drawImage = () => { throw new Error('draw failed'); }; f.frame(33);
+  assert.equal(f.errors.length, 1); assert.equal(f.canvas.hidden, false);
+  assert.equal(f.callbacks.size, 1); assert.equal(f.animation.size, 1);
+  const count = f.draws.length; f.frame(66); assert.equal(f.draws.length, count + 1);
+  f.renderer.stop();
 });

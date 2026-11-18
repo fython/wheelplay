@@ -55,7 +55,7 @@ class SourceNavigationTest : ComposeSettingsTest() {
         val activity = controller.get()
         val initial = projectionSessions.snapshot()
         tap("nav:phone")
-        for (id in listOf("carplay", "android-auto", "iccoa", "vnc", "desktop", "plugins", "diagnostics")) compose.onNodeWithTag("source-$id").assertExists()
+        for (id in listOf("carplay", "android-auto", "carlife", "vnc", "desktop", "plugins", "diagnostics")) compose.onNodeWithTag("source-$id").assertExists()
         tap("source-carplay"); compose.onNodeWithTag("action:CARPLAY_CONNECT").assertExists()
         compose.onNodeWithTag("action:AA_LOCAL").assertDoesNotExist()
         tap("source:back"); tap("source-android-auto")
@@ -123,26 +123,48 @@ class SourceNavigationTest : ComposeSettingsTest() {
         } finally { pending.completeExceptionally(java.util.concurrent.CancellationException()); projectionSessions.stop().join() }
     }
 
-    @Test fun installedCarLinkUsesDeclaredIdAndRequiresExplicitEnableBeforeConnect() {
+    @Test fun builtInCarLifeConnectsWithoutInstallingOrEnablingAPlugin() = withActivity { controller ->
+        val context = controller.get()
+        val registry = projectionPlugins(context)
+        source("carlife")
+        text("安装 CarLife插件").assertDoesNotExist()
+        compose.onNodeWithTag("plugin:enable:${context.packageName}").assertDoesNotExist()
+        compose.onNodeWithTag("plugin:manage:${context.packageName}").assertDoesNotExist()
+        compose.onNodeWithTag("carlife:connect").assertIsEnabled()
+        tap("carlife:settings")
+        assertEquals(android.content.ComponentName(context, moe.feng.wheelplay.projection.carlife.CarLifeSettingsActivity::class.java), shadowOf(context).nextStartedActivity.component)
+        assertNull(projectionSessions.snapshot())
+        tap("nav:service")
+        chooseHome("CarLife")
+        assertEquals(ProjectionSourceIds.CARLIFE, WheelPlayPreferences.homeSource(context))
+        // Browser and native home use the stable built-in identity.
+        assertEquals(ProjectionSourceIds.CARLIFE, WebSession.sourceControl.snapshot().getString("selectedId"))
+        shadowOf(context).grantPermissions(android.Manifest.permission.RECORD_AUDIO)
+        AirPlayPersistence.saveBrowserAudioPlayback(context, false)
+        action("HOME_CONNECT")
+        text("切换音频输出后连接").assertExists()
+        cancel()
+        assertFalse(AirPlayPersistence.loadBrowserAudioPlayback(context))
+        assertNull(projectionSessions.snapshot())
+        assertNull(shadowOf(context).nextStartedActivity)
+        action("HOME_CONNECT")
+        tap("dialog:action:0")
+        assertTrue(AirPlayPersistence.loadBrowserAudioPlayback(context))
+        val preparation = shadowOf(context).nextStartedActivityForResult
+        assertEquals(android.content.ComponentName(context, moe.feng.wheelplay.projection.carlife.CarLifeSettingsActivity::class.java), preparation.intent.component)
+        assertNotNull(preparation.intent.getStringExtra(moe.feng.wheelplay.projection.carlife.CarLifeSettingsActivity.EXTRA_PREPARE_REQUEST))
+        assertNull(projectionSessions.snapshot())
+    }
+
+    @Test fun oldCarLifeHomeSelectionMigratesToBuiltInSource() {
         val context = RuntimeEnvironment.getApplication()
-        installPlugin("test.carlink", ProjectionPlugin.SOURCE_ICCOA_CARLINK)
-        installPlugin("test.unrelated", null)
-        discoverPlugins("test.carlink", "test.unrelated")
-        try { withActivity { controller ->
-            source("iccoa")
-            text("test.unrelated").assertDoesNotExist()
-            compose.onNodeWithTag("plugin:connect:test.carlink").assertDoesNotExist()
-            tap("plugin:settings:test.carlink")
-            assertEquals(ComponentName("test.carlink", "test.carlink.Settings"), shadowOf(controller.get()).nextStartedActivity.component)
-            tap("plugin:enable:test.carlink")
-            compose.onNodeWithText(controller.get().getString(com.shilapi.xcertplay.host.R.string.settings_confirm)).performClick()
-            compose.onNodeWithTag("plugin:connect:test.carlink").assertIsEnabled()
-            assertNull(projectionSessions.snapshot()); assertTrue(shadowOf(context).boundServiceConnections.isEmpty())
-            controller.pause(); installPlugin("test.carlink", ProjectionPlugin.SOURCE_ICCOA_CARLINK, 99); discoverPlugins("test.carlink"); controller.resume()
-            text(projectionPlugins(context).entries().single().problem!!).assertExists()
-            compose.onNodeWithTag("plugin:connect:test.carlink").assertDoesNotExist()
-            controller.pause(); discoverPlugins(); controller.resume(); text("安装 CarLink 插件").assertExists()
-        } } finally { discoverPlugins(); projectionPlugins(context).refresh() }
+        WheelPlayPreferences.saveHomeSource(context,
+            com.shilapi.xcertplay.projection.plugin.InstalledProjectionPlugin.LEGACY_CARLIFE_ID)
+        withActivity { _ ->
+            assertEquals(ProjectionSourceIds.CARLIFE, WheelPlayPreferences.homeSource(context))
+            text("切换输入源：CarLife").assertExists()
+            assertNull(projectionSessions.snapshot())
+        }
     }
 
     @Test fun homeDefaultsToCarPlayAndRemembersSelectionWithoutStartingIt() = withActivity { controller ->
@@ -156,18 +178,42 @@ class SourceNavigationTest : ComposeSettingsTest() {
         compose.onNodeWithTag("aa:LOCAL").assertExists(); assertNull(projectionSessions.snapshot())
     }
 
-    @Test fun homeListsOnlyEnabledCompatiblePluginsAndFallsBackWhenDisabled() {
+    @Test fun homeFallsBackWhenPluginDisabledWithoutStartingOrReroutingOldRequests() {
         val context = RuntimeEnvironment.getApplication()
         installPlugin("test.carlink", ProjectionPlugin.SOURCE_ICCOA_CARLINK); installPlugin("test.disabled", null)
         installPlugin("test.incompatible", ProjectionPlugin.SOURCE_ICCOA_CARLINK, 99)
         discoverPlugins("test.carlink", "test.disabled", "test.incompatible")
         val registry = projectionPlugins(context); registry.refresh(); registry.setEnabled(registry.entries().single { it.component.packageName == "test.carlink" }, true)
-        try { withActivity { _ ->
+        try { withActivity { controller ->
             action("CHOOSE_HOME"); text("test.disabled").assertDoesNotExist(); text("test.incompatible").assertDoesNotExist()
-            text("ICCOA CarLink test.carlink").performClick(); action("HOME_SETTINGS")
+            text("ICCOA CarLink test.carlink").performClick()
+            val old = WebSession.sourceControl.snapshot()
+            action("HOME_SETTINGS")
             tap("plugin:manage:test.carlink"); tap("plugin:disable:test.carlink"); tap("nav:service")
             text("切换输入源：CarPlay (iPhone)").assertExists(); assertNull(projectionSessions.snapshot())
+            text("默认选择已恢复为 CarPlay").assertExists()
+            assertEquals("carplay", WheelPlayPreferences.homeSource(context))
+            assertEquals("connect", WebSession.sourceControl.snapshot().getString("action"))
+            var reply = ""
+            WebSession.requestSourceAction("connect", old.getString("selectedId"), old.getLong("revision")) { reply = it }
+            refresh(); assertEquals("stale", reply)
+            assertNull(shadowOf(controller.get()).nextStartedActivity); assertNull(projectionSessions.snapshot())
         } } finally { discoverPlugins(); registry.refresh() }
+    }
+
+    @Test fun unavailableSavedSourceDoesNotAutoConnectAfterFallbackOrRecreation() {
+        val context = RuntimeEnvironment.getApplication()
+        WheelPlayPreferences.saveHomeSource(context, "plugin-removed")
+        WheelPlayPreferences.saveAutoConnect(context, true)
+        withActivity { controller ->
+            text("切换输入源：CarPlay (iPhone)").assertExists()
+            text("默认选择已恢复为 CarPlay").assertExists()
+            assertEquals("carplay", WheelPlayPreferences.homeSource(context))
+            assertNull(shadowOf(controller.get()).nextStartedActivity); assertNull(projectionSessions.snapshot())
+            controller.recreate()
+            text("默认选择已恢复为 CarPlay").assertExists()
+            assertNull(shadowOf(controller.get()).nextStartedActivity); assertNull(projectionSessions.snapshot())
+        }
     }
 
     @Test fun pluginFailureRemainsVisibleAcrossPagesUntilRetry() {
@@ -260,7 +306,7 @@ class SourceNavigationTest : ComposeSettingsTest() {
                     val first = compose.onNodeWithTag("source-carplay").fetchSemanticsNode().positionInRoot
                     val second = compose.onNodeWithTag("source-android-auto").fetchSemanticsNode().positionInRoot
                     if (width >= 600) assertEquals(first.y, second.y) else assertTrue(second.y > first.y)
-                    for (id in listOf("carplay", "android-auto", "iccoa", "vnc", "plugins")) {
+                    for (id in listOf("carplay", "android-auto", "carlife", "vnc", "plugins")) {
                         tap("source-$id"); compose.onNodeWithContentDescription(controller.get().getString(UiR.string.source_back)).assertExists()
                         captureSettings(controller.get(), "source-$id-$width-$scale")
                         val texts = compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsActions.GetTextLayoutResult), useUnmergedTree = true)

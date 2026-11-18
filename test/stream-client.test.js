@@ -5,18 +5,21 @@ import vm from 'node:vm';
 import { resourceStrings } from '../scripts/resource-strings.mjs';
 const messages = resourceStrings('values-zh-rCN');
 
-const source = ['text.js', 'desktop-input.js', 'browser-audio.js', 'browser-location.js', 'browser-media-session.js', 'app.js']
+const source = ['text.js', 'source-control.js', 'desktop-input.js', 'browser-audio.js', 'browser-location.js', 'browser-media-session.js', 'app.js']
   .map(name => readFileSync(new URL(`../common/src/main/assets/web/${name}`, import.meta.url), 'utf8')
     .replace(/^import .*;$/gm, '').replaceAll('export function', 'function')).join('\n');
-function fixture({ storedCanvas = null, storedMode = null, processorAvailable = true, storedIgnoreZoom = null, storageDisabled = false, canvasAvailable = true, supportsWebp = false,
+function fixture({ storedCanvas = null, storedMode = null, storedWebgl = null, processorAvailable = true, storedIgnoreZoom = null, storageDisabled = false, canvasAvailable = true, supportsWebp = false,
   geometry = null, visual = null, mediaSession = null, locationBrowser = null, storedDebug = null, rtcStats = null,
-  fullscreen = 'supported', codeDenied = false, resume = () => ({ token: 'session-token', name: 'Chrome' }) } = {}) {
+  storedAutoFullscreen = null, fullscreen = 'supported', codeDenied = false, resume = () => ({ token: 'session-token', name: 'Chrome' }) } = {}) {
+  const contextRequests = [];
   const elements = new Map(), timers = new Map(), raf = new Map(), sockets = [], peers = [], draws = [];
   const preferences = new Map(storedCanvas === null ? [] : [['wheelplay.canvasVideo', storedCanvas]]);
   if (storedIgnoreZoom !== null) preferences.set('wheelplay.ignoreBrowserZoom', storedIgnoreZoom);
   if (storedDebug !== null) preferences.set('wheelplay.debugOverlay', storedDebug);
   const videoCallbacks = new Map(), createdVideos = [], processors = [];
   if (storedMode !== null) preferences.set('wheelplay.videoRenderer', storedMode);
+  if (storedWebgl !== null) preferences.set('wheelplay.canvasWebgl', storedWebgl);
+  if (storedAutoFullscreen !== null) preferences.set('wheelplay.autoFullscreen', storedAutoFullscreen);
   const documentEvents = {}, fullscreenCalls = [];
   const visualEvents = {};
   const visualViewport = visual ? { ...visual, addEventListener(type, fn) { visualEvents[type] = fn; } } : undefined;
@@ -25,11 +28,14 @@ function fixture({ storedCanvas = null, storedMode = null, processorAvailable = 
   let nextTimer = 0, nextFrame = 0, clockNow = 1000;
   const element = id => {
     const classes = new Set();
-    if (!elements.has(id)) elements.set(id, { hidden: id === 'video-canvas', complete: true, value: '123456', handlers: {}, naturalWidth: 1280, naturalHeight: 720,
+    if (!elements.has(id)) elements.set(id, { hidden: ['video-canvas', 'video-canvas-webgl'].includes(id), complete: true, value: '123456', handlers: {}, naturalWidth: 1280, naturalHeight: 720,
       checked: false, videoWidth: 1280, videoHeight: 720, readyState: 2, currentTime: 0,
       style: { removeProperty(name) { delete this[name]; } },
       parentElement: { getBoundingClientRect: () => mainRect },
-      getContext: () => canvasAvailable ? { drawImage: (...args) => draws.push(args) } : null,
+      getContext(type) {
+        contextRequests.push([id, type]);
+        return type === '2d' && canvasAvailable ? { drawImage: (...args) => draws.push(args) } : null;
+      },
       play: async () => {},
       requestVideoFrameCallback(fn) { const frame = ++nextFrame; videoCallbacks.set(frame, fn); return frame; },
       cancelVideoFrameCallback(frame) { videoCallbacks.delete(frame); },
@@ -117,7 +123,7 @@ function fixture({ storedCanvas = null, storedMode = null, processorAvailable = 
   };
   context.wheelplayMessages = messages;
   vm.runInNewContext(source, context);
-  return { element, sockets, timers, peers, draws, preferences, raf, videoCallbacks, document, fullscreenCalls, createdVideos, processors, visualViewport, visualEvents,
+  return { element, sockets, timers, peers, draws, preferences, contextRequests, raf, videoCallbacks, document, fullscreenCalls, createdVideos, processors, visualViewport, visualEvents,
     reportViewport() {
       const [id, timer] = [...timers].find(([, t]) => t.delay === 180);
       timers.delete(id); timer.fn();
@@ -189,7 +195,7 @@ test('OEM settings releases touch, blocks input across status updates, and resto
 });
 
 test('settings options share browser preferences and can disconnect an immersive session', async () => {
-  const f = fixture({ storedIgnoreZoom: 'true' });
+  const f = fixture({ storedIgnoreZoom: 'true', storedAutoFullscreen: 'true' });
   const ws = await f.connect();
   ws.onmessage({ data: JSON.stringify({ type: 'open-settings' }) });
   assert.equal(f.element('settings-ignore-browser-zoom').checked, true);
@@ -290,8 +296,57 @@ test('WebRTC debug separates receive, decode and presentation rates from RTT and
   assert.equal(f.element('debug-buffer-row').hidden, false);
 });
 
-test('default launch requests fullscreen in the submit gesture and hides the bar after connecting', async () => {
+test('launch-page fullscreen setting shares the dialog preference and controls the first connection', async () => {
   const f = fixture();
+  assert.equal(f.element('auto-fullscreen').checked, false);
+  f.element('auto-fullscreen').checked = true;
+  f.element('auto-fullscreen').handlers.change();
+  assert.equal(f.element('settings-auto-fullscreen').checked, true);
+  assert.equal(f.preferences.get('wheelplay.autoFullscreen'), 'true');
+  await f.connect();
+  assert.deepEqual(f.fullscreenCalls, ['request']);
+  f.element('settings-auto-fullscreen').checked = false;
+  f.element('settings-auto-fullscreen').handlers.change();
+  assert.equal(f.element('auto-fullscreen').checked, false);
+  assert.equal(f.preferences.get('wheelplay.autoFullscreen'), 'false');
+  const restored = fixture({ storedAutoFullscreen: 'true' });
+  assert.equal(restored.element('auto-fullscreen').checked, true);
+  assert.equal(restored.element('settings-auto-fullscreen').checked, true);
+});
+
+test('fullscreen defaults off and settings apply to the next connection', async () => {
+  const f = fixture();
+  await f.connect();
+  assert.equal(f.element('settings-auto-fullscreen').checked, false);
+  assert.deepEqual(f.fullscreenCalls, []);
+  f.element('settings-auto-fullscreen').checked = true;
+  f.element('settings-auto-fullscreen').handlers.change();
+  assert.equal(f.preferences.get('wheelplay.autoFullscreen'), 'true');
+  assert.deepEqual(f.fullscreenCalls, [], 'Changing the preference does not interrupt the active display');
+  f.element('settings-disconnect').handlers.click();
+  await f.connect();
+  assert.deepEqual(f.fullscreenCalls, ['request']);
+  f.element('settings-auto-fullscreen').checked = false;
+  f.element('settings-auto-fullscreen').handlers.change();
+  assert.equal(f.preferences.get('wheelplay.autoFullscreen'), 'false');
+  f.element('settings-disconnect').handlers.click();
+  await f.connect();
+  assert.deepEqual(f.fullscreenCalls, ['request', 'exit']);
+});
+
+test('missing, false, invalid, and inaccessible preferences do not request fullscreen', async () => {
+  for (const options of [{}, { storedAutoFullscreen: 'false' }, { storedAutoFullscreen: 'invalid' }, { storageDisabled: true }]) {
+    const f = fixture(options);
+    await f.connect();
+    assert.equal(f.element('settings-auto-fullscreen').checked, false);
+    assert.deepEqual(f.fullscreenCalls, []);
+    await f.element('settings-fullscreen').click();
+    assert.equal(f.document.fullscreenElement, f.document.documentElement, 'Manual fullscreen stays available');
+  }
+});
+
+test('opted-in launch requests fullscreen in the submit gesture and hides the bar after connecting', async () => {
+  const f = fixture({ storedAutoFullscreen: 'true' });
   const connecting = f.connect();
   assert.deepEqual(f.fullscreenCalls, ['request']);
   assert.equal(f.sockets.length, 0, 'Fullscreen must be requested before asynchronous pairing finishes');
@@ -305,7 +360,7 @@ test('default launch requests fullscreen in the submit gesture and hides the bar
 });
 
 test('disconnect exits launch-owned fullscreen and restores the pairing interface', async () => {
-  const f = fixture();
+  const f = fixture({ storedAutoFullscreen: 'true' });
   await f.connect(); f.element('settings-disconnect').handlers.click();
   assert.deepEqual(f.fullscreenCalls, ['request', 'exit']);
   assert.equal(f.document.fullscreenElement, null);
@@ -315,7 +370,7 @@ test('disconnect exits launch-owned fullscreen and restores the pairing interfac
 
 test('unavailable or rejected fullscreen falls back to hiding the bar without preventing launch', async () => {
   for (const fullscreen of ['unsupported', 'denied']) {
-    const f = fixture({ fullscreen });
+    const f = fixture({ storedAutoFullscreen: 'true', fullscreen });
     await f.connect();
     assert.equal(f.document.fullscreenElement, null);
     assert.equal(f.element('topbar').hidden, true);
@@ -327,7 +382,7 @@ test('unavailable or rejected fullscreen falls back to hiding the bar without pr
 });
 
 test('pairing failure exits launch-owned fullscreen without hiding the pairing interface', async () => {
-  const f = fixture({ codeDenied: true });
+  const f = fixture({ storedAutoFullscreen: 'true', codeDenied: true });
   f.element('connect-form').handlers.submit({ preventDefault() {} });
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(f.sockets.length, 0);
@@ -340,7 +395,7 @@ test('pairing failure exits launch-owned fullscreen without hiding the pairing i
 
 test('a fullscreen request that completes after disconnect is released', async () => {
   let complete;
-  const f = fixture({ fullscreen: enter => new Promise(resolve => { complete = () => { enter(); resolve(); }; }) });
+  const f = fixture({ storedAutoFullscreen: 'true', fullscreen: enter => new Promise(resolve => { complete = () => { enter(); resolve(); }; }) });
   await f.connect(); f.element('settings-disconnect').handlers.click();
   complete(); await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(f.fullscreenCalls, ['request', 'exit']);
@@ -356,7 +411,7 @@ test('disconnect leaves fullscreen that was already active before launch intact'
 });
 
 test('automatic reconnect preserves the decision to leave fullscreen through OEM settings', async () => {
-  const f = fixture(), ws = await f.connect();
+  const f = fixture({ storedAutoFullscreen: 'true' }), ws = await f.connect();
   ws.onmessage({ data: JSON.stringify({ type: 'open-settings' }) });
   await f.element('settings-fullscreen').click();
   ws.close();
@@ -423,6 +478,62 @@ test('default WebRTC presents native video without allocating a Canvas', async (
   assert.equal(ws.sent.at(-1).type, 'rtc-ready');
 });
 
+test('WebGL defaults off and is available only for Canvas modes', async () => {
+  const f = fixture(), option = f.element('canvas-webgl');
+  assert.equal(option.checked, false); assert.equal(option.disabled, true);
+  f.select('video-canvas'); assert.equal(option.disabled, false);
+  f.select('track-canvas'); assert.equal(option.disabled, false);
+  const ws = await f.connect(); await f.offer(ws); await f.decoded();
+  assert.equal(f.element('video-canvas').hidden, false);
+  assert.equal(f.element('video-canvas-webgl').hidden, true);
+  assert.ok(f.contextRequests.every(([, type]) => type === '2d'));
+});
+
+test('WebGL preference is explicit, persists and safely defaults off when storage is denied', async () => {
+  for (const mode of ['video-canvas', 'track-canvas']) {
+    const f = fixture({ storedMode: mode, storedWebgl: 'true' });
+    assert.equal(f.element('canvas-webgl').checked, true);
+    const ws = await f.connect(); await f.offer(ws);
+    if (mode === 'track-canvas') await f.decoded();
+    assert.ok(f.contextRequests.some(([id, type]) => id === 'video-canvas-webgl' && type === 'webgl'));
+    assert.equal(f.element('video-canvas').hidden, true);
+    assert.equal(f.element('video-canvas-webgl').hidden, false); // Unsupported WebGL falls back to 2D.
+    const option = f.element('canvas-webgl'); option.checked = false; option.handlers.change();
+    assert.equal(f.preferences.get('wheelplay.canvasWebgl'), 'false');
+    option.checked = true; option.handlers.change(); assert.equal(f.preferences.get('wheelplay.canvasWebgl'), 'true');
+  }
+  assert.equal(fixture({ storedWebgl: 'invalid' }).element('canvas-webgl').checked, false);
+  const denied = fixture({ storedWebgl: 'true', storageDisabled: true });
+  assert.equal(denied.element('canvas-webgl').checked, false);
+  denied.element('canvas-webgl').checked = true; assert.doesNotThrow(() => denied.element('canvas-webgl').handlers.change());
+});
+
+test('a saved WebGL preference does not change native Video rendering', async () => {
+  const f = fixture({ storedWebgl: 'true' }), ws = await f.connect(); await f.offer(ws);
+  assert.equal(f.element('canvas-webgl').disabled, true);
+  assert.equal(f.createdVideos.length, 1); assert.equal(f.contextRequests.length, 0);
+  assert.equal(f.element('video-canvas-webgl').hidden, true);
+});
+
+test('changing WebGL takes effect at manual launch while reconnects keep the active selection', async () => {
+  const f = fixture({ storedMode: 'track-canvas' });
+  let ws = await f.connect(); await f.offer(ws); await f.decoded();
+  const cpu = f.element('video-canvas'), gpu = f.element('video-canvas-webgl'), option = f.element('canvas-webgl');
+  option.checked = true; option.handlers.change();
+  ws.close(); f.advance(1000); await new Promise(resolve => setImmediate(resolve));
+  ws = f.sockets.at(-1); ws.readyState = 1; ws.onopen(); await f.offer(ws); await f.decoded();
+  assert.equal(cpu.hidden, false); assert.equal(gpu.hidden, true);
+  assert.ok(f.contextRequests.every(([, type]) => type === '2d'));
+  f.element('settings-disconnect').handlers.click();
+  ws = await f.connect(); await f.offer(ws); await f.decoded();
+  assert.equal(cpu.hidden, true); assert.equal(gpu.hidden, false);
+  f.element('settings-disconnect').handlers.click(); option.checked = false; option.handlers.change();
+  ws = await f.connect(); await f.offer(ws); await f.decoded();
+  assert.equal(cpu.hidden, false); assert.equal(gpu.hidden, true);
+  f.pointer('pointerdown', 100, 'video-canvas'); f.pointer('pointerup', 100, 'video-canvas');
+  assert.equal(ws.sent.filter(message => message.type === 'touch').length, 2);
+});
+
 test('a recoverable WebRTC disconnect preserves video and touch and reports recovery', async () => {
   const f = fixture(), ws = await f.connect(); await f.offer(ws);
   const peer = f.peers.at(-1);
@@ -476,31 +587,41 @@ test('Canvas failure falls back to JPEG while control and the selected preferenc
 });
 
 
-test('phone connection requires pairing and reports the server result', async () => {
-  const f = fixture();
-  f.element('phone-connect').handlers.click();
-  assert.equal(f.sockets.length, 0);
-  assert.match(f.element('phone-connect-message').textContent, /重新配对/);
-  const ws = await f.connect();
-  f.element('phone-connect').handlers.click();
-  assert.equal(ws.sent.filter(m => m.type === 'phone-connect').length, 1);
-  assert.equal(f.element('phone-connect').disabled, true);
-  ws.onmessage({ data: JSON.stringify({ type: 'phone-connect-result', message: '请在 Android 上完成授权' }) });
-  assert.equal(f.element('phone-connect').disabled, false);
-  assert.equal(f.element('phone-connect-message').textContent, '请在 Android 上完成授权');
-});
-
-test('phone connection survives congestion and is sent once after recovery', async () => {
-  const f = fixture(), ws = await f.connect();
-  ws.bufferedAmount = 8193;
-  f.element('phone-connect').handlers.click();
+const sourceStatus = { type: 'status', sourceState: 'waiting', sourceControl: {
+  version: 1, revision: 7, selectedId: 'plugin-carlink', selectedName: 'CarLink', activeId: null,
+  phase: 'idle', cleanup: 'released', action: 'connect' } };
+test('source action requires current server capability, carries target and ignores unrelated replies', async () => {
+  const f = fixture(); f.element('source-action').handlers.click(); assert.equal(f.sockets.length, 0);
+  const ws = await f.connect(); f.element('source-action').handlers.click();
+  assert.equal(ws.sent.some(m => m.type === 'source-action'), false);
+  ws.onmessage({ data: JSON.stringify(sourceStatus) });
+  assert.equal(f.element('source-action').textContent, '连接 CarLink');
+  f.element('source-action').handlers.click(); f.element('source-action').handlers.click();
+  const requests = ws.sent.filter(m => m.type === 'source-action'); assert.equal(requests.length, 1);
+  assert.equal(requests[0].sourceId, 'plugin-carlink'); assert.equal(requests[0].revision, 7);
+  ws.onmessage({ data: JSON.stringify({ type: 'source-action-result', requestId: 'wrong', result: 'requested' }) });
+  assert.equal(f.element('source-action').disabled, true);
+  ws.onmessage({ data: JSON.stringify({ type: 'source-action-result', requestId: requests[0].requestId, result: 'requested' }) });
+  assert.equal(f.element('source-action').disabled, false);
   assert.equal(ws.sent.some(m => m.type === 'phone-connect'), false);
-  assert.equal(f.element('phone-connect').disabled, true);
-  ws.bufferedAmount = 0;
-  f.retry();
-  assert.equal(ws.sent.filter(m => m.type === 'phone-connect').length, 1);
 });
-
+test('source command survives congestion without duplicate sends', async () => {
+  const f = fixture(), ws = await f.connect(); ws.onmessage({ data: JSON.stringify(sourceStatus) });
+  ws.bufferedAmount = 8193; f.element('source-action').handlers.click();
+  assert.equal(ws.sent.some(m => m.type === 'source-action'), false);
+  ws.bufferedAmount = 0; f.retry();
+  assert.equal(ws.sent.filter(m => m.type === 'source-action').length, 1);
+});
+test('ready source without video offers transport retry, never a source connection', async () => {
+  const f = fixture(), ws = await f.connect();
+  ws.onmessage({ data: JSON.stringify({ ...sourceStatus, stage: 'CarLink video ready', sourceControl: {
+    ...sourceStatus.sourceControl, activeId: 'plugin-carlink', activeName: 'CarLink', phase: 'running', action: 'stop' } }) });
+  assert.match(f.element('stage').textContent, /CarLink 已连接.*等待画面/);
+  assert.equal(f.element('source-action').textContent, '停止投影');
+  assert.equal(f.element('media-retry').hidden, false);
+  f.element('media-retry').handlers.click();
+  assert.equal(ws.sent.some(m => m.type === 'source-action' || m.type === 'phone-connect'), false);
+});
 
 test('interrupted display resumes with fresh authentication after a server restart', async () => {
   const f = fixture({ resume: () => ({ token: 'fresh-session', name: 'Chrome' }) });
@@ -529,7 +650,7 @@ test('ignore browser zoom defaults off and restores the saved choice', () => {
   option.handlers.change({ target: option });
   assert.equal(f.element('ignore-browser-zoom').checked, true);
   assert.equal(f.preferences.get('wheelplay.ignoreBrowserZoom'), 'true');
-  const restored = fixture({ storedIgnoreZoom: 'true' });
+  const restored = fixture({ storedIgnoreZoom: 'true', storedAutoFullscreen: 'true' });
   assert.equal(restored.element('ignore-browser-zoom').checked, true);
   const denied = fixture({ storageDisabled: true });
   const primary = denied.element('ignore-browser-zoom');
@@ -669,7 +790,7 @@ test('automatic RTC retry preserves JPEG and touch until the new video frame is 
 test('a transient Canvas draw error permits a later retry to restore video', async () => {
   const f = fixture({ storedCanvas: 'true' }), ws = await f.connect(); mediaStatus(ws);
   const canvas = f.element('video-canvas'), getContext = canvas.getContext;
-  canvas.getContext = () => ({ drawImage() { throw new Error('temporary surface loss'); } });
+  canvas.getContext = type => type === '2d' ? { drawImage() { throw new Error('temporary surface loss'); } } : null;
   await f.offer(ws, 1, { sessionId: 7, videoEpoch: 1 });
   assert.equal(ws.sent.at(-1).type, 'rtc-fallback');
   assert.notEqual(ws.sent.at(-1).retryable, false);
@@ -906,7 +1027,7 @@ test('Direct Canvas failures freeze the last frame until the fallback image is d
     const f = fixture({ storedMode: 'track-canvas' }), ws = await f.connect();
     const canvas = f.element('video-canvas'), held = f.element('held-frame');
     let failDraw = false, copied = false;
-    canvas.getContext = () => ({ drawImage() { if (failDraw) throw new Error('draw failed'); } });
+    canvas.getContext = type => type === '2d' ? { drawImage() { if (failDraw) throw new Error('draw failed'); } } : null;
     held.getContext = () => ({ drawImage(source) {
       assert.equal(source, canvas); assert.equal(source.hidden, false);
       assert.equal(source.width, 1280); assert.equal(source.height, 720);

@@ -121,8 +121,12 @@ class ShizukuDesktopUserService(context: Context) : IDesktopService.Stub() {
             if (Build.VERSION.SDK_INT >= 33) flags = flags or (1 shl 10) or (1 shl 11) // TRUSTED, OWN_DISPLAY_GROUP
             if (Build.VERSION.SDK_INT >= 34) flags = flags or (1 shl 14) // OWN_FOCUS
             val virtualDisplay = desktopOperation(DesktopErrorCode.DISPLAY_FAILED) {
-                requireNotNull(displays.createVirtualDisplay("WheelPlay Android desktop", requested.width,
-                    requested.height, requested.dpi, target, flags)) { "Virtual displays are unsupported" }
+                // AOSP DisplayManager hidden flags are intentionally used by this shell-UID service.
+                // Their bits are version-gated above; SDK IntDef omits them (android16-release).
+                @android.annotation.SuppressLint("WrongConstant")
+                val created = displays.createVirtualDisplay("WheelPlay Android desktop", requested.width,
+                    requested.height, requested.dpi, target, flags)
+                requireNotNull(created) { "Virtual displays are unsupported" }
             }.also { display = it }
             val displayId = virtualDisplay.display.displayId
             desktopCheck(displayId > 0, DesktopErrorCode.DISPLAY_FAILED) { "Refusing the default display" }

@@ -28,7 +28,9 @@ import moe.feng.wheelplay.ui.theme.WheelPlayTheme
 
 @Composable
 internal fun PluginSettingsDialog(plugin: InstalledProjectionPlugin, lifecycle: Lifecycle,
-    onDismiss: () -> Unit, onExternal: (() -> Unit)?) {
+    onDismiss: () -> Unit, onExternal: (() -> Unit)?,
+    requestSettings: suspend (PluginSettingsClient, String, Bundle) -> PluginSettingsSnapshot =
+        { client, method, extras -> client.requestAsync(method, extras) }) {
     val context = LocalContext.current.applicationContext
     val client = remember(plugin) { PluginSettingsClient(context, plugin) {
         projectionPlugins(context).entries().contains(plugin)
@@ -45,8 +47,14 @@ internal fun PluginSettingsDialog(plugin: InstalledProjectionPlugin, lifecycle: 
     fun submit(method: String = ProjectionSettings.GET, extras: Bundle = ProjectionSettings.request(remote = remote)) {
         if (!active) return
         if (method == ProjectionSettings.GET && busy) { reloadPending = true; return }
-        if (commands.trySend(method to extras).isFailure) error = context.getString(R.string.plugin_settings_busy)
-        else busy = true
+        // Sending can resume the consumer inline, including a fast reply or failure.
+        // Mark busy first so we cannot overwrite the consumer's completed state.
+        val wasBusy = busy
+        busy = true
+        if (commands.trySend(method to extras).isFailure) {
+            busy = wasBusy
+            error = context.getString(R.string.plugin_settings_busy)
+        }
     }
     val reload by rememberUpdatedState({ submit() })
 
@@ -84,7 +92,7 @@ internal fun PluginSettingsDialog(plugin: InstalledProjectionPlugin, lifecycle: 
         for ((method, extras) in commands) {
             busy = true
             try {
-                val result = withTimeout(5000) { client.requestAsync(method, extras) }
+                val result = withTimeout(5000) { requestSettings(client, method, extras) }
                 snapshot = result
                 error = if (result.conflict) context.getString(R.string.plugin_settings_conflict) else null
             } catch (_: TimeoutCancellationException) {
