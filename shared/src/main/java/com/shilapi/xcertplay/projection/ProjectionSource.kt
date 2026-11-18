@@ -53,6 +53,8 @@ interface ProjectionSession {
     val capabilities: ProjectionCapabilities
     val inputReady: Boolean
     val statusText: String? get() = null
+    /** Latest viewport requiring an explicit user reconnect; null for automatic sources. */
+    val pendingDisplayResize: Pair<Int, Int>? get() = null
     val state: ProjectionSessionState get() = ProjectionSessionState(
         if (inputReady) ProjectionPhase.RUNNING else ProjectionPhase.CONNECTING, capabilities, inputReady)
     val media: MediaControlSource? get() = null

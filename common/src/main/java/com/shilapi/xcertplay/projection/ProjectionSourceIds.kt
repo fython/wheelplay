@@ -14,6 +14,7 @@ internal object ProjectionSourceIds {
     const val VNC = "vnc"
     const val VNC_TCP = "$VNC-tcp"
     const val ANDROID_DESKTOP = "android-desktop"
+    const val CARLIFE = "carlife"
     const val ICCOA = "iccoa"
     const val ICCOA_CARLINK = "$ICCOA-carlink"
     const val DEMO = "demo"

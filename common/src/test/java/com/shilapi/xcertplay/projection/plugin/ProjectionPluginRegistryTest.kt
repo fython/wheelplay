@@ -20,7 +20,7 @@ class ProjectionPluginRegistryTest {
     private val context get() = RuntimeEnvironment.getApplication()
     private val pm get() = shadowOf(context.packageManager)
     private val component = ComponentName("test.plugin", "test.plugin.Source")
-    private fun install(signature: String = "1234", version: Int = 1, exported: Boolean = true, api: Int = ProjectionPlugin.API_VERSION, installedAt: Long = 10, sourceId: String? = null) {
+    private fun install(signature: String = "1234", version: Int = 1, exported: Boolean = true, api: Int = ProjectionPlugin.API_VERSION, installedAt: Long = 10, sourceId: String? = null, requiresViewport: Boolean = false, component: ComponentName = this.component) {
         val app = ApplicationInfo().apply { packageName = component.packageName; uid = 12345; enabled = true }
         pm.installPackage(PackageInfo().apply {
             packageName = component.packageName; applicationInfo = app; lastUpdateTime = version.toLong()
@@ -29,12 +29,37 @@ class ProjectionPluginRegistryTest {
             services = arrayOf(ServiceInfo().apply {
                 name = component.className; packageName = component.packageName; applicationInfo = app
                 this.exported = exported; enabled = true
-                metaData = Bundle().apply { putInt(ProjectionPlugin.META_API_VERSION, api); putString(ProjectionPlugin.META_SOURCE_ID, sourceId) }
+                metaData = Bundle().apply { putInt(ProjectionPlugin.META_API_VERSION, api); putString(ProjectionPlugin.META_SOURCE_ID, sourceId); putBoolean(ProjectionPlugin.META_REQUIRES_INITIAL_VIEWPORT, requiresViewport) }
             })
         })
         val service = context.packageManager.getPackageInfo(component.packageName, PackageManager.GET_SERVICES or PackageManager.GET_META_DATA).services!!.single()
         pm.setResolveInfosForIntent(Intent(ProjectionPlugin.ACTION), listOf(ResolveInfo().apply { serviceInfo = service }))
     }
+    @Test fun legacyStandaloneCarLifeIsIgnoredWithoutAffectingBuiltInSource() {
+        val legacyPackage = InstalledProjectionPlugin.LEGACY_CARLIFE_PACKAGE
+        install(sourceId = ProjectionPlugin.SOURCE_CARLIFE_LOOPBACK,
+            component = ComponentName(legacyPackage, "$legacyPackage.CarLifeService"))
+        val runtime = ProjectionRuntime()
+        runtime.register(moe.feng.wheelplay.projection.carlife.CarLifeSource(context))
+        val registry = ProjectionPluginRegistry(context, runtime)
+        registry.refresh()
+        assertTrue(registry.entries().isEmpty())
+        assertEquals(listOf(ProjectionSourceIds.CARLIFE), runtime.sources().map { it.descriptor.id })
+    }
+
+    @Test fun nativeCarLifeIsIndependentOfPluginDiscoveryAndSettingsStayPrivate() {
+        val runtime = ProjectionRuntime()
+        val source = moe.feng.wheelplay.projection.carlife.CarLifeSource(context)
+        runtime.register(source)
+        val registry = ProjectionPluginRegistry(context, runtime)
+        registry.refresh()
+        assertEquals(SourceAvailability.Ready, source.probe())
+        assertFalse(registry.allEntries().any { it.id == ProjectionSourceIds.CARLIFE })
+        assertSame(source, runtime.sources().single { it.descriptor.id == ProjectionSourceIds.CARLIFE })
+        val settings = ComponentName(context, moe.feng.wheelplay.projection.carlife.CarLifeSettingsActivity::class.java)
+        assertFalse(context.packageManager.getActivityInfo(settings, 0).exported)
+    }
+
     @Test fun installationIsDisabledByDefaultAndSignedUpdatePreservesConsentButNotOldProvider() {
         install()
         val runtime = ProjectionRuntime(); val registry = ProjectionPluginRegistry(context, runtime)
@@ -43,16 +68,24 @@ class ProjectionPluginRegistryTest {
         assertNull(original.problem)
         assertEquals("plugin-test.plugin/test.plugin.Source", original.id)
         assertFalse(registry.enabled(original)); assertFalse(registry.available(original))
-        assertTrue(runtime.sources().single().probe() is SourceAvailability.Unavailable)
+        assertTrue(runtime.sources().single { it.descriptor.id.startsWith(InstalledProjectionPlugin.PREFIX) }.probe() is SourceAvailability.Unavailable)
         registry.setEnabled(original, true)
-        assertTrue(registry.available(original)); assertEquals(SourceAvailability.Ready, runtime.sources().single().probe())
+        assertTrue(registry.available(original)); assertEquals(SourceAvailability.Ready, runtime.sources().single { it.descriptor.id.startsWith(InstalledProjectionPlugin.PREFIX) }.probe())
         install(version = 2); registry.refresh()
         assertFalse(registry.available(original)); assertTrue(registry.enabled(registry.entries().single()))
-        assertEquals(SourceAvailability.Ready, runtime.sources().single().probe())
+        assertEquals(SourceAvailability.Ready, runtime.sources().single { it.descriptor.id.startsWith(InstalledProjectionPlugin.PREFIX) }.probe())
         install(signature = "5678", version = 3); registry.refresh()
         assertFalse(registry.enabled(registry.entries().single()))
-        assertTrue(runtime.sources().single().probe() is SourceAvailability.Unavailable)
+        assertTrue(runtime.sources().single { it.descriptor.id.startsWith(InstalledProjectionPlugin.PREFIX) }.probe() is SourceAvailability.Unavailable)
     }
+    @Test fun initialViewportRequirementIsOptInMetadata() {
+        val registry = ProjectionPluginRegistry(context, ProjectionRuntime())
+        install(); registry.refresh()
+        assertFalse(registry.entries().single().requiresInitialViewport)
+        install(requiresViewport = true); registry.refresh()
+        assertTrue(registry.entries().single().requiresInitialViewport)
+    }
+
     @Test fun sourceAssociationIsOptionalAndDoesNotChangeRuntimeIdentityOrGrantConsent() {
         val registry = ProjectionPluginRegistry(context, ProjectionRuntime())
         install(); registry.refresh()
@@ -73,7 +106,7 @@ class ProjectionPluginRegistryTest {
         registry.recordFailure(original, "Permission missing")
         registry.refresh()
         assertEquals("Permission missing", registry.lastFailure(original.id))
-        runtime.sources().single().open() // An explicit retry clears the previous failure.
+        runtime.sources().single { it.descriptor.id.startsWith(InstalledProjectionPlugin.PREFIX) }.open() // An explicit retry clears the previous failure.
         assertNull(registry.lastFailure(original.id))
         registry.recordFailure(original, "Failed again")
         install(version = 2); registry.refresh()

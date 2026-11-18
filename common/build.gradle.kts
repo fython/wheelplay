@@ -36,6 +36,7 @@ dependencies {
     implementation(libs.androidx.remote.core)
     implementation(libs.androidx.remote.player.core)
     implementation(libs.androidx.remote.player.view)
+    implementation(project(":ui-theme"))
     implementation("dev.rikka.shizuku:api:13.1.5")
     implementation("dev.rikka.shizuku:provider:13.1.5")
     implementation(project(":projection-plugin-api"))

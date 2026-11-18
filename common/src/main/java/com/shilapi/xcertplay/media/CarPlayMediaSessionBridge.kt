@@ -78,7 +78,7 @@ internal class CarPlayMediaSessionBridge(
         val generation = commandGeneration
         session.setCallback(object : MediaSession.Callback() {
             private fun dispatch(operation: MediaCommand) {
-                if (!closed && generation == commandGeneration) command(operation)
+                if (!closed && source?.publishNativeSession == true && generation == commandGeneration) command(operation)
             }
             override fun onPlay() = dispatch(MediaCommand.PLAY)
             override fun onPause() = dispatch(MediaCommand.PAUSE)
@@ -86,7 +86,7 @@ internal class CarPlayMediaSessionBridge(
             override fun onSkipToNext() = dispatch(MediaCommand.NEXT)
             override fun onSkipToPrevious() = dispatch(MediaCommand.PREVIOUS)
             override fun onSeekTo(pos: Long) {
-                if (!closed && generation == commandGeneration && state.canSeek) source?.let { browserSeek(it, state.connectionGeneration, state.trackRevision, pos) }
+                if (!closed && source?.publishNativeSession == true && generation == commandGeneration && state.canSeek) source?.let { browserSeek(it, state.connectionGeneration, state.trackRevision, pos) }
             }
         }, main)
     }
@@ -188,7 +188,7 @@ internal class CarPlayMediaSessionBridge(
             artwork = state.artwork; cover = null
             val request = artwork
             val generation = epoch
-            if (request != null) artworkWorker.execute {
+            if (request != null && source?.publishNativeSession == true) artworkWorker.execute {
                 val bytes = request.bytes()
                 val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                 main.post {
@@ -207,6 +207,7 @@ internal class CarPlayMediaSessionBridge(
     }
 
     private fun requestFocus(): Boolean {
+        if (source?.managesAudioFocus == true) return true
         if (remote || output?.isRemoteMediaAvailable() == true) {
             output?.setLocalMediaAllowed(false)
             return true
@@ -223,8 +224,9 @@ internal class CarPlayMediaSessionBridge(
     }
 
     private fun render() {
-        session.isActive = state.available
-        if (!state.available) {
+        val nativeAvailable = state.available && source?.publishNativeSession == true
+        session.isActive = nativeAvailable
+        if (!nativeAvailable) {
             if (publishedMetadata != null) session.setMetadata(null)
             publishedMetadata = null
             session.setPlaybackState(PlaybackState.Builder().setState(PlaybackState.STATE_NONE, 0, 0f).build())

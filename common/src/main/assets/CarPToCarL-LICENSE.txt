@@ -1,0 +1,52 @@
+MIT License
+
+Copyright (c) 2026 lizhihua
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------------------
+
+ADDITIONAL NOTICE — scope of this grant
+
+This Notice does not modify, restrict or extend the MIT grant above; it only
+states what that grant does and does not cover.
+
+1. The grant covers **only the author's copyright** in the source code in this
+   repository. It does not grant, and legally cannot grant, any right under:
+
+   - patents, protocol specifications or trade secrets owned by Apple Inc.,
+     Baidu Inc. or any vehicle manufacturer;
+   - certification / accessory programs (for example Apple's MFi program);
+   - trademarks, trade names or product logos of any third party.
+
+   Whoever uses, distributes or commercially exploits this software is solely
+   responsible for obtaining any such separate licences.
+
+2. The software is an **independent interoperability research project**. It is
+   not affiliated with, authorised by, endorsed by or sponsored by Apple Inc.,
+   Baidu Inc., any vehicle manufacturer, or any of their subsidiaries.
+
+3. The software is not a certified or approved car accessory. Do not use it in a
+   way that requires regulatory approval, and do not rely on it as a safety-
+   relevant system while driving. See DISCLAIMER.md.
+
+4. Third-party components bundled in the application binary remain under their
+   own licences; see NOTICE.
+
+See docs/LEGAL-NOTES.md for the maintainer's risk assessment.

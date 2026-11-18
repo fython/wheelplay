@@ -215,20 +215,33 @@ class PluginSettingsUiTest : ComposeSettingsTest() {
         } finally { controller.pause().stop().destroy() }
     }
 
-    @Test fun failedRemoteLayoutCanReturnToTheStandardForm() {
+    @Test fun failedRemoteLayoutCanReturnToTheStandardForm() = checkRemoteLayoutFailure(immediate = false)
+
+    @Test fun immediateRemoteFailureDoesNotLeaveTheStandardFormButtonBusy() = checkRemoteLayoutFailure(immediate = true)
+
+    private fun checkRemoteLayoutFailure(immediate: Boolean) {
         val (plugin, provider) = install()
         provider.remoteSupported = true
         provider.rejectRemote = true
         val controller = Robolectric.buildActivity(HostActivity::class.java).setup()
         try {
             val activity = controller.get()
-            activity.setContent { PluginSettingsDialog(plugin, activity.lifecycle, {}, null) }
+            // A worker can finish before requestAsync suspends. Exercise that ordering
+            // deterministically instead of depending on CI thread scheduling.
+            activity.setContent {
+                PluginSettingsDialog(plugin, activity.lifecycle, {}, null,
+                    requestSettings = { client, method, extras ->
+                        if (immediate) client.request(method, extras) else client.requestAsync(method, extras)
+                    })
+            }
             waitFor { compose.onAllNodesWithText("Plugin layout").fetchSemanticsNodes().isNotEmpty() }
-            clickEnabledText("Plugin layout")
-            waitFor { compose.onAllNodesWithText("Remote layout unavailable").fetchSemanticsNodes().isNotEmpty() }
-            clickEnabledText("Standard settings")
-            waitFor { compose.onAllNodesWithTag("plugin:setting:counter:switch").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithTag("plugin:setting:counter:switch").assertIsOff()
+            repeat(3) {
+                clickEnabledText("Plugin layout")
+                waitFor { compose.onAllNodesWithText("Remote layout unavailable").fetchSemanticsNodes().isNotEmpty() }
+                clickEnabledText("Standard settings")
+                waitFor { compose.onAllNodesWithTag("plugin:setting:counter:switch").fetchSemanticsNodes().isNotEmpty() }
+                compose.onNodeWithTag("plugin:setting:counter:switch").assertIsOff()
+            }
         } finally { controller.pause().stop().destroy() }
     }
 }

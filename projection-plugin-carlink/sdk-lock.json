@@ -1,0 +1,25 @@
+{
+  "apkUrl": "https://github.com/PiggyBackBayonet/MiAuto/releases/download/v0.1.3/MiAuto-0.1.3.apk",
+  "source": "https://github.com/PiggyBackBayonet/MiAuto/releases/tag/v0.1.3",
+  "apkSha256": "b5b9acb0457772a8369be8a906b21784b323bb2ceccf3e7873f0f99ba641c358",
+  "sdkVersion": "v1.5.3-202401092110",
+  "abi": "arm64-v8a",
+  "files": {
+    "libovmsink.so": {
+      "sha256": "298b9bff630751fbb6a934e2e6f549bcea83d619ed6d6b2eadd63ba68b231f34",
+      "size": 1481168
+    },
+    "libusbio.so": {
+      "sha256": "0346be8128b61f7dbdbf1d5acf899bc1a1fac8d3c0e738e49feefa57218dcf1c",
+      "size": 215040
+    },
+    "ccd.data": {
+      "sha256": "90b0a1b0d4c7e471a86bf7c7098832071750673967efc650dbe6d5a381584665",
+      "size": 2120
+    },
+    "icar-sdk.dex": {
+      "sha256": "e5236eb67f715a83eb3bf8f935547febe6459a1a39a7b05858df2243bb93ba91",
+      "size": 7084144
+    }
+  }
+}

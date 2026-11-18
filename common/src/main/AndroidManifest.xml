@@ -2,6 +2,19 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <queries>
+        <package android:name="com.vivo.carlauncher" />
+        <package android:name="com.baidu.carlife.vivo" />
+        <package android:name="com.vivo.car.networking" />
+        <package android:name="com.miui.carlink" />
+        <package android:name="com.baidu.carlife.xiaomi" />
+        <package android:name="com.oplus.ocar" />
+        <package android:name="com.baidu.carlife.oppo" />
+        <package android:name="com.samsung.android.carlink" />
+        <package android:name="com.baidu.carlife.samsung" />
+        <package android:name="com.hihonor.auto" />
+        <package android:name="com.baidu.carlife.honor" />
+        <intent><action android:name="android.settings.SETTINGS" /></intent>
+
         <package android:name="moe.shizuku.privileged.api" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
@@ -15,6 +28,12 @@
 
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- Permissions required by this module, also present in the final app via shared. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
@@ -25,6 +44,7 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
     <application>
+        <activity android:name="moe.feng.wheelplay.projection.carlife.CarLifeSettingsActivity" android:exported="false" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
         <provider android:name="rikka.shizuku.ShizukuProvider"
             android:authorities="${applicationId}.shizuku" android:multiprocess="false"
             android:enabled="true" android:exported="true"

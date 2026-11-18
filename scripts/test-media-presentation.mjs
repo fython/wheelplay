@@ -25,7 +25,7 @@ function image(width, height, codec = 'mjpeg') {
 const images = { jpeg: [image(320, 180), image(180, 320)], webp: [image(320, 180, 'libwebp'), image(180, 320, 'libwebp')] };
 let viewer, connections = 0, acks = 0, paused = false, sequence = 0, format = 'jpeg', jpegFallbacks = 0, webpProbes = 0;
 const pendingImages = new Map();
-const touches = [], errors = [], mediaCommands = [], desktopInputs = [];
+const touches = [], errors = [], mediaCommands = [], desktopInputs = [], sourceActions = [];
 let media = { type: 'status', mediaProtocol: 3, sessionId: 7, videoEpoch: 1, width: 320, height: 180,
   sourceState: 'ready', inputReady: true, streaming: true, stage: 'Synthetic browser test' };
 const server = http.createServer(async (req, res) => {
@@ -48,7 +48,7 @@ const server = http.createServer(async (req, res) => {
   if (req.url === '/i18n.js') {
     res.setHeader('Content-Type', 'text/javascript'); res.end(`globalThis.wheelplayMessages=${JSON.stringify(messages)};`); return;
   }
-  const file = { '/': 'index.html', '/app.js': 'app.js', '/desktop-input.js': 'desktop-input.js', '/text.js': 'text.js', '/browser-audio.js': 'browser-audio.js', '/browser-media-session.js': 'browser-media-session.js', '/browser-location.js': 'browser-location.js',
+  const file = { '/': 'index.html', '/app.js': 'app.js', '/source-control.js': 'source-control.js', '/desktop-input.js': 'desktop-input.js', '/text.js': 'text.js', '/browser-audio.js': 'browser-audio.js', '/browser-media-session.js': 'browser-media-session.js', '/browser-location.js': 'browser-location.js',
     '/style.css': 'style.css', '/audio-worklet.js': 'audio-worklet.js' }[req.url];
   if (!file) { res.writeHead(404); res.end(); return; }
   let body = await readFile(new URL(file, root));
@@ -87,6 +87,10 @@ wss.on('connection', ws => {
       if (connections === 1) frame();
     }
     if (message.type === 'touch') touches.push(message);
+    if (message.type === 'source-action') {
+      sourceActions.push(message);
+      ws.send(JSON.stringify({ type: 'source-action-result', requestId: message.requestId, result: 'requested' }));
+    }
     if (message.type === 'media-command') {
       mediaCommands.push(message);
       ws.send(JSON.stringify({ type: 'media-command-result', requestId: message.requestId, result: 'sent' }));
@@ -191,9 +195,13 @@ try {
     };
     document.addEventListener('fullscreenchange',()=>fullscreenTrace.push({event:!!document.fullscreenElement}));
     document.addEventListener('fullscreenerror',()=>fullscreenTrace.push({event:'error'}));`);
+  await evaluate(`document.getElementById('auto-fullscreen').checked=true;document.getElementById('auto-fullscreen').dispatchEvent(new Event('change'))`);
+  // Finish PIN entry before measuring the button: the keypad can move the scroll viewport.
+  await evaluate(`document.getElementById('keypad-done').click()`);
   await command('Page.bringToFront');
+  await evaluate(`document.getElementById('connect').scrollIntoView({block:'center'});new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);
   const startButton = await evaluate(`(() => {
-    const button=document.getElementById('connect');button.scrollIntoView({block:'center'});
+    const button=document.getElementById('connect');
     const rect=button.getBoundingClientRect();return {x:rect.left+rect.width/2,y:rect.top+rect.height/2};
   })()`);
   await command('Input.dispatchMouseEvent', { type: 'mousePressed', ...startButton, button: 'left', clickCount: 1 });
@@ -201,7 +209,7 @@ try {
   await wait(showing);
   await wait(`document.getElementById('topbar').hidden`);
   assert.equal(await evaluate(`document.getElementById('debug-overlay').hidden`), true);
-  assert.equal(await evaluate(`fullscreenTrace[0]?.active`), true, 'Default fullscreen is requested in the launch gesture');
+  assert.equal(await evaluate(`fullscreenTrace[0]?.active`), true, 'Enabled fullscreen is requested in the launch gesture');
   for (let attempt = 0; attempt < 40 && !await evaluate(`!!document.fullscreenElement`); attempt++) await pause(50);
   const nativeFullscreenEntered = await evaluate(`!!document.fullscreenElement`);
   // The OEM signal opens a modal above the stream, including immersive/zoomed layouts.
@@ -217,6 +225,60 @@ try {
   assert.ok(centeredSettings.x < 2 && centeredSettings.y < 2, 'Settings must be centered in the viewport');
   assert.equal(centeredSettings.modal, true);
   assert.equal(centeredSettings.focus, true);
+  status({ sourceControl: { version: 1, revision: 7, activeId: 'plugin-carlink', activeName: 'CarLink',
+    selectedId: 'plugin-carlink', phase: 'running', cleanup: 'released', action: 'stop' } });
+  await wait(`!document.getElementById('source-stop').hidden`);
+  assert.equal(await evaluate(`document.getElementById('source-stop').closest('dialog')?.id`), 'settings-dialog');
+  await evaluate(`document.getElementById('source-stop').click()`);
+  for (let attempt = 0; !sourceActions.length && attempt < 100; attempt++) await pause(10);
+  assert.equal(sourceActions.length, 1);
+  assert.equal(sourceActions[0].action, 'stop');
+  assert.equal(sourceActions[0].sourceId, 'plugin-carlink');
+  assert.equal(sourceActions[0].revision, 7);
+  await evaluate(`document.getElementById('settings-dialog').close()`);
+  assert.equal(await evaluate(`document.getElementById('resize-dialog').open`), false, 'Automatic source never prompts');
+  const manualResizeControl = { version: 1, revision: 8, generation: 1, activeId: 'plugin-carlife', activeName: 'CarLife',
+    selectedId: 'plugin-carlife', phase: 'running', cleanup: 'released', action: 'stop',
+    resize: { width: 1600, height: 900 }, resizeAction: 'reconnect' };
+  status({ sourceControl: manualResizeControl });
+  await wait(`document.getElementById('resize-dialog').open`);
+  assert.equal(await evaluate(`document.getElementById('resize-dialog').matches(':modal')`), true);
+  assert.equal(await evaluate(`document.getElementById('resize-dialog').contains(document.activeElement)`), true);
+  await screenshot('resize-prompt.png');
+  await command('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: false });
+  await pause(100);
+  assert.equal(await evaluate(`(()=>{const r=document.getElementById('resize-dialog').getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight})()`), true);
+  await screenshot('resize-prompt-mobile.png');
+  await command('Emulation.clearDeviceMetricsOverride');
+  const resizeInputCount = touches.length + desktopInputs.length;
+  await touch('pointerdown'); await touch('pointerup'); await pause(100);
+  assert.equal(touches.length + desktopInputs.length, resizeInputCount, 'Resize dialog blocks projected input');
+  await evaluate(`document.getElementById('resize-later').click()`);
+  status(); await pause(100);
+  assert.equal(await evaluate(`document.getElementById('resize-dialog').open`), false, 'Dismissed size is not repeatedly shown');
+  assert.equal(sourceActions.length, 1, 'Later must not stop the source');
+  viewer.send(JSON.stringify({ type: 'open-settings' }));
+  await wait(`document.getElementById('settings-dialog').open`);
+  await evaluate(`document.getElementById('resize-review').click()`);
+  await wait(`document.getElementById('resize-dialog').open`);
+  status({ sourceControl: { ...manualResizeControl, revision: 9, resizeAction: '' } });
+  await wait(`document.getElementById('resize-reconnect').disabled`);
+  assert.equal(await evaluate(`document.getElementById('resize-foreground').hidden`), false);
+  status({ sourceControl: { ...manualResizeControl, revision: 10 } });
+  await wait(`!document.getElementById('resize-reconnect').disabled`);
+  await evaluate(`document.getElementById('resize-reconnect').click();document.getElementById('resize-reconnect').click()`);
+  for (let attempt = 0; sourceActions.length < 2 && attempt < 100; attempt++) await pause(10);
+  assert.equal(sourceActions.length, 2, 'Double click submits only once');
+  assert.equal(sourceActions[1].action, 'reconnect');
+  assert.equal(sourceActions[1].sourceId, 'plugin-carlife');
+  assert.equal(sourceActions[1].revision, 10);
+  status({ sourceControl: { ...manualResizeControl, revision: 11, generation: 2 } });
+  await wait(`document.getElementById('resize-dialog').open`);
+  status({ sourceControl: { ...manualResizeControl, revision: 12, resize: null } });
+  await wait(`!document.getElementById('resize-dialog').open`);
+  status({ sourceControl: null });
+  await wait(`document.getElementById('source-stop').hidden`);
+
   viewer.send(JSON.stringify({ type: 'open-settings' })); status();
   await pause(100);
   const settingsInputCount = touches.length + desktopInputs.length;
@@ -469,8 +531,8 @@ try {
       await command('Browser.grantPermissions',{origin:`http://127.0.0.1:${server.address().port}`,permissions:['clipboardReadWrite','clipboardSanitizedWrite']});
       await evaluate(`navigator.clipboard.writeText('098765')`,{userGesture:true});
       await evaluate(`document.getElementById('code-digit-1').focus({preventScroll:true})`);
-      await command('Input.dispatchKeyEvent',{type:'keyDown',key:'v',code:'KeyV',modifiers:2,windowsVirtualKeyCode:86});
-      await command('Input.dispatchKeyEvent',{type:'keyUp',key:'v',code:'KeyV',modifiers:2,windowsVirtualKeyCode:86});
+      await command('Input.dispatchKeyEvent',{type:'keyDown',key:'v',code:'KeyV',modifiers:process.platform === 'darwin' ? 4 : 2,windowsVirtualKeyCode:86,...(process.platform === 'darwin' ? {commands:['paste']} : {})});
+      await command('Input.dispatchKeyEvent',{type:'keyUp',key:'v',code:'KeyV',modifiers:process.platform === 'darwin' ? 4 : 2,windowsVirtualKeyCode:86});
       await wait(`document.getElementById('code').value==='098765'`);
       await tapKey('keypad-clear');
       for (const digit of '012') await tapKey('keypad-'+digit);
@@ -499,13 +561,13 @@ try {
     nativeFullscreenEntered,
     blockedChecks: nativeFullscreenEntered ? [] : ['Native fullscreen did not enter in this browser environment; OEM fullscreen transitions were not exercised.'],
     checks: ['responsive home columns and stacking', 'six-digit PIN validation and paste', 'floating keypad on wide, narrow, short and zoomed viewports',
-      'trusted keypad touches, deletion, leading zeroes and outside dismissal', 'default fullscreen request and hidden toolbar',
+      'trusted keypad touches, deletion, leading zeroes and outside dismissal', 'opt-in fullscreen request and hidden toolbar',
       ...(nativeFullscreenEntered ? ['OEM native fullscreen toggle'] : []),
       'OEM debug toggle, top-right position, contrast over white video and touch passthrough',
       'OEM settings centered modal, focus, input isolation and Escape', 'five-touch source', 'read-only source', 'WebP capability probe', 'WebP touch with zoom compensation', 'JPEG fallback after corrupt WebP', 'two-image pipeline with exact ACKs',
       'decode without overlay flashes', 'gap releases touch', 'deadline without status', 'cancelled deadline',
       'same-size rebuild', 'cancelled mouse drag cannot cross video epochs', 'old frame rejection', 'rotation', 'real socket reconnect', 'native browser Media Session metadata and cover',
-      'media action roundtrip', 'desktop right drag, scroll and versioned keyboard', 'desktop blur releases modifiers', 'phone-authoritative pause', 'capability-gated seek and final drag position', 'media cleanup and retired callback isolation'] }, null, 2));
+      'media action roundtrip', 'desktop right drag, scroll and versioned keyboard', 'desktop blur releases modifiers', 'manual resize prompt, dismissal, input isolation and reconnect action', 'phone-authoritative pause', 'capability-gated seek and final drag position', 'media cleanup and retired callback isolation'] }, null, 2));
   }
 } finally {
   devtools?.close(); browser.kill('SIGTERM');

@@ -12,11 +12,12 @@ Run CarPlay on an Android device and use it from your car's browser. WheelPlay h
 | --- | --- |
 | **CarPlay** | USB and wireless iPhone connections, browser display and touch control. Requires valid CarPlay authentication resources. |
 | **Android Auto — experimental** | USB AOA, explicit Head Unit Server TCP connections, and a guided same-phone connection. Device compatibility still needs validation. |
+| **CarLife — experimental** | Same-phone and Wi-Fi reception; [USB AOA](docs/CARLIFE_USB.md) adapter with 3.0 / 4.1, audio, microphone and touch. USB video/touch validated with a computer host; Android-host USB validation is pending. |
 | **VNC — experimental** | Remote desktop over RFB 3.3/3.7/3.8, JPEG/WebP display, touch, mouse and physical keyboard input, and view-only mode. Actual server/device compatibility still needs validation. |
 | **Android virtual desktop — experimental** | Shizuku UserService, local app selection, fixed-size JPEG/WebP output, multi-touch and Back. Requires Android 10+/Shizuku 13+; no physical-device compatibility validated yet. See the [guide](docs/ANDROID_DESKTOP.md). |
 | **Diagnostic sources** | H.264, Surface, and framebuffer test sources for checking the display pipeline without a phone connection. |
 | **Plugin APKs** | Install and enable independent Surface video/touch sources. Includes a standalone SDK and sample APK; see the [plugin guide](docs/PROJECTION_PLUGINS.md). |
-| **ICCOA CarLink** | Planned as a separate plugin APK. No proprietary SDK or CarLink plugin is included. |
+| **ICCOA CarLink** | [Independent APK plugin](docs/CARLINK.md) with device-validated Wi-Fi Direct, manual hotspot, USB, and Surface / WebRTC output. Replug the USB cable for error 10007. CI provides a plugin Debug APK; the receiver requires arm64 / 4 KB pages. |
 
 One projection source and one browser control session can be active at a time. For Android Auto, audio plays on the Android host and microphone input uses the host; browser audio/microphone routing and automatic wireless discovery are not implemented. See the [Android Auto guide](docs/ANDROID_AUTO.md) for setup and limitations.
 

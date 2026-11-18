@@ -96,9 +96,9 @@ class LocalizationTest : ComposeSettingsTest() {
         val template = context.assets.open("web/index.html").bufferedReader().use { it.readText() }
         for ((tag, expected) in
             listOf(
-                "en-US" to "Connect your CarPlay display",
-                "zh-CN" to "连接 CarPlay 车机屏幕",
-                "zh-TW" to "連線 CarPlay 車機螢幕",
+                "en-US" to "Connect your WheelPlay display",
+                "zh-CN" to "连接 WheelPlay 显示端",
+                "zh-TW" to "連線 WheelPlay 顯示端",
             )) {
             val owner = localized(tag)
             val html = BrowserStrings.render(owner, template)
