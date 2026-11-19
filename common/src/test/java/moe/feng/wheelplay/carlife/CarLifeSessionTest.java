@@ -60,6 +60,30 @@ public class CarLifeSessionTest {
             assertEquals(1, ends.get());
         } finally { callers.shutdownNow(); }
     }
+    @Test public void desktopCommandOnlyNotifiesWhileStreaming() throws Exception {
+        java.lang.reflect.Method message = CarLifeSession.class.getDeclaredMethod("message", Wire.Packet.class);
+        message.setAccessible(true);
+        java.lang.reflect.Field streaming = CarLifeSession.class.getDeclaredField("streaming");
+        streaming.setAccessible(true);
+        Wire.Packet desktop = new Wire.Packet(0x10021, 0, Wire.EMPTY);
+        for (CarLifeProtocolMode mode : new CarLifeProtocolMode[] {
+                CarLifeProtocolMode.LEGACY_3_0, CarLifeProtocolMode.XIAOMI_4_1 }) {
+            AtomicInteger desktopRequests = new AtomicInteger();
+            CarLifeSession session = new CarLifeSession(new CarLifeSession.Listener() {
+                public void log(String message) {}
+                public void video(byte[] bytes, long ptsUs) {}
+                public void ended() {}
+                public void goToDesktop() { desktopRequests.incrementAndGet(); }
+            }, null, null, VideoSize.DEFAULT, mode);
+            try {
+                message.invoke(session, desktop);
+                assertEquals(0, desktopRequests.get());
+                streaming.setBoolean(session, true);
+                message.invoke(session, desktop);
+                assertEquals(1, desktopRequests.get());
+            } finally { session.stop().get(2, TimeUnit.SECONDS); }
+        }
+    }
     @Test public void cleanupFailureCompletesFutureRatherThanHanging() throws Exception {
         CarLifeSession session = session(new AtomicInteger(), true);
         ExecutionException error = assertThrows(ExecutionException.class,
