@@ -16,6 +16,8 @@ public final class CarLifeMicrophone implements AutoCloseable {
     private final Transport transport;
     private final Consumer<String> log, fail;
     private final ArrayBlockingQueue<Chunk> queue = new ArrayBlockingQueue<>(8);
+    // Capture must not acquire the lifecycle monitor: stopped() can join its thread.
+    private final Object pcmLock = new Object();
     private volatile Lease active;
     private volatile boolean closed;
     private Thread worker;
@@ -23,14 +25,14 @@ public final class CarLifeMicrophone implements AutoCloseable {
         volatile boolean enabled = true;
         long samples, packets, nonSilent, lastLog;
         public void pcm(byte[] bytes) {
-            synchronized (CarLifeMicrophone.this) {
-            if (closed || !enabled || active != this) return;
-            if (bytes.length == 0 || bytes.length > 3200 || bytes.length % 2 != 0)
-                throw new IllegalArgumentException("Invalid microphone PCM frame");
-            if (!queue.offer(new Chunk(this, bytes.clone()))) {
-                if (!closed && enabled) fail.accept("MICROPHONE_QUEUE_OVERFLOW");
+            boolean overflow;
+            synchronized (pcmLock) {
+                if (closed || !enabled || active != this) return;
+                if (bytes.length == 0 || bytes.length > 3200 || bytes.length % 2 != 0)
+                    throw new IllegalArgumentException("Invalid microphone PCM frame");
+                overflow = !queue.offer(new Chunk(this, bytes.clone()));
             }
-            }
+            if (overflow && !closed && enabled) fail.accept("MICROPHONE_QUEUE_OVERFLOW");
         }
     }
     private static final class Chunk {
@@ -77,16 +79,21 @@ public final class CarLifeMicrophone implements AutoCloseable {
         catch (Exception error) { if (!closed) fail.accept("MICROPHONE_FAILED " + error.getClass().getSimpleName()); }
     }
     private void end() {
-        Lease old = active; active = null;
+        Lease old;
+        synchronized (pcmLock) {
+            old = active; active = null;
+            if (old != null) old.enabled = false;
+            queue.clear();
+        }
         if (old != null) {
-            old.enabled = false; queue.clear();
             listener.stopped(old); log.accept("MICROPHONE_STOP");
         }
     }
     @Override public synchronized void close() {
         if (closed) return;
-        closed = true; end(); queue.clear();
-        if (worker != null) worker.interrupt();
+        closed = true;
+        try { end(); }
+        finally { if (worker != null) worker.interrupt(); }
     }
     /** Caller closes the socket before joining to unblock a stalled transport write. */
     void awaitStopped() throws InterruptedException, IOException {
