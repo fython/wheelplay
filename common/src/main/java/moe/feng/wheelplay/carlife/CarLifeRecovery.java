@@ -90,6 +90,7 @@ public final class CarLifeRecovery {
                         listener.log(message);
                     }
                     public void media(CarLifeMedia.Snapshot state) { if (!stopped.get()) listener.media(state); }
+                    public void goToDesktop() { if (!stopped.get()) listener.goToDesktop(); }
                     public void configured(int width, int height) { listener.configured(width, height); }
                     public void failed(String reason) { failure.compareAndSet(null, reason); }
                     public void video(byte[] bytes, long ptsUs) throws Exception {

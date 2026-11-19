@@ -83,6 +83,13 @@ internal class CarLifeProjectionSession(private val context: Context, override v
                     override fun media(value: moe.feng.wheelplay.carlife.CarLifeMedia.Snapshot) {
                         main.post { if (!stopping.get()) media.update(value) }
                     }
+                    override fun goToDesktop() {
+                        main.post {
+                            if (inputReady && projectionSessions.snapshot() === this@CarLifeProjectionSession) {
+                                WebSession.requestSettings()
+                            }
+                        }
+                    }
                     override fun waiting(reason: String) {
                         ready = false; touch.release()
                         main.post { if (!stopping.get()) { media.reset(); statusText = reason; projectionSessions.changed(this@CarLifeProjectionSession) } }

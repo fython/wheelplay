@@ -9,10 +9,12 @@ import java.util.concurrent.atomic.*;
 /** One attempt over TCP or USB; version fallback belongs to CarLifeRecovery. */
 public final class CarLifeSession {
     public static final int MAX_VIDEO_BYTES = Wire.MAX_VIDEO;
+    private static final int GO_TO_DESKTOP = 0x10021;
     public interface Listener {
         default void configured(int width, int height) {}
         default void failed(String message) {}
         default void media(CarLifeMedia.Snapshot state) {}
+        default void goToDesktop() {}
         void log(String message);
         // Session-relative microseconds from complete-frame arrival, not the coarse wire timestamp.
         void video(byte[] annexB, long ptsUs) throws Exception;
@@ -157,6 +159,10 @@ public final class CarLifeSession {
         if (microphone != null && matched && !closing.get() && (xiaomi == null || xiaomi.running()))
             microphone.command(p.type, xiaomi == null ? p.body : xiaomi.decrypt(p.body));
         if (seen.add(p.type) || (xiaomi != null && !xiaomi.running())) listener.log("RX_COMMAND id=" + p.type + " size=" + p.body.length);
+        if (p.type == GO_TO_DESKTOP) {
+            if (streaming && !closing.get()) listener.goToDesktop();
+            return;
+        }
         if (xiaomi != null) {
             java.util.List<XiaomiHandshake.Action> actions;
             try { actions = xiaomi.accept(p.type, p.body, requestedSize); }
