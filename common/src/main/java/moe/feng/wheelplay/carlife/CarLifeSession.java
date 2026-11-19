@@ -364,7 +364,6 @@ public final class CarLifeSession {
     }
     public CompletableFuture<Void> stop() {
         if (!closing.compareAndSet(false, true)) return closed;
-        if (microphone != null) microphone.close();
         CountDownLatch released = new CountDownLatch(1);
         try {
             control.execute(() -> {
@@ -376,6 +375,11 @@ public final class CarLifeSession {
         } catch (RejectedExecutionException ignored) { released.countDown(); }
         new Thread(() -> {
             try {
+                // A capture failure can call stop() from the capture thread itself.
+                // Join it here, and keep cleaning up even if its stop callback fails.
+                Exception microphoneFailure = null;
+                if (microphone != null) try { microphone.close(); }
+                catch (Exception error) { microphoneFailure = error; }
                 // Give the control owner a bounded chance to lift a held pointer.
                 // Closing the transport also unblocks a stalled writer or reader.
                 released.await(250, TimeUnit.MILLISECONDS);
@@ -388,6 +392,11 @@ public final class CarLifeSession {
                 boolean clean = readers.awaitTermination(3, TimeUnit.SECONDS) && controlStopped;
                 if (clean && xiaomi != null) xiaomi.close();
                 listener.log(clean ? "STOPPED_CLEAN" : "STOP_TIMEOUT");
+                if (microphoneFailure != null) {
+                    if (transportFailure != null) microphoneFailure.addSuppressed(transportFailure);
+                    if (!clean) microphoneFailure.addSuppressed(new IOException("workers did not stop"));
+                    throw microphoneFailure;
+                }
                 if (transportFailure != null) throw transportFailure;
                 if (!clean) throw new IOException("workers did not stop");
             } catch (Exception e) {

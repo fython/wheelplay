@@ -7,6 +7,39 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class CarLifeMicrophoneTest {
+    @Test public void stopAndCloseAllowInFlightCaptureToExit() throws Exception {
+        for (boolean close : new boolean[] { false, true }) {
+            CountDownLatch stopping = new CountDownLatch(1);
+            BlockingQueue<byte[]> packets = new LinkedBlockingQueue<>();
+            Thread[] captureThread = new Thread[1];
+            CarLifeMicrophone mic = new CarLifeMicrophone(new CarLifeMicrophone.Listener() {
+                public void started(CarLifeMicrophone.Capture capture) {
+                    captureThread[0] = new Thread(() -> {
+                        try {
+                            stopping.await();
+                            // Simulate PCM already past the audio source's active check.
+                            capture.pcm(new byte[] { 1, 0 });
+                        } catch (InterruptedException error) { Thread.currentThread().interrupt(); }
+                    });
+                    captureThread[0].start();
+                }
+                public void stopped(CarLifeMicrophone.Capture capture) {
+                    stopping.countDown();
+                    try { captureThread[0].join(1000); }
+                    catch (InterruptedException error) { throw new AssertionError(error); }
+                    assertFalse("Capture must exit while stopped() waits", captureThread[0].isAlive());
+                }
+            }, packets::add, s -> {}, s -> { throw new AssertionError(s); });
+            try {
+                mic.command(65570, Wire.EMPTY);
+                if (close) mic.close(); else mic.command(65571, Wire.EMPTY);
+                assertTrue("Revoked capture must not send PCM", packets.isEmpty());
+            } finally {
+                stopping.countDown(); mic.close(); mic.awaitStopped();
+                captureThread[0].join(1000);
+            }
+        }
+    }
     @Test public void duplicateStartAndStopCloseCaptureExactlyOnce() throws Exception {
         List<CarLifeMicrophone.Capture> starts=new ArrayList<>(),stops=new ArrayList<>();
         BlockingQueue<byte[]> packets=new LinkedBlockingQueue<>();
