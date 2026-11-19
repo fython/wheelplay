@@ -266,6 +266,8 @@ class CarPlayController(
     }
 
     private val sessionListener = object : AirPlaySessionListener {
+        override val wantsTrace: Boolean get() = uiListener?.wantsTrace == true
+
         override fun onSessionActive(session: AirPlaySession) {
             if (activeSession !== session) BydNavigationOutputs.start(appContext)
             activeSession = session
@@ -383,11 +385,44 @@ class CarPlayController(
         }
     }
 
+    private class PendingMove(val session: AirPlaySession, var contacts: List<AirPlayContact>)
+    private val touchLock = Any()
+    private var lastTouch: List<AirPlayContact>? = null
+    private var lastTouchSession: AirPlaySession? = null
+    private var pendingMove: PendingMove? = null
+
+    /** Merge waiting moves of the same fingers; preserve every press and release. */
     fun sendTouch(contacts: List<AirPlayContact>): Boolean {
         if (closed) return false
         val session = activeSession ?: return false
+        val snapshot = contacts.toList()
         return try {
-            touchExecutor.execute { session.sendTouch(contacts) }
+            synchronized(touchLock) {
+                val isMove = lastTouchSession === session && snapshot.isNotEmpty() && snapshot.all { it.down } &&
+                    lastTouch?.filter { it.down }?.map { it.id }?.toSet() == snapshot.map { it.id }.toSet()
+                val pending = pendingMove
+                if (isMove && pending != null && pending.session === session) {
+                    pending.contacts = snapshot
+                } else if (!isMove) {
+                    touchExecutor.execute {
+                        if (!closed && activeSession === session) session.sendTouch(snapshot)
+                    }
+                    pendingMove = null
+                } else {
+                    val move = PendingMove(session, snapshot)
+                    touchExecutor.execute {
+                        val latest = synchronized(touchLock) {
+                            if (pendingMove === move) pendingMove = null
+                            move.contacts
+                        }
+                        if (!closed && activeSession === session) session.sendTouch(latest)
+                    }
+                    // Publish only after execute accepted it, while the task still waits for touchLock.
+                    pendingMove = move
+                }
+                lastTouch = snapshot
+                lastTouchSession = session
+            }
             true
         } catch (_: Exception) {
             false

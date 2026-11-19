@@ -558,6 +558,43 @@ run-1 捕获的第 12 个访问单元（索引 11）为：
 - `:mobile:lintDebug`：0 错误、18 警告；`git diff --check` 通过。
 - 未安装或操作真实车机／iPhone。手机音乐应用是否执行跳转、进度回报及本地／浏览器输出的声音连续性仍需实机验收。本次复用现有 CarPlay 音频链路，未根据猜测注入 AirPlay 缓冲清空命令。
 
+## DiPlay CarPlay 协议首批同步（2026-11-15）
+
+从 WheelPlay `1c0c2b88` 新建 `feat/sync-diplay-carplay-batch1`，按 [来源记录](UPSTREAM.md#carplay-协议首批同步2026-11-15) 选择性同步麦克风、触控、对端校验和解析边界修复。
+
+回归覆盖：
+
+- App 录音按 input/上行端口启用；无下行时启动一次，通话仍等待下行；替换、TEARDOWN、会话关闭取消延迟开麦。PCM 默认包长连同 IPv6/UDP 头不超过 1500 字节；显式 framesPerPacket 及 Opus RTP 时钟继续按协商值处理。
+- 阻塞事件 socket 下合并 500 次 MOVE，保留按下/抬起及多指边界；切换会话丢弃旧待发输入，拒绝执行器关闭后的提交，复制调用方触点列表。生产投影适配器直接进入同一链路，300 次拖动在阻塞解除后只产生按下、最终移动、原位释放三份加密 HID 报文。
+- 视频、事件和 iAP TCP 拒绝其他 IP，拒绝者不占用正常对端连接；覆盖 IPv4、IPv6 及映射地址。NTP 只接受指定对端的时钟响应；视频帧缺少认证标签时不进入解码器。
+- NTB16 拒绝 NDP 循环、过多条目及超预算重复复制，保留正常 NDP 链与非零缓冲偏移；iAP 拒绝非法长度并保留跨加密帧的增量重组。既有 pair-verify、RTSP 读取期限、bplist 展开预算和浏览器媒体路由测试继续参与全量回归。
+
+验证命令：
+
+```sh
+./gradlew :mobile:assembleDebug :mobile:lintDebug
+./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest
+```
+
+结果：shared 全量 556 项、common 全量 545 项测试全部通过，均无失败、错误或跳过。Debug APK 构建通过；`lintDebug` 为 0 errors、24 warnings；`git diff --check` 通过。
+
+本轮未连接 iPhone 或车机，未测量实际触控延迟或验证真实 App 录音；上游设备报告不作为 WheelPlay 真机验证结果。
+
+## 首批同步的 CI 仪器测试编译补验（2026-11-15）
+
+[PR #61 首次构建](https://github.com/fython/wheelplay/actions/runs/43681265193/job/132712212254) 在 `:common:compileDebugAndroidTestKotlin` 失败：`ScreenStream` 增加必填的 `expectedPeer` 后，`NativeVideoDecoderTest` 仍使用旧的位置参数，导致两个 lambda 分别被解析为错误的参数类型。此前的 APK/lint 和 JVM 单元测试验证没有包含仪器测试 APK 的编译。
+
+测试现在通过命名参数提供预期的 IPv4 loopback 对端和原生解码器工厂，并使用同一个地址建立发送 socket。先在本地运行 `:common:compileDebugAndroidTestKotlin` 复现两处类型错误，再按 `.github/workflows/debug-build.yml` 的完整构建任务补验，全部通过：
+
+```sh
+./gradlew --build-cache :projection-plugin-api:assembleRelease \
+  :projection-plugin-sample:lintDebug :projection-plugin-sample:assembleDebug \
+  :common:assembleDebugAndroidTest :mobile:lintDebug :mobile:assembleDebug \
+  :mobile:assembleDebugAndroidTest
+```
+
+结果包含插件 SDK、示例 APK、mobile APK、common/mobile 仪器测试 APK 及两项 lint；这是编译和打包验证，仪器测试的 Android 运行结果由远端 CI 单独记录。
+
 ## Canvas WebGL 绘制（2026-11-15）
 
 兼容 Canvas 与直接 Canvas 默认使用 Canvas 2D；连接页提供默认关闭的 WebGL 实验开关，偏好在当前浏览器保存，下次手动连接生效，自动重连沿用本次选择。原生 Video 下禁用开关。WebGL 不可用时使用 Canvas 2D，已取得 WebGL 后的失败沿用图片回退。为避免上下文类型冲突，2D 和 WebGL 实验使用独立的空画布。纹理、顶点缓冲及程序在会话内复用，停止时释放；保留新帧去重、回调停滞补绘、VideoFrame 释放和会话代次隔离。`wheelplayStats.presentation.renderBackend` 及 receiver 同名字段在采样后区分 webgl / 2d / native。

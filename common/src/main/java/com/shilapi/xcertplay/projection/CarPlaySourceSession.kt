@@ -38,10 +38,8 @@ internal class CarPlaySourceSession(private val status: () -> String?) : Project
     override val mediaOutput get() = sink
     override fun touch(contacts: List<ProjectionContact>): Boolean {
         if (contacts.any { it.id !in 0..1 }) return false
-        // The CarPlay HID device has fixed slots, even when the first finger is released.
-        return controller?.sendTouch((0..1).map { id ->
-            contacts.find { it.id == id } ?: ProjectionContact(id, 0.0, 0.0, false)
-        }) ?: false
+        // The controller preserves pointer identity and releases missing fingers at their last position.
+        return controller?.sendTouch(contacts) ?: false
     }
     override fun cancelInput(reason: ProjectionCancelReason) = touch(emptyList())
     override fun setNightMode(night: Boolean) =

@@ -81,7 +81,12 @@ class NativeVideoDecoderTest {
         val latch = java.util.concurrent.CountDownLatch(3)
         val frames = java.util.concurrent.LinkedBlockingQueue<ByteArray>()
         val errors = java.util.concurrent.LinkedBlockingQueue<Throwable>()
-        val screen = com.shilapi.xcertplay.airplay.ScreenStream(key, {}, { NativeVideoDecoder(it, platform = true) })
+        val loopback = java.net.InetAddress.getByName("127.0.0.1")
+        val screen = com.shilapi.xcertplay.airplay.ScreenStream(
+            key = key,
+            expectedPeer = loopback,
+            decoderFactory = { NativeVideoDecoder(it, platform = true) },
+        )
         val port = screen.listen(object : com.shilapi.xcertplay.airplay.ScreenStream.Listener {
             override fun onFrame(frame: com.shilapi.xcertplay.media.CompressedVideoFrame, pts: Long, receivedAtNs: Long, decryptNs: Long) {
                 frames.offer(frame.toByteArray()); latch.countDown()
@@ -89,7 +94,7 @@ class NativeVideoDecoderTest {
             override fun onClosed(cause: Throwable?) { if (cause != null) errors.offer(cause) }
         })
         try {
-            java.net.Socket("127.0.0.1", port).use { socket ->
+            java.net.Socket(loopback, port).use { socket ->
                 val expected = listOf(plaintext(8192), plaintext(128), plaintext(16384))
                 expected.forEachIndexed { index, plain ->
                     val length = plain.size + 16
