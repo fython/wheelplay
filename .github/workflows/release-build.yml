@@ -4,20 +4,41 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Existing v* tag to build and publish when running from main (optional)'
+        type: string
+        required: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
   cancel-in-progress: false
 
 jobs:
   build:
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+    if: "!github.event.deleted && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))"
     runs-on: ubuntu-24.04
+    outputs:
+      fallback-ca: ${{ steps.bundled-ca.outputs.fallback }}
+      host-artifact: ${{ steps.host.outputs.artifact-id }}
+      carlink-artifact: ${{ steps.carlink.outputs.artifact-id }}
     steps:
+      - name: Validate manual release tag
+        if: inputs.release_tag != ''
+        env:
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          if [[ "$GITHUB_REF" != refs/heads/main || "$TAG" != v* ]] || ! git check-ref-format "refs/tags/$TAG"; then
+            echo "::error::Run from main and specify an existing v* tag."
+            exit 1
+          fi
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-java@v4
         with:
           java-version: '25'
@@ -32,7 +53,15 @@ jobs:
           bash .github/scripts/install-android-packages.sh \
             'platforms;android-36' 'build-tools;36.0.0' \
             'ndk;28.2.13676358' 'cmake;3.22.1'
-      - name: Build signed Release APK and App Bundle
+      - name: Provision pinned CarLink runtime
+        run: |
+          sdk_apk="$RUNNER_TEMP/carlink-reference.apk"
+          sdk_url="$(python3 -c 'import json; print(json.load(open("projection-plugin-carlink/sdk-lock.json"))["apkUrl"])')"
+          curl --fail --location --retry 3 --proto '=https' --proto-redir '=https' "$sdk_url" --output "$sdk_apk"
+          python3 scripts/carlink_sdk.py prepare --apk "$sdk_apk" --sdk .local/carlink-sdk
+          python3 scripts/carlink_sdk.py verify --sdk .local/carlink-sdk
+
+      - name: Build signed WheelPlay APK, App Bundle and CarLink APK
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -44,9 +73,14 @@ jobs:
           # when the secret is absent. Override with 0 / none to disable.
           WHEELPLAY_HTTPS_CA_REQUIRED: ${{ vars.WHEELPLAY_HTTPS_CA_REQUIRED || '1' }}
           WHEELPLAY_HTTPS_CA_FALLBACK: ${{ vars.WHEELPLAY_HTTPS_CA_FALLBACK || 'mitmproxy' }}
-        run: bash .github/scripts/build-signed-android.sh :mobile:assembleRelease :mobile:bundleRelease
-      - name: Verify APK signature
-        run: '"$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose mobile/build/outputs/apk/release/mobile-release.apk'
+        run: |
+          bash .github/scripts/build-signed-android.sh \
+            :mobile:assembleRelease :mobile:bundleRelease :projection-plugin-carlink:assembleRelease
+      - name: Verify signed release APKs
+        run: |
+          apksigner="$ANDROID_HOME/build-tools/36.0.0/apksigner"
+          "$apksigner" verify --verbose mobile/build/outputs/apk/release/mobile-release.apk
+          "$apksigner" verify --verbose projection-plugin-carlink/build/outputs/apk/release/projection-plugin-carlink-release.apk
       - name: Verify bundled HTTPS signing CA
         id: bundled-ca
         env:
@@ -66,9 +100,65 @@ jobs:
             echo 'Bundled HTTPS signing CA is present in the Release APK.'
           fi
       - uses: actions/upload-artifact@v4
+        id: host
         with:
           name: wheelplay-release${{ steps.bundled-ca.outputs.fallback == 'true' && '-MITMPROXY-CA' || '' }}
           path: |
             mobile/build/outputs/apk/release/mobile-release.apk
             mobile/build/outputs/bundle/release/mobile-release.aab
           if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        id: carlink
+        with:
+          name: wheelplay-carlink-release
+          path: |
+            projection-plugin-carlink/build/outputs/apk/release/projection-plugin-carlink-release.apk
+            projection-plugin-carlink/build/outputs/apk/release/carlink-build.json
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.build.outputs.host-artifact }},${{ needs.build.outputs.carlink-artifact }}
+          merge-multiple: true
+      - name: Attach signed APKs to the tagged release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.release_tag || github.ref_name }}
+          FALLBACK_CA: ${{ needs.build.outputs.fallback-ca }}
+        run: |
+          version=${TAG//[^a-zA-Z0-9._-]/-}
+          host="wheelplay-release-$version.apk"
+          carlink="wheelplay-carlink-release-$version.apk"
+          mv apk/release/mobile-release.apk "$host"
+          mv projection-plugin-carlink-release.apk "$carlink"
+
+          # Keep the CA provenance visible on the download link as well as the CI artifact.
+          if [[ "$FALLBACK_CA" == true ]]; then
+            host="$host#$host (MITMPROXY-CA)"
+          fi
+          draft_marker="<!-- wheelplay release-build.yml: $TAG -->"
+          if release=$(gh release view "$TAG" --json assets,isDraft,body); then
+            assets=$(jq -r '.assets[] | select(.state == "uploaded") | .name' <<< "$release")
+            for apk in "$host" "$carlink"; do
+              if ! grep -Fxq -- "${apk%%#*}" <<< "$assets"; then
+                gh release upload "$TAG" "$apk" --clobber
+              fi
+            done
+            if jq -e '.isDraft' <<< "$release" > /dev/null; then
+              if ! jq -e --arg marker "$draft_marker" '(.body // "") | startswith($marker)' <<< "$release" > /dev/null; then
+                echo "::error::Both APKs are attached. Review and publish the existing draft for $TAG manually."
+                exit 1
+              fi
+              gh release edit "$TAG" --draft=false
+            fi
+          else
+            gh release create "$TAG" "$host" "$carlink" --verify-tag --generate-notes --notes "$draft_marker"
+          fi

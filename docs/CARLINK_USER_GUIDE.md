@@ -11,6 +11,7 @@ Wi-Fi Direct、手动热点、USB，以及 Surface / WebRTC 输出均已通过�
 - 接收手机：Android 9 或更高版本，arm64，4 KB 内存页。当前 SDK 不支持 16 KB 内存页。
 - 同时更新 WheelPlay 和 CarLink 插件。插件使用 API v2；WebRTC 需要宿主支持压缩视频扩展 v1。
   不兼容时请更新同一发布批次的宿主，或先使用 Surface 输出。
+- 正式版从同一个 [GitHub Release](https://github.com/fython/wheelplay/releases) 下载并安装宿主 `wheelplay-release-*.apk` 和插件 `wheelplay-carlink-release-*.apk`。
 - GitHub Actions 的 **Android Debug Build** 中，`wheelplay-debug-apk` 是宿主，
   `wheelplay-carlink-debug-apk` 是插件。插件 artifact 同时包含 APK 和 `carlink-build.json`。
   CI Debug 用于测试；正式发布使用 Release 签名产物。

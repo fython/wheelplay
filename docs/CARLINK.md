@@ -71,9 +71,9 @@ signature, hashes, resource ID, duplicate classes and missing external SDK types
 an intermediate APK from `build/intermediates/`. Release output is
 `projection-plugin-carlink/build/outputs/apk/release/projection-plugin-carlink-release.apk`.
 The `carlink-apk` job in `.github/workflows/debug-build.yml` uploads Debug APK and dependency
-manifest as `wheelplay-carlink-debug-apk`, alongside the mobile workflow artifacts. It needs
-no signing secrets. A Release build uses the configured release key and must be distributed
-through the chosen release channel; this CI job does not publish GitHub Releases.
+manifest as `wheelplay-carlink-debug-apk`, alongside the mobile workflow artifacts.
+Android Release Build signs the host and plugin with the release key and publishes
+`wheelplay-release-<tag>.apk` and `wheelplay-carlink-release-<tag>.apk` to the same GitHub Release.
 
 ## Setup and behavior
 

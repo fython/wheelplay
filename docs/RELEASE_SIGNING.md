@@ -57,7 +57,7 @@ Set-Clipboard ([Convert]::ToBase64String([IO.File]::ReadAllBytes('.local/https-c
 ```
 
 未设置时 Release 仍会内置 CA：默认 `WHEELPLAY_HTTPS_CA_FALLBACK=mitmproxy`，从固定 commit 读取
-mitmproxy 公开源码中的组合 PEM，并给 artifact 加 `-MITMPROXY-CA` 后缀。该私钥是公开材料，
+mitmproxy 公开源码中的组合 PEM，并给宿主 artifact 加 `-MITMPROXY-CA` 后缀。Release 页的宿主 APK 下载链接也会标注 `MITMPROXY-CA`。该私钥是公开材料，
 签出的证书可以被复现，只适合冒烟；正式分发请配置上面的 Secret 或按
 [HTTPS_SIGNING_CA.md](HTTPS_SIGNING_CA.md) 生成自有 CA。把 `WHEELPLAY_HTTPS_CA_FALLBACK`
 设为其他值可关闭回退，此时 `WHEELPLAY_HTTPS_CA_REQUIRED`（默认 `1`）决定缺 Secret 时失败还是跳过。
@@ -75,9 +75,14 @@ Android Debug Build 工作流使用同一组默认值，因此 PR 与分支构�
   APK 分别上传为 `wheelplay-carlink-debug-apk`、`wheelplay-carlife-debug-apk`，
   CarLife 检查报告上传为 `wheelplay-carlife-reports`。
   PR/其他分支仍使用各任务生成的默认 Debug 密钥，不保证跨独立 runner 的证书一致。
-- **Android Release Build**：在 Actions 页面选择此工作流，选择 `main`，点击
-  **Run workflow**；也可推送 `v*` 标签触发。产物位于 `wheelplay-release` artifact，
-  包含签名 APK 和 AAB，不会自动创建 GitHub Release 或发布到应用商店。
+- **Android Release Build** 使用同一把发行密钥构建 WheelPlay 和 CarLink，并对两个最终 APK 验签。
+  推送 `v*` 标签会把 `wheelplay-release-<tag>.apk` 和 `wheelplay-carlink-release-<tag>.apk`
+  附加到该标签的 GitHub Release。首次发布会创建 Release 并生成说明，已有 Release 只补缺失的 APK。
+  首次发布中断后，重跑会补齐附件并公开带有该工作流标记的草稿。手动创建或旧流程留下的无标记草稿会在附件齐备后提示维护者手动发布，此时任务以失败结束。
+  WheelPlay 的 AAB 保存在宿主的 Actions artifact 中，插件的依赖清单保存在 `wheelplay-carlink-release` artifact 中。
+- 补发已有版本时，在 Actions → **Android Release Build** → **Run workflow** 中选择 `main`，
+  将 `release_tag` 填为目标标签（例如 `v1.1.0`）。工作流检出该标签的源码构建两个 APK。
+  在 `main` 上留空此字段时，仅构建并保存 Actions artifacts。
 
 Debug 应用 ID 仍为 `moe.feng.wheelplay.debug`，Release 为 `moe.feng.wheelplay`。
 旧 Debug 包若使用默认 Debug 密钥签名，切换后需要先卸载旧包才能安装，卸载会删除应用数据。
