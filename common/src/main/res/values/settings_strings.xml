@@ -92,7 +92,7 @@
     <string name="settings_restore_fullscreen">Restore full screen</string>
     <string name="settings_oem">OEM name &amp; icon</string>
     <string name="settings_icon_preview">CarPlay vehicle icon preview</string>
-    <string name="settings_default_icon">Default NIO icon</string>
+    <string name="settings_default_icon">Default WheelPlay icon</string>
     <string name="settings_custom_icon">Custom icon</string>
     <string name="settings_oem_description">Shown as the return-to-vehicle entry in CarPlay. The name and icon can be changed independently. Applies on the next iPhone connection.</string>
     <string name="settings_oem_name">Vehicle manufacturer name</string>
@@ -101,7 +101,7 @@
     <string name="settings_reset_icon">Restore default icon</string>
     <string name="settings_reset_branding">Restore default name &amp; icon</string>
     <string name="settings_reset_branding_title">Restore default vehicle settings?</string>
-    <string name="settings_reset_branding_message">The name and icon will revert to NIO. Applies on the next iPhone connection.</string>
+    <string name="settings_reset_branding_message">The name and icon will revert to WheelPlay. Applies on the next iPhone connection.</string>
     <string name="settings_location">Location</string>
     <string name="settings_location_source">Location source</string>
     <string name="settings_location_iphone">iPhone location (default)</string>
@@ -183,7 +183,7 @@
     <string name="settings_export">Save diagnostic report</string>
     <string name="settings_export_downloads">Saved to Downloads/WheelPlay. Reports are not uploaded automatically and exclude protocol payloads and credentials.</string>
     <string name="settings_export_document">Choose where to save the report. Reports are not uploaded automatically and exclude protocol payloads and credentials.</string>
-    <string name="settings_licenses">Based on xcertplay / DiPlay, retaining GPL-3.0 and AGPL-3.0 license notices. CarPlay and NIO icons belong to their respective owners.</string>
+    <string name="settings_licenses">Based on xcertplay / DiPlay, retaining GPL-3.0 and AGPL-3.0 license notices. The CarPlay icon belongs to its owner.</string>
     <string name="settings_open_source">Open source</string>
     <string name="settings_source">Source code</string>
     <string name="settings_fingerprint_disabled">HTTPS is disabled. Enable it in Web service settings.</string>
