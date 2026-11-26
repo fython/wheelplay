@@ -220,7 +220,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private var advancedAudioChannelMappingSupported = false
     private var advancedAudioChannelMapping = false
     private var model = AirPlayPersistence.DEFAULT_MODEL
-    private var simulatedManufacturerName = AirPlayPersistence.DEFAULT_SIMULATED_MANUFACTURER_NAME
+    private var simulatedManufacturerName = ""
     private var fps = AirPlayDisplaySettings.DEFAULT_FPS
     private var streamTechnology = com.shilapi.xcertplay.web.StreamTechnology.WEBRTC
     private var widthPhysicalMm = AirPlayDisplaySettings.DEFAULT_WIDTH_PHYSICAL_MM
@@ -764,7 +764,7 @@ class CarPlayHostActivity : ComponentActivity() {
         )
 
     private fun normalizedManufacturer(): String =
-        simulatedManufacturerName.trim().ifBlank { AirPlayPersistence.DEFAULT_SIMULATED_MANUFACTURER_NAME }
+        simulatedManufacturerName.trim().ifBlank { getString(R.string.app_name) }
 
     private fun normalizedModel(): String =
         model.trim().ifBlank { AirPlayPersistence.DEFAULT_MODEL }

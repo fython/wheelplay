@@ -413,7 +413,7 @@ internal class SettingsViewModel(
         if (includeName)
             AirPlayPersistence.saveSimulatedManufacturerName(
                 app,
-                AirPlayPersistence.DEFAULT_SIMULATED_MANUFACTURER_NAME,
+                app.getString(R.string.app_name),
             )
         reload()
     }

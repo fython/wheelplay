@@ -30,8 +30,10 @@ for (const [density, size] of Object.entries({ mdpi: 48, hdpi: 72, xhdpi: 96, xx
       .toFile(fileURLToPath(new URL(`ic_launcher${round ? '_round' : ''}.webp`, directory)));
   }
 }
+await sharp(Buffer.from(svg(192))).png()
+  .toFile(fileURLToPath(new URL('common/src/main/res/raw/ic_car_home.png', root)));
 await sharp(Buffer.from(svg(512))).png()
   .toFile(fileURLToPath(new URL('shared/src/main/ic_launcher-playstore.png', root)));
 await mkdir(new URL('docs/assets/', root), { recursive: true });
 await writeFile(new URL('docs/assets/app-icon.svg', root), svg(512));
-console.log('Generated launcher bitmaps, Play Store icon, and SVG export.');
+console.log('Generated launcher bitmaps, CarPlay icon, Play Store icon, and SVG export.');

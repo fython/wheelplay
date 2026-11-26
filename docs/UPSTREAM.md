@@ -17,7 +17,7 @@ Android Gradle 工程已提升至项目根目录：`mobile/`、`common/`、`shar
 
 ## CarPlay 返回入口图标
 
-默认名称及图标改为 `NIO`，旧安装保存的默认 `BYD` 名称在读取时迁移为 `NIO`。相关商标及图标属于其原权利人，不纳入本项目代码许可证授权范围。此变更仅影响 CarPlay 返回入口的名称和默认图标，不集成蔚来 App 功能，也不改变点击行为。
+CarPlay 返回入口默认使用 WheelPlay 的应用名称和图标。入口 PNG 和 Android 桌面图标由同一份矢量图生成。用户可以在设置中自定义名称和图标，或恢复默认值。
 
 ## Material 界面组件
 
@@ -58,7 +58,7 @@ Material Components for Android 1.13.0（Apache-2.0），使用官方 Material 3
 | 媒体通知下一首 · `ic_media_skip_next` | [skip_next](https://github.com/google/material-design-icons/blob/master/src/av/skip_next/materialicons/24px.svg) |
 | 连接通知停止服务 · `ic_media_stop` | [stop](https://github.com/google/material-design-icons/blob/master/src/av/stop/materialicons/24px.svg) |
 
-启动使用播放圆形图标，车机访问及服务通知使用投屏图标。通知采用白色遮罩；页面图标跟随 Material 主题、卡片颜色和导航选中状态。方向箭头保留展开旋转动画，设置选择器支持 RTL 镜像。NIO 返回入口与原有应用品牌位图不属于自绘功能图标；二维码矩阵、裁剪网格及安全区域辅助线是功能内容，不作图标替换。
+启动使用播放圆形图标，车机访问及服务通知使用投屏图标。通知采用白色遮罩；页面图标跟随 Material 主题、卡片颜色和导航选中状态。方向箭头保留展开旋转动画，设置选择器支持 RTL 镜像。应用品牌位图不属于自绘功能图标；二维码矩阵、裁剪网格及安全区域辅助线是功能内容，不作图标替换。
 
 ## VPN Hotspot Root 路由适配
 

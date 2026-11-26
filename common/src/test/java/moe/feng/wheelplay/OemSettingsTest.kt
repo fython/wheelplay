@@ -53,11 +53,27 @@ class OemSettingsTest : ComposeSettingsTest() {
             .edit()
             .putString("oem_label", "BYD")
             .commit()
-        assertEquals("NIO", AirPlayPersistence.loadSimulatedManufacturerName(context))
+        assertEquals("WheelPlay", AirPlayPersistence.loadSimulatedManufacturerName(context))
         AirPlayPersistence.saveSimulatedManufacturerName(context, " BYD ")
         repeat(2) { assertEquals("BYD", AirPlayPersistence.loadSimulatedManufacturerName(context)) }
         AirPlayPersistence.saveSimulatedManufacturerName(context, "   ")
+        assertEquals("WheelPlay", AirPlayPersistence.loadSimulatedManufacturerName(context))
+    }
+
+    @Test
+    fun previousDefaultMigratesButNamesChosenAfterUpgradeSurviveReload() {
+        val prefs = context.getSharedPreferences("xcertplay_airplay", 0)
+        prefs.edit().putString("oem_label", "NIO").putBoolean("oem_label_migrated", true).commit()
+        assertEquals("WheelPlay", AirPlayPersistence.loadSimulatedManufacturerName(context))
+        AirPlayPersistence.saveSimulatedManufacturerName(context, "NIO")
         assertEquals("NIO", AirPlayPersistence.loadSimulatedManufacturerName(context))
+    }
+
+    @Test
+    fun bydChosenAfterPreviousMigrationSurvivesUpgrade() {
+        val prefs = context.getSharedPreferences("xcertplay_airplay", 0)
+        prefs.edit().putString("oem_label", "BYD").putBoolean("oem_label_migrated", true).commit()
+        assertEquals("BYD", AirPlayPersistence.loadSimulatedManufacturerName(context))
     }
 
     @Test
@@ -79,6 +95,31 @@ class OemSettingsTest : ComposeSettingsTest() {
         val original = png()
         AirPlayPersistence.saveSimulatedManufacturerName(context, "比亚迪")
         AirPlayPersistence.saveCustomAirPlayIcon(context, original)
+        val (config, runtime) = phoneConfiguration()
+        assertEquals("比亚迪", runtime.identification.manufacturer)
+        val info = AirPlayInfoPlist.build(config)
+        assertEquals("比亚迪", info["oemIconLabel"])
+        val icon = (info["oemIcons"] as List<*>).single() as Map<*, *>
+        assertEquals(64, icon["widthPixels"])
+        assertEquals(64, icon["heightPixels"])
+        assertArrayEquals(original, icon["imageData"] as ByteArray)
+    }
+
+    @Test
+    fun phoneConfigurationAdvertisesWheelPlayByDefault() {
+        val (config, runtime) = phoneConfiguration()
+        val info = AirPlayInfoPlist.build(config)
+        assertEquals("WheelPlay", runtime.identification.manufacturer)
+        assertEquals("WheelPlay", info["oemIconLabel"])
+        val icon = (info["oemIcons"] as List<*>).single() as Map<*, *>
+        assertEquals(192, icon["widthPixels"])
+        assertEquals(192, icon["heightPixels"])
+        val expected = context.resources.openRawResource(com.shilapi.xcertplay.host.R.raw.ic_car_home)
+            .use { it.readBytes() }
+        assertArrayEquals(expected, icon["imageData"] as ByteArray)
+    }
+
+    private fun phoneConfiguration(): Pair<AirPlayConfig, CarPlayRuntimeConfig> {
         // Build the real phone configuration without starting Bluetooth/USB or a session.
         val host = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
         val type = CarPlayHostActivity::class.java
@@ -101,13 +142,7 @@ class OemSettingsTest : ComposeSettingsTest() {
         val runtime =
             type.getDeclaredMethod("createRuntimeConfig").apply { isAccessible = true }.invoke(host)
                 as CarPlayRuntimeConfig
-        assertEquals("比亚迪", runtime.identification.manufacturer)
-        val info = AirPlayInfoPlist.build(config)
-        assertEquals("比亚迪", info["oemIconLabel"])
-        val icon = (info["oemIcons"] as List<*>).single() as Map<*, *>
-        assertEquals(64, icon["widthPixels"])
-        assertEquals(64, icon["heightPixels"])
-        assertArrayEquals(original, icon["imageData"] as ByteArray)
+        return config to runtime
     }
 
     @Test
@@ -154,7 +189,7 @@ class OemSettingsTest : ComposeSettingsTest() {
             controller.pause().resume()
             compose.onNodeWithText("恢复默认名称与图标").performScrollTo().performClick()
             clickText("确认")
-            assertEquals("NIO", AirPlayPersistence.loadSimulatedManufacturerName(context))
+            assertEquals("WheelPlay", AirPlayPersistence.loadSimulatedManufacturerName(context))
             assertNull(AirPlayPersistence.loadCustomAirPlayIconFile(context))
         } finally {
             controller.pause().stop().destroy()

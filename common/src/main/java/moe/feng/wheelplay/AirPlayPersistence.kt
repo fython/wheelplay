@@ -11,6 +11,7 @@ import com.shilapi.xcertplay.airplay.AirPlayIdentity
 import com.shilapi.xcertplay.airplay.PairingStore
 import com.shilapi.xcertplay.airplay.SafeAreaCodec
 import com.shilapi.xcertplay.airplay.SafeAreaRect
+import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.orchestration.ManualHotspotBand
 import com.shilapi.xcertplay.orchestration.ManualHotspotSecurity
 import com.shilapi.xcertplay.orchestration.MfiTarget
@@ -52,7 +53,8 @@ object AirPlayPersistence {
     private const val KEY_MANUFACTURER = "manufacturer"
     private const val KEY_MODEL = "model"
     private const val KEY_OEM_LABEL = "oem_label"
-    private const val KEY_OEM_LABEL_MIGRATED = "oem_label_migrated"
+    private const val KEY_BYD_LABEL_MIGRATED = "oem_label_migrated"
+    private const val KEY_OEM_LABEL_MIGRATED = "oem_label_migrated_to_app"
     private const val KEY_FPS = "display_fps"
     private const val KEY_STREAM_TECHNOLOGY = "web_stream_technology"
     private const val KEY_RTC_RECOVERY = "web_rtc_recovery"
@@ -84,7 +86,6 @@ object AirPlayPersistence {
     private const val CUSTOM_ICON_FILE = "airplay-icon.png"
 
     const val DEFAULT_MODEL = "WheelPlay"
-    const val DEFAULT_SIMULATED_MANUFACTURER_NAME = "NIO"
     const val DEFAULT_MFI_I2C_PATH = "/dev/i2c-1"
 
     fun loadBrowserAudioPlayback(context: Context): Boolean =
@@ -402,22 +403,27 @@ object AirPlayPersistence {
     fun loadSimulatedManufacturerName(context: Context): String {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val stored = prefs.getString(KEY_OEM_LABEL, null)
-        // Upgrade the previous default once, while allowing users to choose BYD again later.
-        val legacyDefault = stored == "BYD" && !prefs.getBoolean(KEY_OEM_LABEL_MIGRATED, false)
-        // iOS hides the car icon without a label.
-        val name = (if (legacyDefault) DEFAULT_SIMULATED_MANUFACTURER_NAME else stored)?.trim()?.takeIf { it.isNotBlank() }
-            ?: prefs.getString(KEY_MANUFACTURER, null)
-                ?.takeIf { it.isNotBlank() && it != "WheelPlay" && it != "DiPlay" && it != "DiPlay Web" }
-            ?: DEFAULT_SIMULATED_MANUFACTURER_NAME
-        if (stored != name || !prefs.getBoolean(KEY_OEM_LABEL_MIGRATED, false)) {
-            prefs.edit().putString(KEY_OEM_LABEL, name).putBoolean(KEY_OEM_LABEL_MIGRATED, true).apply()
+        val appName = context.getString(R.string.app_name)
+        if (prefs.getBoolean(KEY_OEM_LABEL_MIGRATED, false)) return stored ?: appName
+
+        // Earlier versions persisted the default label alongside user-entered names.
+        val name = when (stored) {
+            "NIO" -> appName
+            "BYD" -> if (prefs.getBoolean(KEY_BYD_LABEL_MIGRATED, false)) stored else appName
+            else -> stored?.trim()?.takeIf { it.isNotEmpty() }
+                ?: prefs.getString(KEY_MANUFACTURER, null)
+                    ?.takeIf { it.isNotBlank() && it != "DiPlay" && it != "DiPlay Web" }
+                ?: appName
         }
+        saveSimulatedManufacturerName(context, name)
         return name
     }
 
     fun saveSimulatedManufacturerName(context: Context, name: String) {
+        val customName = name.trim().takeUnless { it.isEmpty() || it == context.getString(R.string.app_name) }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putString(KEY_OEM_LABEL, name.trim().ifBlank { DEFAULT_SIMULATED_MANUFACTURER_NAME })
+            .putString(KEY_OEM_LABEL, customName)
+            .remove(KEY_BYD_LABEL_MIGRATED)
             .putBoolean(KEY_OEM_LABEL_MIGRATED, true)
             .apply()
     }

@@ -92,7 +92,7 @@
     <string name="settings_restore_fullscreen">恢復全螢幕</string>
     <string name="settings_oem">OEM 車廠名稱與圖示</string>
     <string name="settings_icon_preview">CarPlay 車廠圖示預覽</string>
-    <string name="settings_default_icon">預設 NIO 圖示</string>
+    <string name="settings_default_icon">預設 WheelPlay 圖示</string>
     <string name="settings_custom_icon">自定義圖示</string>
     <string name="settings_oem_description">顯示在 CarPlay 應用程式列表的「返回車機」入口。名稱與圖示可分別修改，下次連線 iPhone 生效。</string>
     <string name="settings_oem_name">車廠名稱</string>
@@ -101,7 +101,7 @@
     <string name="settings_reset_icon">恢復預設圖示</string>
     <string name="settings_reset_branding">恢復預設名稱與圖示</string>
     <string name="settings_reset_branding_title">恢復預設車廠設定？</string>
-    <string name="settings_reset_branding_message">車廠名稱和圖示將恢復為 NIO。下次連線 iPhone 生效。</string>
+    <string name="settings_reset_branding_message">車廠名稱和圖示將恢復為 WheelPlay。下次連線 iPhone 生效。</string>
     <string name="settings_location">定位</string>
     <string name="settings_location_source">定位來源</string>
     <string name="settings_location_iphone">iPhone 自身定位（預設）</string>
@@ -183,7 +183,7 @@
     <string name="settings_export">儲存診斷報告</string>
     <string name="settings_export_downloads">報告儲存到 Downloads/WheelPlay。不會自動上傳，報告排除協議載荷和憑據。</string>
     <string name="settings_export_document">請選擇報告儲存位置。不會自動上傳，報告排除協議載荷和憑據。</string>
-    <string name="settings_licenses">基於 xcertplay / DiPlay，保留 GPL-3.0 與 AGPL-3.0 許可宣告。CarPlay 與 NIO 圖示屬於各自權利人。</string>
+    <string name="settings_licenses">基於 xcertplay / DiPlay，保留 GPL-3.0 與 AGPL-3.0 許可宣告。CarPlay 圖示屬於其權利人。</string>
     <string name="settings_open_source">開源</string>
     <string name="settings_source">原始碼地址</string>
     <string name="settings_fingerprint_disabled">HTTPS 已關閉，請在 Web 服務中開啟。</string>
